@@ -582,20 +582,13 @@ export default function LandingPage() {
             padding-bottom:34px;
           }
           /* الخلفية تصير منطقة "هيرو" أعلى الصفحة فقط.
-             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari.
-
-             ⚠️ الأهم: الصورة 7105×3518 أي نسبة 2:1 عريضة. مع background-size:cover
-             (الافتراضي بالقاعدة الأساسية) المتصفح يكبّرها لتغطي طول الصندوق فيقص
-             حوالي ثلثي عرضها على شاشة الجوال. الحل: 100% auto — العرض كامل بدون
-             أي قص جانبي، والطول يجي طبيعي (~50vw)، فتبان الصورة كلها. */
+             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari. */
           .lp-bg{
             position:absolute;
             inset:0 0 auto 0;
-            height:min(40vh,320px);
+            height:min(64vh,520px);
             background-attachment:scroll;
-            background-size:88% auto;   /* أصغر من عرض الشاشة */
-            background-position:center 14%;  /* مرفوعة للأعلى */
-            background-repeat:no-repeat;
+            background-position:center 16%;
           }
           /* تدرّج ينهي الخلفية بنعومة بدل قطع حاد */
           .lp-bg::before{
@@ -603,18 +596,10 @@ export default function LandingPage() {
             background:linear-gradient(180deg,transparent,#040914);
             pointer-events:none;
           }
-          /* الكروت تبدأ تحت نص الشاشة.
-             52vh = الموضع المطلوب، ناقص ~72px (حشوة الصفحة + طول صف الهيدر).
-             max() تحمينا لو الشاشة قصيرة جداً أو بالوضع الأفقي فما تصير سالبة. */
-          /* الكروت تحت نص الشاشة.
-             ⚠️ مقصود: حشوة علوية بـ vh صافية — بدون max() ولا calc().
-             لو أي دالة منهما ما تُقرأ على المتصفح، يُلغى الإعلان بالكامل
-             وترجع القيمة الأساسية (margin:0 auto) فتطلع الكروت فوق مباشرة.
-             padding خالية من الدوال ما يمكن تفشل. */
           .lp-grid{
             position:static;top:auto;
-            margin:0 auto;
-            padding:48vh 0 0;
+            margin-top:16px;
+            padding:0;
             gap:9px;
           }
 
