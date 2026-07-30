@@ -81,6 +81,10 @@ export default function BracketOnlyPage() {
 
   return (
     <div
+      // 🎨 بوضع الشاشة الخضراء نضيف كلاس ‎green-mode‎ — وهو يخلي الشجرة بخلفيات
+      // صلبة بدون شفافية ولا بلور ولا توهّج (التوهّج يخرب الـ Chroma Key)،
+      // ويكبّر الخط عشان الأسماء تبين واضحة وقت تكون الشجرة على عرض الشاشة.
+      className={mode === "green" ? "bracket-page green-mode" : "bracket-page"}
       style={{
         minHeight: "100vh",
         width: "100%",
@@ -91,22 +95,7 @@ export default function BracketOnlyPage() {
         padding: "20px",
       }}
     >
-      {/* 🎨 بوضع الشاشة الخضراء نعطي شرائح اللاعبين خلفية صلبة داكنة بدون أي
-          شفافية أو بلور — عشان: 1) تبين بوضوح فوق الأخضر و2) ما يقدر فلتر
-          الـ Chroma Key بـ OBS ياكل حوافها (الشفافية والبلور يخلّون لون
-          الشريحة يتلوّن بالأخضر من تحتها فتختفي أطرافها). */}
-      {mode === "green" && (
-        <style>{`
-          .bracket{--row-bg:#0b1830;--row-br:rgba(41,182,246,0.45)}
-          .player{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
-          .player.empty,.player.bye-slot{background:#091426 !important}
-          .player.winner{background:#2b2410 !important;border-color:rgba(255,215,0,0.55) !important}
-          .player.loser{background:#0b1830 !important}
-          .round.r-center{background:#0e1c38 !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
-        `}</style>
-      )}
-
-      {st.phase === "setup" ? (
+            {st.phase === "setup" ? (
         mode === "dark" && (
           <p style={{ opacity: 0.5, fontSize: "0.9rem", color: "var(--text)" }}>
             ⏳ ما فيه شجرة بطولة الآن — البطولة لسا ما بدأت
