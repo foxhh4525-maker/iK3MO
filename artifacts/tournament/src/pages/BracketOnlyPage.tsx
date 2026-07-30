@@ -1,179 +1,135 @@
-import type { CSSProperties } from "react";
-import { BYE, type Match, type TournamentState } from "@/lib/types";
-import { rTitle } from "@/lib/tournament";
+import { useEffect, useMemo, useState } from "react";
+import { defaultState, type TournamentState } from "@/lib/types";
+import { useSSE } from "@/lib/api";
+import BracketDisplay from "@/components/BracketDisplay";
 
-interface BracketDisplayProps {
-  st: TournamentState;
-  isAdmin: boolean;
-  pickedMatchId: string | null;
-  onWin?: (rIdx: number, mIdx: number, side: "a" | "b") => void;
-}
+// 🌳 صفحة "شجرة البطولة فقط" — بدون شات، بدون سايدبار، بدون أي أدوات تحكم:
+// بس شجرة البطولة، متمركزة بنص الصفحة.
+//
+// ثلاثة أوضاع للخلفية، وتقدر تبدّل بينها بزر جوّا الصفحة (تحت يمين/شمال) أو
+// من الرابط مباشرة:
+// 1) داكنة  → /bracket                  خلفية داكنة أنيقة (للمعاينة بمتصفح عادي).
+// 2) شفافة  → /bracket?transparent=1    شفافة بالكامل، لمصدر متصفح (Browser Source)
+//    بـ OBS/Streamlabs. المتصفح العادي ما يعرض شفافية حقيقية فيطلع أبيض — طبيعي.
+// 3) خضراء  → /bracket?green=1          شاشة خضراء (Chroma Key)، لو تلتقط النافذة
+//    عادي (Window Capture) وتحط فلتر Color Key بـ OBS.
+//
+// 🔒 زر التبديل شفافيته 6% وما يبين إلا لما تحرّك عليه الماوس، فما يظهر بالبث.
+// ولو تبغى تخفيه نهائياً حط ‎?clean=1‎ بالرابط. الاختيار يُحفظ بالمتصفح
+// (localStorage) فيرجع نفس الوضع لما تفتح الصفحة مرة ثانية.
+const CHROMA_GREEN = "#00ff00";
+const STORE_KEY = "ik3mo.bracketBg";
 
-// 🔤 أول حرف من الاسم — يظهر داخل مربع صغير جانب الاسم عشان الخانة تبين
-// أوضح وأسهل تتابعها بسرعة على البث.
-function initial(name: string): string {
-  const clean = name.trim().replace(/^[^\p{L}\p{N}]+/u, "");
-  return (clean[0] || name.trim()[0] || "?").toUpperCase();
-}
+type Mode = "dark" | "transparent" | "green";
 
-function PlayerRow({
-  name, match, side, rIdx, mIdx, cur, isAdmin, onWin, pickedMatchId,
-}: {
-  name: string | null;
-  match: Match;
-  side: "a" | "b";
-  rIdx: number;
-  mIdx: number;
-  cur: number;
-  isAdmin: boolean;
-  onWin?: (rIdx: number, mIdx: number, side: "a" | "b") => void;
-  pickedMatchId: string | null;
-}) {
-  const isBye = name === BYE;
-  const isEmpty = !name;
-  const isW = !!match.winner && match.winner === name && name !== BYE;
-  const isL = !!match.winner && match.winner !== name && !!name && name !== BYE;
-  // لو فيه ماتش محدد عشوائياً (إطار أصفر)، ما ينفع الضغط على فوز أي ماتش ثاني غيره
-  const isLockedByPick = !!pickedMatchId && pickedMatchId !== `${rIdx}-${mIdx}`;
-  const canClick =
-    isAdmin &&
-    rIdx === cur &&
-    !match.winner &&
-    name &&
-    name !== BYE &&
-    match.a &&
-    match.a !== BYE &&
-    match.b &&
-    match.b !== BYE &&
-    !isLockedByPick;
+const MODES: { id: Mode; label: string }[] = [
+  { id: "dark", label: "داكنة" },
+  { id: "green", label: "خضراء" },
+  { id: "transparent", label: "شفافة" },
+];
 
-  let cls = "player";
-  if (isW) cls += " winner";
-  else if (isL) cls += " loser";
-  if (isBye) cls += " bye-slot";
-  else if (isEmpty) cls += " empty";
-  else if (!canClick && !isW && !isL) cls += " locked";
+export default function BracketOnlyPage() {
+  const [st, setSt] = useState<TournamentState>(defaultState());
+  useSSE((data) => setSt(data));
+
+  // الرابط له الأولوية على المحفوظ: لو فتحت ‎?green=1‎ يشتغل أخضر مباشرة.
+  const urlMode = useMemo<Mode | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("green") === "1") return "green";
+      if (params.get("transparent") === "1") return "transparent";
+      if (params.get("dark") === "1") return "dark";
+    } catch { /* ignore */ }
+    return null;
+  }, []);
+
+  const hideSwitch = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("clean") === "1";
+    } catch { return false; }
+  }, []);
+
+  const [mode, setMode] = useState<Mode>(() => {
+    if (urlMode) return urlMode;
+    try {
+      const saved = localStorage.getItem(STORE_KEY);
+      if (saved === "dark" || saved === "green" || saved === "transparent") return saved;
+    } catch { /* ignore */ }
+    return "dark";
+  });
+
+  const pickMode = (next: Mode) => {
+    setMode(next);
+    try { localStorage.setItem(STORE_KEY, next); } catch { /* ignore */ }
+  };
+
+  const pageBackground =
+    mode === "transparent" ? "transparent" : mode === "green" ? CHROMA_GREEN : "#060d1a";
+
+  // نطبّق خلفية الصفحة (body/html) حسب الوضع، وهو بهذي الصفحة بس، ونرجّعها
+  // لما نطلع منها.
+  useEffect(() => {
+    const prevBody = document.body.style.background;
+    const prevHtml = document.documentElement.style.background;
+    document.body.style.background = pageBackground;
+    document.documentElement.style.background = pageBackground;
+    return () => {
+      document.body.style.background = prevBody;
+      document.documentElement.style.background = prevHtml;
+    };
+  }, [pageBackground]);
 
   return (
     <div
-      className={cls}
-      onClick={() => canClick && onWin?.(rIdx, mIdx, side)}
-      title={!isBye && !isEmpty ? name! : undefined}
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: pageBackground,
+        padding: "20px",
+      }}
     >
-      <span className="p-badge" aria-hidden="true">
-        {isBye ? "◇" : isEmpty ? "?" : initial(name!)}
-      </span>
-      <span className="p-name">{isBye ? "بايب" : isEmpty ? "في الانتظار" : name}</span>
-      {isW && <span className="p-mark">👑</span>}
-    </div>
-  );
-}
+      {/* 🎨 بوضع الشاشة الخضراء نعطي شرائح اللاعبين خلفية صلبة داكنة بدون أي
+          شفافية أو بلور — عشان: 1) تبين بوضوح فوق الأخضر و2) ما يقدر فلتر
+          الـ Chroma Key بـ OBS ياكل حوافها (الشفافية والبلور يخلّون لون
+          الشريحة يتلوّن بالأخضر من تحتها فتختفي أطرافها). */}
+      {mode === "green" && (
+        <style>{`
+          .bracket{--row-bg:#0b1830;--row-br:rgba(41,182,246,0.45)}
+          .player{backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
+          .player.empty,.player.bye-slot{background:#091426 !important}
+          .player.winner{background:#2b2410 !important;border-color:rgba(255,215,0,0.55) !important}
+          .player.loser{background:#0b1830 !important}
+          .round.r-center{background:#0e1c38 !important;backdrop-filter:none !important;-webkit-backdrop-filter:none !important}
+        `}</style>
+      )}
 
-export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: BracketDisplayProps) {
-  const { rounds, cur } = st;
-  const total = rounds.length;
-  const last = total - 1;
+      {st.phase === "setup" ? (
+        mode === "dark" && (
+          <p style={{ opacity: 0.5, fontSize: "0.9rem", color: "var(--text)" }}>
+            ⏳ ما فيه شجرة بطولة الآن — البطولة لسا ما بدأت
+          </p>
+        )
+      ) : (
+        <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
+      )}
 
-  if (!rounds.length) return null;
-
-  type Col = { side: "left" | "center" | "right"; ri: number; s: number; e: number };
-  const cols: Col[] = [];
-  for (let r = 0; r < last; r++) {
-    const h = Math.floor(rounds[r].length / 2);
-    cols.push({ side: "left", ri: r, s: 0, e: h });
-  }
-  cols.push({ side: "center", ri: last, s: 0, e: rounds[last].length });
-  for (let r = last - 1; r >= 0; r--) {
-    const h = Math.floor(rounds[r].length / 2);
-    cols.push({ side: "right", ri: r, s: h, e: rounds[r].length });
-  }
-
-  const lr = rounds[rounds.length - 1];
-  const champion = lr.length === 1 && lr[0].winner && lr[0].winner !== BYE ? lr[0].winner : null;
-
-  return (
-    <>
-      <div className="bracket-scroll">
-        <div className="bracket">
-          {cols.map((col, ci) => {
-            const slice = rounds[col.ri].slice(col.s, col.e);
-            // 📐 مفتاح المحاذاة: المسافة بين مباريات كل جولة تتضاعف مع كل دور
-            // (‎2^ri‎)، فيصير مركز كل مباراة بالضبط بمنتصف المباراتين اللي قبلها
-            // — وهذا اللي يخلي خطوط الربط تطلع شجرة مستقيمة مضبوطة.
-            const matchesStyle = { "--k": 2 ** col.ri } as CSSProperties;
-
-            return (
-              <div key={ci} className={`round r-${col.side}`}>
-                <div className="round-title">
-                  {col.side === "center" ? "🏆 النهائي" : rTitle(col.ri, total)}
-                </div>
-                <div className="matches" style={matchesStyle}>
-                  {slice.map((match, mi) => {
-                    const m = col.s + mi;
-                    const ready =
-                      col.ri === cur &&
-                      !match.winner &&
-                      match.a && match.a !== BYE &&
-                      match.b && match.b !== BYE;
-                    const isPicked = pickedMatchId === `${col.ri}-${m}`;
-                    let cls = "match";
-                    if (ready) cls += " ready";
-                    if (match.winner) cls += " done";
-                    if (match.isBye) cls += " bye-match";
-                    if (col.side === "center") cls += " final-match";
-                    if (isPicked) cls += " picked-match";
-                    // خطوط الربط: كل مباراة (غير النهائي) تطلع منها وصلة تجاه
-                    // الدور اللي بعده. أعلى مباراة بكل زوج هي اللي ترسم الخط
-                    // العمودي اللي يجمع الزوج مع بعض.
-                    if (col.side !== "center") {
-                      cls += " has-conn";
-                      if (slice.length === 1) cls += " solo";
-                      else if (m % 2 === 0) cls += " pair-top";
-                    }
-
-                    return (
-                      <div key={m} className={cls} data-r={col.ri} data-m={m}>
-                        <PlayerRow
-                          name={match.a}
-                          match={match}
-                          side="a"
-                          rIdx={col.ri}
-                          mIdx={m}
-                          cur={cur}
-                          isAdmin={isAdmin}
-                          onWin={onWin}
-                          pickedMatchId={pickedMatchId}
-                        />
-                        <div className="vs-line" aria-hidden="true"><span>VS</span></div>
-                        <PlayerRow
-                          name={match.b}
-                          match={match}
-                          side="b"
-                          rIdx={col.ri}
-                          mIdx={m}
-                          cur={cur}
-                          isAdmin={isAdmin}
-                          onWin={onWin}
-                          pickedMatchId={pickedMatchId}
-                        />
-                        {col.side !== "center" && <span className="conn" aria-hidden="true" />}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {champion && (
-        <div className="champion">
-          <h2>🎉 بطل البطولة 🎉</h2>
-          <div className="champ-name">{champion}</div>
-          <div className="conf">✨ 🏆 ✨</div>
+      {!hideSwitch && (
+        <div className="bg-switch" title="وضع الخلفية — يظهر لما تحرّك عليه الماوس فقط">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={mode === m.id}
+              onClick={() => pickMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
       )}
-    </>
+    </div>
   );
 }
