@@ -633,7 +633,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
 /* ── 👑 البطل داخل عمود النهائي ── */
 .champ-slot{
-  margin-top:14px;padding-top:14px;
+  margin-top:30px;padding-top:22px;
   border-top:1px dashed rgba(255,215,0,0.45);
   display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;
 }
@@ -653,15 +653,16 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .champ-winner{
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   font-size:1.5rem;font-weight:900;letter-spacing:-0.3px;line-height:1.35;
-  background:linear-gradient(90deg,#ffd700,#fff6b0,#29b6f6,#fff6b0,#ffd700);
-  background-size:300% 100%;
+  /* كل الألوان ما عدا الأصفر والأخضر — عشان تشتغل بأمان مع الكروما كي */
+  background:linear-gradient(90deg,#ffffff,#00e5ff,#2979ff,#7c4dff,#ff2d8a,#ff5252,#00e5ff,#ffffff);
+  background-size:400% 100%;
   -webkit-background-clip:text;background-clip:text;
   -webkit-text-fill-color:transparent;color:transparent;
   animation:champShine 3.2s linear infinite;
 }
 @keyframes champShine{
   0%{background-position:0% 50%}
-  100%{background-position:300% 50%}
+  100%{background-position:400% 50%}
 }
 
 /* ── 🟢 وضع الشاشة الخضراء (Chroma Key) ──
@@ -689,15 +690,18 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 /* صفر توهّج وصفر حركة */
 .green-mode .match,
 .green-mode .player,
-.green-mode .match.done > .conn,
-.green-mode .champ-crown,
-.green-mode .champ-winner{animation:none !important;box-shadow:none !important;filter:none !important}
+.green-mode .match.done > .conn{animation:none !important;box-shadow:none !important;filter:none !important}
+/* 👑 البطل يضل متحرّك بالجرين سكرين — حركة تدرّج ألوان فقط بدون أي توهّج،
+   فما تأثر على الكروما كي. شلنا بس الهالة المضيئة من حول التاج. */
+.green-mode .champ-crown{filter:none}
+.green-mode .champ-slot{border-top-color:rgba(41,182,246,0.5)}
+.green-mode .champ-label{color:#7fd4ff}
 .green-mode .match.ready{border-color:#29b6f6 !important;background:#0c2136 !important}
 .green-mode .match.picked-match{
   border-color:#ff2d2d !important;background:#2a1113 !important;
   box-shadow:0 0 0 3px #ff2d2d !important;
 }
-.green-mode .champ-winner{font-size:1.75rem}
+.green-mode .champ-winner{font-size:1.85rem}
 
 /* ── أزرار وضع الخلفية بصفحة /bracket ── */
 /* شبه مخفية (شفافية 6%) عشان ما تبين بالبث، وتظهر كامل لما تحرّك عليها الماوس */
