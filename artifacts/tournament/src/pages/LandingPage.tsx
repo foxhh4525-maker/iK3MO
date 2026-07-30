@@ -666,11 +666,26 @@ export default function LandingPage() {
            الخلل الأصلي: .lp-grid كان position:absolute عند top:64%. العناصر
            المطلقة ما تضيف أي طول للصفحة، فالكروت كانت تطلع تحت حدود الشاشة
            بدون إمكانية تمرير — تنقص كلياً على الجوال. هنا نرجّعه لسير الصفحة
-           الطبيعي فيصير كل شي مرتب وقابل للتمرير. */
+           الطبيعي فيصير كل شي مرتب وقابل للتمرير.
+
+           ✅ إصلاح ارتفاع الكروت: قبل، موضع زر البطولة (وبالتالي الكروت تحته)
+           كان برقم سحري margin-top:clamp(260px,52vh,430px) ما له أي علاقة
+           بارتفاع صورة الخلفية min(48vh,400px). الرقمين مستقلين، فبمقاسات
+           معيّنة (شاشات طويلة أو هيدر ينكسر سطرين) الزر يطلع فوق الصورة
+           والكروت ترتفع معه. الحين كل شي مربوط بمتغيّرات CSS، والزر ينزل
+           بالضبط تحت نهاية الصورة على أي مقاس. */
         @media (max-width: 640px){
           .lp-page{
+            /* 🎛️ مصدر واحد للحقيقة — كل الحسابات تحت تتبع هذي القيم */
+            --pad-top:14px;                    /* الحشوة العلوية للصفحة */
+            --nav-h:40px;                      /* ارتفاع الهيدر (مثبّت تحت) */
+            --hero-top:clamp(56px,8.5vh,80px); /* وين تبدأ صورة الخلفية */
+            --hero-h:min(48vh,400px);          /* ارتفاع صورة الخلفية */
+            --hero-gap:24px;                   /* 👈 المسافة بين نهاية الصورة وزر البطولة */
+
             min-height:100vh;min-height:100dvh;
             background:#040914;
+            padding-top:var(--pad-top);
             padding-bottom:34px;
           }
           /* الخلفية تصير منطقة "هيرو" أعلى الصفحة فقط.
@@ -680,8 +695,8 @@ export default function LandingPage() {
           .lp-bg{
             position:absolute;
             inset:0 0 auto 0;
-            top:clamp(56px,8.5vh,80px);
-            height:min(48vh,400px);
+            top:var(--hero-top);
+            height:var(--hero-h);
             background-attachment:scroll;
             background-position:center 20%;
           }
@@ -695,19 +710,29 @@ export default function LandingPage() {
             pointer-events:none;
           }
 
-          /* الهيدر: تسجيل الدخول يسار، الأيقونات يمين — بصف واحد ثابت */
-          .lp-nav{margin-bottom:0;gap:8px}
+          /* الهيدر: تسجيل الدخول يسار، الأيقونات يمين — بصف واحد ثابت.
+             min-height + nowrap ضروريين: بدونهم لو انكسر سطر يتغيّر ارتفاع
+             الهيدر ويختل الحساب اللي تحت. */
+          .lp-nav{
+            margin-bottom:0;gap:8px;
+            min-height:var(--nav-h);flex-wrap:nowrap;
+          }
           .lp-nav-right{gap:7px;row-gap:7px;flex-wrap:nowrap}
           .lp-nav-sep{display:none}
           .lp-nav-icon{width:34px;height:34px}
           .lp-nav-icon svg{width:18px;height:18px}
 
-          /* زر البطولة ينزل من الهيدر ويستقر فوق الكروت مباشرة */
+          /* زر البطولة ينزل من الهيدر ويستقر تحت الصورة مباشرة.
+             الطرح في آخر سطرين ضروري: --hero-top محسوب من أعلى .lp-page
+             بينما margin-top محسوب من نهاية الهيدر، فنطرح اللي فوقه. */
           .lp-watch-desktop{display:none}
           .lp-watch-row{
             display:flex;justify-content:center;
             position:relative;z-index:3;
-            margin-top:clamp(260px,52vh,430px);
+            margin-top:calc(
+              var(--hero-top) + var(--hero-h) + var(--hero-gap)
+              - var(--pad-top) - var(--nav-h)
+            );
           }
           .lp-watch-btn{padding:10px 20px;font-size:.82rem;gap:8px}
 
