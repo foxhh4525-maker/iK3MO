@@ -8,21 +8,13 @@ import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
   p2, buildBracket, doWin, setSize as stSetSize, getOpenMatches, rTitle,
 } from "@/lib/tournament";
-import { playTick, playLock, playWin, playChampion, playStart, isSoundEnabled, toggleSound } from "@/lib/sounds";
+import { playMatchStart, playWin, playChampion, playStart, isSoundEnabled, toggleSound } from "@/lib/sounds";
 import BracketDisplay from "@/components/BracketDisplay";
 
 const CHANNEL_META: Record<string, { chatroomId: number }> = {
   ik3mo: { chatroomId: 5675989 },
   honkfm: { chatroomId: 20137066 },
 };
-
-// 🤖 بادئة أسماء البوتات التجريبية.
-// عربية عن قصد: أسماء حسابات كيك كلها لاتينية/أرقام/شرطة سفلية، فمستحيل
-// يتصادم اسم بوت مع اسم لاعب حقيقي. وما فيها " N " فما تلخبط فاصل الفرق.
-const BOT_PREFIX = "بوت ";
-function isBotName(name: string): boolean {
-  return (name || "").startsWith(BOT_PREFIX);
-}
 
 function drawRoundRect(
   ctx: CanvasRenderingContext2D,
@@ -1048,53 +1040,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     return Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000));
   }
 
-  // 🤖 يضيف بوتات تجريبية تعدّي من نفس مسار "!دخول" الحقيقي (addEntryToState)
-  // بدل ما ندس أسماء بالقائمة مباشرة — كذا وضع الفرق وحساب البايب وسجل
-  // الدخول كلها تتصرّف بالضبط زي البطولة الحقيقية، فالتجربة تكون ذات معنى.
-  function addBots(count: number) {
-    // نجمع الأسماء الموجودة (بما فيها أعضاء الفرق) عشان ما نكرّر رقم بوت
-    const taken = new Set(
-      st.players.flatMap((p) => (p ? p.split(" N ") : [])).map(normalizeUsername)
-    );
-    let next = st;
-    const added: string[] = [];
-    let n = 1;
-    // سقف الدوران حارس أمان: يمنع أي حلقة لا نهائية لو صار شي غير متوقع
-    while (added.length < count && n <= 500) {
-      const name = `${BOT_PREFIX}${n}`;
-      n++;
-      if (taken.has(normalizeUsername(name))) continue;
-      next = addEntryToState(next, name);
-      taken.add(normalizeUsername(name));
-      added.push(name);
-    }
-    if (!added.length) return;
-    // صورة رمزية فورية لكل بوت (نفس مولّد الصور الاحتياطي تاع اللاعبين
-    // الحقيقيين) عشان قائمة المسجلين وصفحة /live تبان طبيعية بالتجربة
-    const entryLog = next.entryLog.map((e) =>
-      added.includes(e.user) && !e.avatar ? { ...e, avatar: fallbackAvatar(e.user) } : e
-    );
-    update({ ...next, entryLog });
-  }
-
-  // 🧹 يشيل كل البوتات ويخلي اللاعبين الحقيقيين مكانهم — يشتغل حتى داخل
-  // الفرق (يشيل البوت من فريقه، ويحذف الفريق كامل لو صار فاضي)
-  function clearBots() {
-    const players = st.players
-      .map((p) => (p ? p.split(" N ").filter((m) => !isBotName(m)).join(" N ") : p))
-      .filter((p) => p);
-    const entryLog = st.entryLog.filter((e) => !isBotName(e.user));
-    const size = Math.max(players.length, 2);
-    const bSize = p2(size);
-    const byeN = bSize - size;
-    update({ ...st, players, size, bSize, byeN, entryLog });
-  }
-
-  // عدد البوتات الموجودين حالياً (يشمل اللي داخل فرق)
-  const botCount = st.players
-    .flatMap((p) => (p ? p.split(" N ") : []))
-    .filter(isBotName).length;
-
   // 🚪 طرد لاعب واحد بعينه من خانته (تدعم وضع الفرق حيث كل خانة فيها أكثر من
   // اسم مفصولين بـ " N "). لو كانت الخانة فردية أو صارت فاضية بعد الطرد،
   // الخانة كاملة تُحذف. تُستدعى من زر ✕ اللي يظهر عند التأشير (hover) على
@@ -1344,36 +1289,22 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     update(restored);
   }
 
+  // 🎲 اختيار ماتش عشوائي — بدون أي تنقلات ولا سلوت: ضغطة وحدة تختار
+  // المتنافسين فوراً، تشغّل صوت بدء الماتش، وتحط ستروك أحمر حول الخانة
+  // بالشجرة عشان الكل يعرف مين ضد مين الحين.
   function pickRandomMatch() {
     if (pickRunning) return;
     const open = getOpenMatches(st);
     if (!open.length) { setSlotA("لا يوجد ماتشات"); setSlotB("—"); return; }
     setPickRunning(true);
-    update({ ...st, pickedMatchId: null });
-    setSlotStateA("rolling"); setSlotStateB("rolling");
-    const names = open.map(o => [o.m.a!, o.m.b!]).flat();
-    let ticks = 0;
-    const total = 24 + Math.floor(Math.random() * 14);
-    let delay = 55;
     const chosen = open[Math.floor(Math.random() * open.length)];
-    function tick() {
-      playTick();
-      const rA = names[Math.floor(Math.random() * names.length)];
-      let rB: string;
-      do { rB = names[Math.floor(Math.random() * names.length)]; } while (rB === rA && names.length > 1);
-      setSlotA(rA); setSlotB(rB);
-      ticks++;
-      if (ticks < total) {
-        if (ticks > total * 0.55) delay = Math.min(delay * 1.2, 240);
-        setTimeout(tick, delay);
-      } else {
-        setSlotA(chosen.m.a!); setSlotB(chosen.m.b!);
-        setSlotStateA("locked"); setSlotStateB("locked");
-        playLock();
-        setTimeout(() => { update({ ...st, pickedMatchId: `${st.cur}-${chosen.i}` }); setPickRunning(false); }, 300);
-      }
-    }
-    tick();
+    setSlotA(chosen.m.a!);
+    setSlotB(chosen.m.b!);
+    setSlotStateA("locked");
+    setSlotStateB("locked");
+    playMatchStart();
+    update({ ...st, pickedMatchId: `${st.cur}-${chosen.i}` });
+    setPickRunning(false);
   }
 
   const titleText = "iK3MO";
@@ -1422,44 +1353,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         }
 
         /* ── كارت انتظار انضمام اللاعبين ── */
-        .ik3mo-empty-wait {
-          grid-column: 1 / -1;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 10px;
-          padding: 40px 20px;
-          border-radius: 16px;
-          background: rgba(41,182,246,0.06);
-          border: 1.5px dashed rgba(41,182,246,0.35);
-          text-align: center;
-        }
-        .ik3mo-empty-wait-icon {
-          font-size: 2.4rem;
-          animation: ik3mo-pulse 1.6s ease-in-out infinite;
-        }
         @keyframes ik3mo-pulse {
           0%, 100% { opacity: 0.5; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.1); }
         }
-        .ik3mo-empty-wait-text {
-          font-weight: 800;
-          font-size: 0.95rem;
-          color: var(--muted, #9ca7b8);
-        }
-        .ik3mo-empty-wait-sub {
-          font-size: 0.78rem;
-          color: var(--muted, #9ca7b8);
-          opacity: 0.85;
-        }
         @media (max-width: 480px) {
-          .ik3mo-empty-wait {
-            padding: 28px 14px;
-          }
-          .ik3mo-empty-wait-icon {
-            font-size: 2rem;
-          }
         }
 
         /* ── شبكة اللاعبين/الفرق ── */
@@ -1982,93 +1880,54 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
             {/* SETUP SCREEN */}
             {canTournament && st.phase === "setup" && (
               <div className="card">
-                <div className="size-row">
-                  <label>اسم البطولة:</label>
-                  <input type="text" className="n-input" style={{ maxWidth: "300px" }} placeholder="IK3MO" value={st.name} onChange={e => setSt(prev => ({ ...prev, name: e.target.value }))} onBlur={() => sync(st)} />
-                </div>
-
-                <div className="info-note">
-                  <span>📌 اللاعبون ينضمون تلقائياً من الشات · العدد الحالي: <b>{st.players.filter(p => p).length}</b></span>
-                </div>
-
-                {/* ⏱️ نافذة الانضمام المؤقتة — بدل ما يضل باب الانضمام مفتوح للأبد */}
-                <div className="size-row" style={{ alignItems: "center" }}>
-                  <label>⏱️ نافذة الانضمام:</label>
-                  {st.joinDeadline ? (
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                      <span
-                        style={{
-                          fontWeight: 900,
-                          fontSize: "1.15rem",
-                          color: getJoinSecondsLeft() <= 10 ? "#ef4444" : "var(--blue)",
-                          minWidth: "58px",
-                        }}
-                      >
-                        {getJoinSecondsLeft() > 0
-                          ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
-                          : "⛔ انتهى"}
-                      </span>
-                      <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-                        {getJoinSecondsLeft() > 0 ? "الانضمام مفتوح — أي !دخول جديد بعد الوقت ما بينضاف" : "باب الانضمام مقفل الآن"}
-                      </span>
-                      <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: "0.8rem" }} onClick={cancelJoinWindow}>✕ إلغاء المهلة</button>
-                    </div>
-                  ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                      <input
-                        type="number"
-                        className="n-input"
-                        style={{ maxWidth: "90px" }}
-                        min={1}
-                        max={60}
-                        value={joinDurationInput}
-                        onChange={e => setJoinDurationInput(Math.max(1, parseInt(e.target.value) || 1))}
-                      />
-                      <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>دقيقة</span>
-                      <button className="btn btn-primary" style={{ padding: "6px 14px", fontSize: "0.85rem" }} onClick={() => openJoinWindow(joinDurationInput)}>
-                        🕐 افتح باب الانضمام
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* 🤖 بوتات تجريبية — تظهر فقط بعد ما تفتح بوابة الانضمام،
-                    عشان تجرّب شكل الشجرة بأي عدد قبل ما تبدأ البطولة الحقيقية */}
-                {st.joinDeadline && (
-                  <div className="size-row" style={{ alignItems: "center", flexWrap: "wrap" }}>
-                    <label>🤖 بوتات تجريبية:</label>
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                      {[1, 2, 4, 8, 16].map((n) => (
-                        <button
-                          key={n}
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ padding: "6px 13px", fontSize: "0.82rem", fontWeight: 800 }}
-                          onClick={() => addBots(n)}
-                          title={`أضف ${n} بوت للتجربة`}
-                        >+{n}</button>
-                      ))}
-
-                      {botCount > 0 && (
-                        <>
-                          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-                            عددهم الآن: <b style={{ color: "var(--blue)" }}>{botCount}</b>
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{ padding: "6px 13px", fontSize: "0.82rem", fontWeight: 800, color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
-                            onClick={clearBots}
-                            title="يشيل كل البوتات ويخلي اللاعبين الحقيقيين"
-                          >🧹 امسح البوتات</button>
-                        </>
-                      )}
-                    </div>
-                    <div style={{ width: "100%", fontSize: "0.75rem", color: "var(--muted)", marginTop: "6px", lineHeight: 1.7 }}>
-                      يدخلون من نفس مسار <b>!دخول</b> الحقيقي، فيتوزعون على الفرق ويتحسب لهم البايب بالضبط زي اللاعبين العاديين.
-                    </div>
+                {/* 🎛️ لوحة إعداد البطولة: اسم البطولة ومهلة الانضمام بصف واحد
+                    مرتّب بدل ما يكونون متفرقين بسطور. */}
+                <div className="setup-bar">
+                  <div className="setup-field setup-name">
+                    <label htmlFor="t-name">🏆 اسم البطولة</label>
+                    <input
+                      id="t-name"
+                      type="text"
+                      className="n-input"
+                      placeholder="اكتب اسم البطولة..."
+                      value={st.name}
+                      onChange={e => setSt(prev => ({ ...prev, name: e.target.value }))}
+                      onBlur={() => sync(st)}
+                    />
                   </div>
-                )}
+
+                  <div className="setup-sep" />
+
+                  <div className="setup-field setup-join">
+                    <label>⏱️ مهلة الانضمام</label>
+                    {st.joinDeadline ? (
+                      <div className="join-row">
+                        <span className={`join-clock${getJoinSecondsLeft() <= 10 ? " hot" : ""}`}>
+                          {getJoinSecondsLeft() > 0
+                            ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
+                            : "⛔ انتهى"}
+                        </span>
+                        <span className="join-hint">
+                          {getJoinSecondsLeft() > 0 ? "الباب مفتوح" : "الباب مقفل"}
+                        </span>
+                        <button className="join-btn ghost" onClick={cancelJoinWindow}>✕ إلغاء</button>
+                      </div>
+                    ) : (
+                      <div className="join-row">
+                        <input
+                          type="number"
+                          className="join-mins"
+                          min={1}
+                          max={60}
+                          value={joinDurationInput}
+                          onChange={e => setJoinDurationInput(Math.max(1, parseInt(e.target.value) || 1))}
+                        />
+                        <span className="join-unit">دقيقة</span>
+                        <button className="join-btn" onClick={() => openJoinWindow(joinDurationInput)}>🕐 افتح الباب</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
                 <div className="toggle-row">
                   <label style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--muted)" }}>نظام الفرق (Teams):</label>
@@ -2091,6 +1950,12 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     (تُنشأ تلقائياً بمجرد ما حد يكتب أمر الانضمام بالشات). الأسماء غير قابلة
                     للتعديل اليدوي (تُقرأ من الشات مباشرة)، وكل عضو بالفريق له إطار مستقل
                     مفصول بعلامة & عن باقي أعضاء نفس الفريق. */}
+                <div className="reg-head">
+                  <span className="reg-title">👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
+                  <span className="reg-hint">الانضمام تلقائي بكتابة <b>!دخول</b> بالشات</span>
+                  <span className="reg-count">{st.players.filter(p => p).length}</span>
+                </div>
+
                 <div className="ik3mo-names-grid">
                   {st.players
                     .map((p, i) => ({ i, p }))
@@ -2118,13 +1983,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         </div>
                       );
                     })}
-                  {st.players.filter(Boolean).length === 0 && (
-                    <div className="ik3mo-empty-wait">
-                      <div className="ik3mo-empty-wait-icon">⏳</div>
-                      <div className="ik3mo-empty-wait-text">بانتظار انضمام اللاعبين من الشات...</div>
-                      <div className="ik3mo-empty-wait-sub">اكتب <b>!دخول</b> بالشات للانضمام تلقائياً</div>
-                    </div>
-                  )}
                 </div>
 
                 <div className="action-row">
@@ -2138,53 +1996,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   </button>
                 </div>
 
-                {/* ⚠️ تحذير: فيه بوتات تجريبية لسا بالقائمة قبل البدء */}
-                {botCount > 0 && (
-                  <div style={{
-                    marginTop: "12px", padding: "12px 16px", borderRadius: "12px",
-                    background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)",
-                    display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
-                  }}>
-                    <span style={{ fontWeight: 800, color: "#f87171", fontSize: "0.87rem" }}>
-                      🤖 فيه {botCount} بوت تجريبي بالقائمة
-                    </span>
-                    <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
-                      لو هذي بطولة حقيقية امسحهم قبل ما تبدأ، وإلا بيدخلون الشجرة مع اللاعبين.
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ padding: "6px 13px", fontSize: "0.8rem", fontWeight: 800, color: "#f87171", borderColor: "rgba(248,113,113,0.4)", marginRight: "auto" }}
-                      onClick={clearBots}
-                    >🧹 امسحهم الآن</button>
-                  </div>
-                )}
-
-                {/* 🔔 بانر احترافي يظهر تحت زر البدء مباشرة لما العدد غير كافي —
-                    بيتحدّث لحظيًا مع كل انضمام جديد من الشات (بدل alert مزعج) */}
-                {getStartBlockReason() && (
-                  <div
-                    style={{
-                      marginTop: "12px",
-                      padding: "14px 18px",
-                      borderRadius: "12px",
-                      background: "rgba(255,193,7,0.10)",
-                      border: "1px solid rgba(255,193,7,0.35)",
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "6px",
-                    }}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, color: "#ffc107" }}>
-                      <span>⚠️</span>
-                      <span>{getStartBlockReason()}</span>
-                    </div>
-                    <div style={{ fontSize: "0.85rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span className="viewer-badge-dot" style={{ position: "static" }} />
-                      متابعة لحظية: <b style={{ color: "var(--blue)" }}>{st.players.filter(p => p).length}</b> {st.isTeams ? "فريق" : "لاعب"} منضم الآن — بانتظار البقية من الشات...
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -2286,28 +2097,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   <button className="btn-check" onClick={() => kickCheck(true)}>🔄 تحقق الآن</button>
                 </div>
               )}
-            </div>
-            <div className="entry-log-container">
-              <div className="entry-log-head">
-                <span>👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span id="chat-status" style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{chatStatus === "live" ? "🟢 متصل" : "🔴 غير متصل"}</span>
-                  <span style={{ color: "var(--kick)" }}>{st.entryLog.length}</span>
-                </div>
-              </div>
-              <div className="entry-log-list">
-                {[...st.entryLog].reverse().map((e, i) => (
-                  <div key={i} className="entry-item">
-                    {e.avatar ? (
-                      <img className="avatar" src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="status-dot" />
-                    )}
-                    <div className="user">{e.user}</div>
-                    <div className="time">{e.time}</div>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
           <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", display: "flex", gap: "8px" }}>
