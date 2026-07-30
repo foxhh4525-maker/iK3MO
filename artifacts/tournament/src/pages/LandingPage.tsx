@@ -134,25 +134,8 @@ export default function LandingPage() {
     return () => mq.removeEventListener?.("change", apply);
   }, []);
 
-  // بالجوال اللوحة تنفتح كقائمة منسدلة من أيقونة بالهيدر (بدل ما تزحم الصفحة)
+  // بالجوال اللوحة تنفتح كقائمة منبثقة من أيقونة بالهيدر (بدل ما تزحم الصفحة)
   const [boardOpen, setBoardOpen] = useState(false);
-
-  // ── 📍 موضع القائمة: تحت الهيدر مباشرة ──
-  // الهيدر يلتف لصفّين على بعض الشاشات (خصوصاً لما اسم اللاعب طويل)،
-  // فما ينفع رقم ثابت. نقيس الحافة السفلية للهيدر ونبدأ من عندها.
-  const navRef = useRef<HTMLElement | null>(null);
-  const [boardTop, setBoardTop] = useState(74);
-  useEffect(() => {
-    if (!isMobile) return;
-    const measure = () => {
-      const r = navRef.current?.getBoundingClientRect();
-      setBoardTop(r ? Math.max(56, r.bottom + 10) : 74);
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [isMobile, boardOpen, session]);
-
   const [fullBoard, setFullBoard] = useState<LeaderboardEntry[]>([]);
   const refreshLeaderboard = useCallback(() => {
     getLeaderboard(50).then((rows) => setFullBoard(rows || [])).catch(() => {});
@@ -389,17 +372,14 @@ export default function LandingPage() {
     gap: 9,
   } : undefined;
 
-  // 📍 القائمة تنسدل من تحت الهيدر مباشرة (لا من نص الشاشة)،
-  // ومصدر الحركة (transform-origin) من فوق عشان تحس إنها طالعة من الأيقونة.
   const mBoard: CSSProperties | undefined = isMobile ? {
     position: "fixed",
-    top: boardTop,
+    top: "50%",
     left: "50%",
     right: "auto",
-    transform: boardOpen ? "translate(-50%,0) scale(1)" : "translate(-50%,-10px) scale(.96)",
-    transformOrigin: "top center",
-    width: "min(330px, calc(100vw - 24px))",
-    maxHeight: `calc(100dvh - ${boardTop + 24}px)`,
+    transform: boardOpen ? "translate(-50%,-50%) scale(1)" : "translate(-50%,-50%) scale(.94)",
+    width: "min(320px, calc(100vw - 32px))",
+    maxHeight: "80vh",
     overflowY: "auto",
     margin: 0,
     animation: "none",
@@ -590,37 +570,30 @@ export default function LandingPage() {
         .lp-board-hint b{color:#7fd4ff;font-weight:900}
 
         /* زر اللوحة وزر إغلاقها: للجوال فقط */
-        /* زر الأكثر انتصارات — نفس أسلوب زر الدعم: أيقونة مسطّحة بلون
-           وتوهّج نابض، بدون قرص ولا حدود، عشان تنسجم مع بقية الهيدر */
+        /* زر الأكثر انتصارات — قرص ذهبي بحدود وتوهّج عشان يبان كزر
+           مستقل، مو أيقونة مسطّحة ضايعة بين أيقونات السوشل */
         .lp-board-toggle{
           display:none;padding:0;cursor:pointer;opacity:1;
           color:#ffd54a;
-          background:none;border:none;box-shadow:none;
-          animation:boardGlow 2.2s ease-in-out infinite;
-          transition:transform .2s ease, color .2s ease;
+          background:linear-gradient(180deg,rgba(255,196,0,.2),rgba(255,196,0,.05));
+          border:1px solid rgba(255,196,0,.5);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.18), 0 3px 12px rgba(0,0,0,.35), 0 0 14px rgba(255,196,0,.15);
+          transition:transform .2s ease, box-shadow .2s ease, filter .2s ease;
         }
-        .lp-board-toggle:hover{transform:translateY(-2px) scale(1.08)}
-        .lp-board-toggle:active{transform:translateY(0) scale(1)}
-        /* وهي مفتوحة: أبيض عشان تعرف إن القائمة طالعة منها */
-        .lp-board-toggle.is-open{color:#fff}
-        .lp-board-toggle:focus-visible{outline:2px solid #ffd54a;outline-offset:3px;border-radius:50%}
-        @keyframes boardGlow{
-          0%,100%{filter:drop-shadow(0 0 5px rgba(255,196,0,.45))}
-          50%{filter:drop-shadow(0 0 14px rgba(255,196,0,.9))}
+        .lp-board-toggle:hover{
+          transform:translateY(-2px);filter:brightness(1.1);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.25), 0 4px 16px rgba(0,0,0,.4), 0 0 22px rgba(255,196,0,.4);
         }
-        @media (prefers-reduced-motion: reduce){
-          .lp-board-toggle{animation:none;filter:drop-shadow(0 0 8px rgba(255,196,0,.6))}
-        }
+        .lp-board-toggle:active{transform:translateY(0)}
         .lp-board-close{display:none}
         .lp-board-backdrop{display:none}
 
-        /* ===== 📱 الجوال: اللوحة تصير قائمة منسدلة من الأيقونة =====
-           قبل كانت تطلع بنص الشاشة، وقبلها كانت في سير الصفحة وتاخذ ~230px
-           فوق الكروت. الحين تنزل من تحت الهيدر مباشرة — مرتبطة بصرياً بالزر. */
+        /* ===== 📱 الجوال: اللوحة تصير قائمة منبثقة بأيقونة =====
+           قبل كانت في سير الصفحة وتاخذ ~230px فوق الكروت، فكل شي يطلع مزحوم. */
         @media (max-width:640px){
           /* محدِّد بكلاسين عشان يتغلّب على مقاس .lp-nav-icon بالجوال */
-          .lp-nav-icon.lp-board-toggle{display:flex;width:34px;height:34px}
-          .lp-nav-icon.lp-board-toggle svg{width:18px;height:18px}
+          .lp-nav-icon.lp-board-toggle{display:flex;width:38px;height:38px}
+          .lp-nav-icon.lp-board-toggle svg{width:20px;height:20px}
 
           .lp-board-backdrop{
             display:block;position:fixed;inset:0;z-index:1090;
@@ -631,18 +604,16 @@ export default function LandingPage() {
           }
           .lp-board{
             position:fixed;z-index:1100;margin:0;animation:none;
-            top:74px;                      /* قيمة احتياطية — الحقيقية تُحسب بالـ JS */
-            left:50%;right:auto;
-            transform:translate(-50%,-10px) scale(.96);
-            transform-origin:top center;
-            width:min(330px, calc(100vw - 24px));
-            max-height:calc(100vh - 96px);max-height:calc(100dvh - 96px);
+            top:50%;left:50%;
+            transform:translate(-50%,-50%) scale(.94);
+            width:min(320px, calc(100vw - 32px));
+            max-height:calc(100vh - 90px);max-height:calc(100dvh - 90px);
             overflow-y:auto;
             padding:14px 12px 12px;
             opacity:0;pointer-events:none;
-            transition:opacity .2s ease, transform .22s cubic-bezier(.22,1,.36,1);
+            transition:opacity .2s ease, transform .2s cubic-bezier(.22,1,.36,1);
           }
-          .lp-board.is-open{opacity:1;pointer-events:auto;transform:translate(-50%,0) scale(1)}
+          .lp-board.is-open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
 
           .lp-board-close{
             display:flex;align-items:center;justify-content:center;
@@ -1217,7 +1188,7 @@ export default function LandingPage() {
         <div className="lp-bg" style={mBg} />
 
         {/* ===== الهيدر: تسجيل الدخول (يسار) + أيقونات السوشل + زر مشاهدة البطولة (يمين) ===== */}
-        <nav className="lp-nav" ref={navRef}>
+        <nav className="lp-nav">
           <div className="lp-nav-group">
             {/* 👤 الحساب — أول عنصر بالـ DOM، وفي RTL يعني أقصى اليمين */}
             {session ? (
@@ -1253,11 +1224,10 @@ export default function LandingPage() {
 
             <span className="lp-nav-sep" />
 
-            {/* 🥇 أيقونة الأكثر انتصاراً — تظهر بالجوال فقط وتفتح/تسكّر اللوحة كقائمة منسدلة */}
+            {/* 🥇 أيقونة الأكثر انتصاراً — تظهر بالجوال فقط وتفتح اللوحة كقائمة منبثقة */}
             <button
-              className={`lp-nav-icon lp-board-toggle${boardOpen ? " is-open" : ""}`}
-              onClick={() => setBoardOpen((v) => !v)}
-              aria-expanded={boardOpen}
+              className="lp-nav-icon lp-board-toggle"
+              onClick={() => setBoardOpen(true)}
               aria-label="الأكثر انتصاراً"
               title="الأكثر انتصاراً"
             >
@@ -1289,14 +1259,14 @@ export default function LandingPage() {
           </div>
         </nav>
 
-        {/* ===== 🏆 لوحة الترتيب — ظاهرة دائماً بالديسكتوب، ومنسدلة من الهيدر بالجوال ===== */}
+        {/* ===== 🏆 لوحة الترتيب — ظاهرة دائماً بدون ضغط ===== */}
         {/* أول 5 مراكز للجميع، واللي تحتهم ما يبانون — إلا لو حسابك مربوط
             فيطلع لك سطر مستقل فيه رقم مركزك الحقيقي (7 مثلاً). */}
         {boardOpen && <div className="lp-board-backdrop" onClick={() => setBoardOpen(false)} />}
 
         <aside className={`lp-board${boardOpen ? " is-open" : ""}`} style={mBoard} aria-label="ترتيب الفائزين">
           <button className="lp-board-close" onClick={() => setBoardOpen(false)} aria-label="إغلاق">✕</button>
-          <div className="lp-board-title">🥇</div>
+          <div className="lp-board-title">الاكثر انتصار 🥇</div>
           <div className="lp-board-note">تحسب نقاط الفوز عند الانتصار في اي قيم داخل البطولة</div>
 
           {fullBoard.length === 0 ? (
