@@ -674,18 +674,24 @@ export default function LandingPage() {
             padding-bottom:34px;
           }
           /* الخلفية تصير منطقة "هيرو" أعلى الصفحة فقط.
-             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari. */
+             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari.
+             top هنا ينزّلها تحت الهيدر: كذا أزرار تسجيل الدخول والأيقونات
+             تقعد على خلفية داكنة صافية بدل ما تكون فوق الصورة. */
           .lp-bg{
             position:absolute;
             inset:0 0 auto 0;
-            height:min(64vh,520px);
+            top:clamp(56px,8.5vh,80px);
+            height:min(48vh,400px);
             background-attachment:scroll;
-            background-position:center 16%;
+            background-position:center 20%;
           }
-          /* تدرّج ينهي الخلفية بنعومة بدل قطع حاد */
+          /* تدرّجان: واحد يذوّب حافة الصورة العليا مع الهيدر،
+             والثاني ينهيها بنعومة من تحت بدل قطع حاد */
           .lp-bg::before{
-            content:"";position:absolute;left:0;right:0;bottom:0;height:42%;
-            background:linear-gradient(180deg,transparent,#040914);
+            content:"";position:absolute;inset:0;
+            background:
+              linear-gradient(180deg,#040914,transparent 15%),
+              linear-gradient(180deg,transparent 56%,#040914 100%);
             pointer-events:none;
           }
 
@@ -701,14 +707,14 @@ export default function LandingPage() {
           .lp-watch-row{
             display:flex;justify-content:center;
             position:relative;z-index:3;
-            margin-top:clamp(200px,44vh,340px);
+            margin-top:clamp(260px,52vh,430px);
           }
           .lp-watch-btn{padding:10px 20px;font-size:.82rem;gap:8px}
 
           /* الكروت تنزل تحت زر البطولة */
           .lp-grid{
             position:static;top:auto;
-            margin-top:clamp(16px,4.5vw,24px);
+            margin-top:clamp(18px,5vw,28px);
             padding:0;
             gap:9px;
           }
