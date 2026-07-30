@@ -1,0 +1,17 @@
+services:
+- type: web
+  name: kemo-tournament
+  runtime: node
+  plan: free
+  buildCommand: "npx -y pnpm@10 install && npx -y pnpm@10 --filter @workspace/tournament run build && npx -y pnpm@10 --filter @workspace/api-server run build"
+  startCommand: node --enable-source-maps artifacts/api-server/dist/index.mjs
+  envVars:
+    - key: NODE_ENV
+      value: production
+    - key: PORT
+      value: 10000
+    - key: ADMIN_PASSWORD
+      generateValue: true
+    - key: SESSION_SECRET
+      generateValue: true
+  healthCheckPath: /api/healthz
