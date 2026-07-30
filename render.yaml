@@ -8,10 +8,16 @@ services:
   envVars:
     - key: NODE_ENV
       value: production
+    - key: NODE_VERSION
+      value: 22
     - key: PORT
       value: 10000
+    # رابط قاعدة بيانات Neon — Render راح يطلبه منك وقت الإنشاء
+    - key: DATABASE_URL
+      sync: false
+    # كلمة سر لوحة الأدمن — اكتبها أنت وقت الإنشاء واحفظها
     - key: ADMIN_PASSWORD
-      generateValue: true
+      sync: false
     - key: SESSION_SECRET
       generateValue: true
   healthCheckPath: /api/healthz
