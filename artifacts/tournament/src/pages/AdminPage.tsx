@@ -1292,6 +1292,32 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   // 🎲 اختيار ماتش عشوائي — بدون أي تنقلات ولا سلوت: ضغطة وحدة تختار
   // المتنافسين فوراً، تشغّل صوت بدء الماتش، وتحط ستروك أحمر حول الخانة
   // بالشجرة عشان الكل يعرف مين ضد مين الحين.
+  // 🤖 إضافة بوتات للتجربة — يعبّي خانات بأسماء وهمية عشان تجرّب الشجرة
+  // وتختبر الشكل بدون ما تنتظر ناس ينضمون من الشات. بوضع الفرق يضيف فريق
+  // كامل بعدد اللاعبين المحدد. زر "🧹 تفريغ" يشيلهم كلهم.
+  function addBots(count: number) {
+    const slots = [...st.players];
+    const taken = new Set(st.players.filter(Boolean).flatMap(p => p.split(" N ")));
+    let n = 1;
+    const nextName = () => {
+      let nm = `بوت ${n++}`;
+      while (taken.has(nm)) nm = `بوت ${n++}`;
+      taken.add(nm);
+      return nm;
+    };
+    for (let i = 0; i < count; i++) {
+      slots.push(
+        st.isTeams
+          ? Array.from({ length: Math.max(1, st.teamSize) }, nextName).join(" N ")
+          : nextName()
+      );
+    }
+    // نحدّث نفس الحقول اللي يحدّثها الانضمام من الشات عشان الحالة تضل متسقة
+    const size = slots.length;
+    const bSize = p2(size);
+    update({ ...st, players: slots, size, bSize, byeN: bSize - size });
+  }
+
   function pickRandomMatch() {
     if (pickRunning) return;
     const open = getOpenMatches(st);
@@ -1472,10 +1498,24 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         <div className="main">
           <div style={{ width: "100%", margin: "0 auto" }}>
             <header className="site-header" style={{ position: "relative" }}>
-              <button className="btn btn-ghost" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}
-                style={{ position: "absolute", top: 0, right: 0, padding: "6px 12px", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px" }}>
-                {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
-              </button>
+              {/* 🎛️ أزرار اللوحة — كانت متفرقة بالسايدبار، جمعناها هنا برأس
+                  الصفحة عشان تكون واضحة وبمتناول اليد دايماً. */}
+              <div className="admin-actions">
+                <button className="admin-act" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}>
+                  {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
+                </button>
+                <button
+                  className={`admin-act${chatStatus === "live" ? " on" : ""}`}
+                  onClick={() => kickCheck(true)}
+                  title="يعيد التحقق من بث Kick ويحدّث اتصال الشات"
+                >
+                  🔄 تحقق الآن
+                  <span className={`act-dot${chatStatus === "live" ? " live" : ""}`} />
+                </button>
+                <button className="admin-act danger" onClick={onLogout} title="تسجيل الخروج من لوحة الأدمن">
+                  🚪 خروج
+                </button>
+              </div>
               <div className="tag">IK3MO</div>
               <h1>{titleText}</h1>
               <p>اختر عدد اللاعبين، اكتب أسمائهم، وكل جولة اضغط على الفائز ليتأهل</p>
@@ -1952,8 +1992,20 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     مفصول بعلامة & عن باقي أعضاء نفس الفريق. */}
                 <div className="reg-head">
                   <span className="reg-title">👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
-                  <span className="reg-hint">الانضمام تلقائي بكتابة <b>!دخول</b> بالشات</span>
                   <span className="reg-count">{st.players.filter(p => p).length}</span>
+                  <span className="reg-hint">
+                    {st.joinDeadline && getJoinSecondsLeft() > 0
+                      ? "الباب مفتوح الآن — أي !دخول بالشات ينضاف مباشرة"
+                      : <>الانضمام تلقائي بكتابة <b>!دخول</b> بالشات</>}
+                  </span>
+                  {/* 🤖 تنضاف بأي وقت — قبل فتح الباب أو وهو مفتوح — عشان تقدر
+                      تجرّب شكل الشجرة فوراً بدون ما تنتظر أحد ينضم. */}
+                  <div className="bots-group" title="لاعبين وهميين لتجربة الشجرة — تنضاف حتى والباب مفتوح">
+                    <span className="bots-label">🤖 بوتات</span>
+                    <button className="bots-btn" onClick={() => addBots(2)}>+2</button>
+                    <button className="bots-btn" onClick={() => addBots(4)}>+4</button>
+                    <button className="bots-btn" onClick={() => addBots(8)}>+8</button>
+                  </div>
                 </div>
 
                 <div className="ik3mo-names-grid">
@@ -2094,13 +2146,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 <div className="chat-offline">
                   <div className="ico">📡</div>
                   <p>جاري التحقق من بث <b>{CH.toUpperCase()}</b> على Kick.<br />الشات يظهر تلقائياً عند البث.</p>
-                  <button className="btn-check" onClick={() => kickCheck(true)}>🔄 تحقق الآن</button>
                 </div>
               )}
             </div>
-          </div>
-          <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", display: "flex", gap: "8px" }}>
-            <button className="btn btn-ghost" style={{ flex: 1, padding: "8px", fontSize: "0.78rem" }} onClick={onLogout}>🚪 خروج</button>
           </div>
         </div>
       </div>
