@@ -1,0 +1,179 @@
+import type { CSSProperties } from "react";
+import { BYE, type Match, type TournamentState } from "@/lib/types";
+import { rTitle } from "@/lib/tournament";
+
+interface BracketDisplayProps {
+  st: TournamentState;
+  isAdmin: boolean;
+  pickedMatchId: string | null;
+  onWin?: (rIdx: number, mIdx: number, side: "a" | "b") => void;
+}
+
+// 🔤 أول حرف من الاسم — يظهر داخل مربع صغير جانب الاسم عشان الخانة تبين
+// أوضح وأسهل تتابعها بسرعة على البث.
+function initial(name: string): string {
+  const clean = name.trim().replace(/^[^\p{L}\p{N}]+/u, "");
+  return (clean[0] || name.trim()[0] || "?").toUpperCase();
+}
+
+function PlayerRow({
+  name, match, side, rIdx, mIdx, cur, isAdmin, onWin, pickedMatchId,
+}: {
+  name: string | null;
+  match: Match;
+  side: "a" | "b";
+  rIdx: number;
+  mIdx: number;
+  cur: number;
+  isAdmin: boolean;
+  onWin?: (rIdx: number, mIdx: number, side: "a" | "b") => void;
+  pickedMatchId: string | null;
+}) {
+  const isBye = name === BYE;
+  const isEmpty = !name;
+  const isW = !!match.winner && match.winner === name && name !== BYE;
+  const isL = !!match.winner && match.winner !== name && !!name && name !== BYE;
+  // لو فيه ماتش محدد عشوائياً (إطار أصفر)، ما ينفع الضغط على فوز أي ماتش ثاني غيره
+  const isLockedByPick = !!pickedMatchId && pickedMatchId !== `${rIdx}-${mIdx}`;
+  const canClick =
+    isAdmin &&
+    rIdx === cur &&
+    !match.winner &&
+    name &&
+    name !== BYE &&
+    match.a &&
+    match.a !== BYE &&
+    match.b &&
+    match.b !== BYE &&
+    !isLockedByPick;
+
+  let cls = "player";
+  if (isW) cls += " winner";
+  else if (isL) cls += " loser";
+  if (isBye) cls += " bye-slot";
+  else if (isEmpty) cls += " empty";
+  else if (!canClick && !isW && !isL) cls += " locked";
+
+  return (
+    <div
+      className={cls}
+      onClick={() => canClick && onWin?.(rIdx, mIdx, side)}
+      title={!isBye && !isEmpty ? name! : undefined}
+    >
+      <span className="p-badge" aria-hidden="true">
+        {isBye ? "◇" : isEmpty ? "?" : initial(name!)}
+      </span>
+      <span className="p-name">{isBye ? "بايب" : isEmpty ? "في الانتظار" : name}</span>
+      {isW && <span className="p-mark">👑</span>}
+    </div>
+  );
+}
+
+export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: BracketDisplayProps) {
+  const { rounds, cur } = st;
+  const total = rounds.length;
+  const last = total - 1;
+
+  if (!rounds.length) return null;
+
+  type Col = { side: "left" | "center" | "right"; ri: number; s: number; e: number };
+  const cols: Col[] = [];
+  for (let r = 0; r < last; r++) {
+    const h = Math.floor(rounds[r].length / 2);
+    cols.push({ side: "left", ri: r, s: 0, e: h });
+  }
+  cols.push({ side: "center", ri: last, s: 0, e: rounds[last].length });
+  for (let r = last - 1; r >= 0; r--) {
+    const h = Math.floor(rounds[r].length / 2);
+    cols.push({ side: "right", ri: r, s: h, e: rounds[r].length });
+  }
+
+  const lr = rounds[rounds.length - 1];
+  const champion = lr.length === 1 && lr[0].winner && lr[0].winner !== BYE ? lr[0].winner : null;
+
+  return (
+    <>
+      <div className="bracket-scroll">
+        <div className="bracket">
+          {cols.map((col, ci) => {
+            const slice = rounds[col.ri].slice(col.s, col.e);
+            // 📐 مفتاح المحاذاة: المسافة بين مباريات كل جولة تتضاعف مع كل دور
+            // (‎2^ri‎)، فيصير مركز كل مباراة بالضبط بمنتصف المباراتين اللي قبلها
+            // — وهذا اللي يخلي خطوط الربط تطلع شجرة مستقيمة مضبوطة.
+            const matchesStyle = { "--k": 2 ** col.ri } as CSSProperties;
+
+            return (
+              <div key={ci} className={`round r-${col.side}`}>
+                <div className="round-title">
+                  {col.side === "center" ? "🏆 النهائي" : rTitle(col.ri, total)}
+                </div>
+                <div className="matches" style={matchesStyle}>
+                  {slice.map((match, mi) => {
+                    const m = col.s + mi;
+                    const ready =
+                      col.ri === cur &&
+                      !match.winner &&
+                      match.a && match.a !== BYE &&
+                      match.b && match.b !== BYE;
+                    const isPicked = pickedMatchId === `${col.ri}-${m}`;
+                    let cls = "match";
+                    if (ready) cls += " ready";
+                    if (match.winner) cls += " done";
+                    if (match.isBye) cls += " bye-match";
+                    if (col.side === "center") cls += " final-match";
+                    if (isPicked) cls += " picked-match";
+                    // خطوط الربط: كل مباراة (غير النهائي) تطلع منها وصلة تجاه
+                    // الدور اللي بعده. أعلى مباراة بكل زوج هي اللي ترسم الخط
+                    // العمودي اللي يجمع الزوج مع بعض.
+                    if (col.side !== "center") {
+                      cls += " has-conn";
+                      if (slice.length === 1) cls += " solo";
+                      else if (m % 2 === 0) cls += " pair-top";
+                    }
+
+                    return (
+                      <div key={m} className={cls} data-r={col.ri} data-m={m}>
+                        <PlayerRow
+                          name={match.a}
+                          match={match}
+                          side="a"
+                          rIdx={col.ri}
+                          mIdx={m}
+                          cur={cur}
+                          isAdmin={isAdmin}
+                          onWin={onWin}
+                          pickedMatchId={pickedMatchId}
+                        />
+                        <div className="vs-line" aria-hidden="true"><span>VS</span></div>
+                        <PlayerRow
+                          name={match.b}
+                          match={match}
+                          side="b"
+                          rIdx={col.ri}
+                          mIdx={m}
+                          cur={cur}
+                          isAdmin={isAdmin}
+                          onWin={onWin}
+                          pickedMatchId={pickedMatchId}
+                        />
+                        {col.side !== "center" && <span className="conn" aria-hidden="true" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {champion && (
+        <div className="champion">
+          <h2>🎉 بطل البطولة 🎉</h2>
+          <div className="champ-name">{champion}</div>
+          <div className="conf">✨ 🏆 ✨</div>
+        </div>
+      )}
+    </>
+  );
+}

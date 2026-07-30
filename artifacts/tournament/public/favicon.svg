@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a1035"/>
+      <stop offset="100%" stop-color="#0a0818"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffe566"/>
+      <stop offset="40%" stop-color="#f5c100"/>
+      <stop offset="100%" stop-color="#c87d00"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff9c4" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#f5c100" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="32" cy="32" r="32" fill="url(#bg)"/>
+  <!-- Glow ring -->
+  <circle cx="32" cy="32" r="30" fill="none" stroke="#f5c100" stroke-width="0.6" opacity="0.4"/>
+
+  <g filter="url(#glow)">
+    <!-- Trophy cup body -->
+    <path d="M22 14 h20 l-3 18 Q39 38 32 39 Q25 38 27 32 Z" fill="url(#gold)"/>
+    <!-- Shine on cup -->
+    <path d="M24 14 h8 l-2 14 Q27 31 25 30 Z" fill="url(#shine)" opacity="0.5"/>
+
+    <!-- Left handle -->
+    <path d="M22 17 Q13 17 13 24 Q13 30 22 30" fill="none" stroke="url(#gold)" stroke-width="3" stroke-linecap="round"/>
+    <!-- Right handle -->
+    <path d="M42 17 Q51 17 51 24 Q51 30 42 30" fill="none" stroke="url(#gold)" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Stem -->
+    <rect x="29.5" y="39" width="5" height="7" rx="1" fill="url(#gold)"/>
+    <!-- Base plate -->
+    <rect x="22" y="46" width="20" height="4" rx="2" fill="url(#gold)"/>
+
+    <!-- Star on cup -->
+    <path d="M32 19 l1.2 3.6 h3.8 l-3.1 2.2 1.2 3.6 -3.1-2.2 -3.1 2.2 1.2-3.6 -3.1-2.2 h3.8 Z"
+          fill="#fff9c4" opacity="0.9"/>
+  </g>
+</svg>
