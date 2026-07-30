@@ -110,3 +110,21 @@ export function playError() {
     osc(150, "sawtooth", t + 0.1, 0.18, 0.2, 0.001, ac, ac.destination);
   } catch {}
 }
+
+/** 🎲 بدء ماتش — ضربة قوية + وتر صاعد (بديل صوت السلوت القديم) */
+export function playMatchStart() {
+  if (!isSoundEnabled()) return;
+  try {
+    const ac = getCtx();
+    const t = ac.currentTime;
+    // ضربة عميقة تعطي إحساس "بدأ"
+    osc(150, "sine", t, 0.22, 0.55, 0.001, ac, ac.destination);
+    osc(90, "sine", t, 0.30, 0.40, 0.001, ac, ac.destination);
+    // وتر صاعد سريع
+    osc(523, "triangle", t + 0.05, 0.18, 0.26, 0.001, ac, ac.destination);
+    osc(784, "triangle", t + 0.13, 0.20, 0.28, 0.001, ac, ac.destination);
+    osc(1046, "sine", t + 0.22, 0.38, 0.32, 0.001, ac, ac.destination);
+    // لمعة أخيرة
+    osc(1568, "sine", t + 0.34, 0.30, 0.16, 0.001, ac, ac.destination);
+  } catch {}
+}
