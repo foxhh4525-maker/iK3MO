@@ -305,6 +305,61 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .toolbar-info{color:var(--muted);font-size:0.85rem}
 .toolbar-info b{color:var(--blue)}
 
+/* ── 🎛️ لوحة إعداد البطولة (الاسم + مهلة الانضمام) ── */
+.setup-bar{
+  display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
+  padding:16px 18px;margin-bottom:14px;border-radius:14px;
+  background:linear-gradient(135deg,rgba(41,182,246,0.09),rgba(0,191,255,0.02));
+  border:1px solid rgba(41,182,246,0.24);
+}
+.setup-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.setup-field > label{
+  font-size:0.7rem;font-weight:800;letter-spacing:1.4px;
+  color:var(--blue);text-transform:uppercase;
+}
+.setup-name{flex:1;min-width:220px}
+.setup-name .n-input{
+  width:100%;font-size:1.05rem;font-weight:800;padding:10px 14px;
+  text-align:start;max-width:none;
+}
+.setup-sep{width:1px;align-self:stretch;background:var(--border);margin:6px 0}
+.join-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.join-mins{
+  width:66px;padding:10px 8px;text-align:center;
+  font-family:inherit;font-size:1rem;font-weight:800;
+  border-radius:10px;border:1px solid var(--border);
+  background:rgba(0,0,0,0.3);color:var(--text);
+}
+.join-unit{font-size:0.8rem;color:var(--muted);font-weight:700}
+.join-btn{
+  padding:10px 16px;border:none;border-radius:10px;cursor:pointer;
+  font-family:inherit;font-size:0.82rem;font-weight:800;
+  background:linear-gradient(135deg,var(--blue),var(--blue2));color:#04121f;
+  transition:transform .18s,opacity .18s;white-space:nowrap;
+}
+.join-btn:hover{transform:translateY(-1px)}
+.join-btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.join-clock{
+  font-size:1.35rem;font-weight:900;color:var(--blue);
+  font-variant-numeric:tabular-nums;min-width:66px;
+}
+.join-clock.hot{color:#ef4444}
+.join-hint{font-size:0.78rem;color:var(--muted);font-weight:700}
+
+/* ── 👥 شريط المسجلين من الشات ── */
+.reg-head{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;margin-bottom:12px;border-radius:11px;
+  background:rgba(255,255,255,0.03);border:1px solid var(--border);
+}
+.reg-title{font-weight:800;font-size:0.92rem;color:var(--text);white-space:nowrap}
+.reg-hint{flex:1;font-size:0.75rem;color:var(--muted);min-width:140px}
+.reg-hint b{color:var(--blue)}
+.reg-count{
+  min-width:36px;text-align:center;padding:3px 11px;border-radius:99px;
+  background:var(--blue);color:#04121f;font-weight:900;font-size:0.9rem;
+}
+
 /* ── Pick bar ── */
 .pick-bar{
   display:flex;align-items:center;gap:12px;flex-wrap:wrap;
@@ -554,17 +609,16 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .match.final-match > .player:not(.winner):not(.empty){
   background:rgba(41,182,246,0.09);border-color:rgba(41,182,246,0.35);
 }
-/* المباراة المسحوبة عشوائياً */
+/* 🔴 المباراة المسحوبة عشوائياً — ستروك أحمر ثابت حول الخانة (بدون توهّج
+   ولا نبض عشان ما يخرب الشاشة الخضراء / الكروما كي) */
 .match.picked-match{
-  border-color:var(--gold) !important;
-  background:rgba(255,215,0,0.07) !important;
-  animation:goldpulse 1.2s ease-in-out infinite !important;
+  border-color:#ff2d2d !important;
+  background:rgba(255,45,45,0.10) !important;
+  box-shadow:0 0 0 2px rgba(255,45,45,0.55) !important;
+  animation:none !important;
 }
-.match.picked-match > .player{border-color:rgba(255,215,0,0.45) !important}
-@keyframes goldpulse{
-  0%,100%{box-shadow:0 0 14px rgba(255,215,0,0.28)}
-  50%{box-shadow:0 0 30px rgba(255,215,0,0.6)}
-}
+.match.picked-match > .player{border-color:rgba(255,45,45,0.45) !important}
+.match.picked-match > .player.winner{border-color:rgba(255,215,0,0.5) !important}
 
 /* شاشات صغيرة: نصغّر كل شي من متغيّر واحد */
 @media (max-width:700px){
@@ -577,24 +631,73 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .round-title{font-size:0.64rem;padding:4px 11px;margin-bottom:10px}
 }
 
-/* ── Champion ── */
-.champion{
-  text-align:center;padding:28px 18px;margin-top:24px;
-  background:rgba(41,182,246,0.1);
-  border:1px solid var(--blue);border-radius:18px;
-  animation:cglow 2.6s ease-in-out infinite;
+/* ── 👑 البطل داخل عمود النهائي ── */
+.champ-slot{
+  margin-top:14px;padding-top:14px;
+  border-top:1px dashed rgba(255,215,0,0.45);
+  display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;
 }
-@keyframes cglow{
-  0%,100%{box-shadow:0 0 26px var(--glow)}
-  50%{box-shadow:0 0 52px rgba(0,191,255,0.5)}
+.champ-crown{
+  font-size:1.75rem;line-height:1;
+  filter:drop-shadow(0 0 10px rgba(255,215,0,0.65));
+  animation:crownFloat 2.6s ease-in-out infinite;
 }
-.champion h2{font-size:clamp(1.1rem,3vw,1.4rem);margin-bottom:7px}
-.champion .champ-name{
-  font-size:clamp(1.6rem,5vw,2.4rem);font-weight:900;
-  background:linear-gradient(90deg,#fff,var(--gold));
-  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+@keyframes crownFloat{
+  0%,100%{transform:translateY(0) rotate(-5deg)}
+  50%{transform:translateY(-5px) rotate(5deg)}
 }
-.champion .conf{font-size:1.4rem;margin-top:7px}
+.champ-label{
+  font-size:0.6rem;font-weight:800;letter-spacing:3px;
+  color:var(--gold);opacity:0.85;
+}
+.champ-winner{
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:1.5rem;font-weight:900;letter-spacing:-0.3px;line-height:1.35;
+  background:linear-gradient(90deg,#ffd700,#fff6b0,#29b6f6,#fff6b0,#ffd700);
+  background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:transparent;
+  animation:champShine 3.2s linear infinite;
+}
+@keyframes champShine{
+  0%{background-position:0% 50%}
+  100%{background-position:300% 50%}
+}
+
+/* ── 🟢 وضع الشاشة الخضراء (Chroma Key) ──
+   خلفيات صلبة بدون شفافية ولا بلور، صفر توهّج وصفر أنيميشن (التوهّج يخلي
+   فلتر الكروما ياكل الحواف)، وخط أكبر لأن الشجرة تكون على عرض الشاشة. */
+.green-mode .bracket{
+  --row:54px;--g0:16px;--conn:20px;--lw:3px;
+  --row-bg:#0b1830;--row-br:rgba(41,182,246,0.45);
+  --line:rgba(41,182,246,0.65);
+}
+.green-mode .p-name{font-size:1.3rem}
+.green-mode .p-badge{width:32px;height:32px;border-radius:9px;font-size:1rem}
+.green-mode .round,
+.green-mode .round.r-fwd{min-width:252px;max-width:300px}
+.green-mode .round-title{font-size:0.88rem;background:#0e2038;border-color:rgba(41,182,246,0.5);color:#7fd4ff}
+.green-mode .round.r-center{min-width:286px;max-width:340px;background:#0e1c38;border-color:rgba(41,182,246,0.55)}
+.green-mode .round.r-center .round-title{background:#12355e;color:#fff}
+.green-mode .round.r-center .player .p-name{font-size:1.42rem}
+.green-mode .match{background:#0a1526;border-color:rgba(41,182,246,0.25)}
+.green-mode .player{background:#0b1830;backdrop-filter:none;-webkit-backdrop-filter:none}
+.green-mode .player.winner{background:#2b2410;border-color:rgba(255,215,0,0.6);color:#ffd700}
+.green-mode .player.loser{background:#0b1830;opacity:0.5}
+.green-mode .player.empty,.green-mode .player.bye-slot{background:#091426}
+.green-mode .match.done{opacity:1}
+/* صفر توهّج وصفر حركة */
+.green-mode .match,
+.green-mode .player,
+.green-mode .match.done > .conn,
+.green-mode .champ-crown,
+.green-mode .champ-winner{animation:none !important;box-shadow:none !important;filter:none !important}
+.green-mode .match.ready{border-color:#29b6f6 !important;background:#0c2136 !important}
+.green-mode .match.picked-match{
+  border-color:#ff2d2d !important;background:#2a1113 !important;
+  box-shadow:0 0 0 3px #ff2d2d !important;
+}
+.green-mode .champ-winner{font-size:1.75rem}
 
 /* ── أزرار وضع الخلفية بصفحة /bracket ── */
 /* شبه مخفية (شفافية 6%) عشان ما تبين بالبث، وتظهر كامل لما تحرّك عليها الماوس */
@@ -718,6 +821,9 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
     color:var(--blue);
   }
   .names-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .setup-sep{display:none}
+  .setup-bar{gap:12px;padding:14px}
+  .setup-name{min-width:100%}
   .pick-bar{flex-direction:column;align-items:stretch}
   .pick-result{flex-direction:column}
   .pick-vs{text-align:center}
