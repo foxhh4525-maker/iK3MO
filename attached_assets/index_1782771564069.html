@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>IK3MO</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://js.pusher.com/8.0.1/pusher.min.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+
+:root{
+  --bg:       #060d1a;
+  --surface:  rgba(255,255,255,0.035);
+  --surface2: rgba(255,255,255,0.06);
+  --border:   rgba(0,191,255,0.18);
+  --border2:  rgba(0,191,255,0.38);
+  --blue:     #29b6f6;
+  --blue2:    #00bfff;
+  --glow:     rgba(41,182,246,0.45);
+  --gold:     #ffd700;
+  --kick:     #53fc18;
+  --text:     #e8f4ff;
+  --muted:    #6a90aa;
+}
+
+body{
+  font-family:'Cairo',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ══ BACKGROUND ══ */
+#bg{
+  position:fixed;inset:0;z-index:0;
+  background:url('ik3mo-bg-1280.jpg') center/cover no-repeat;
+  filter:brightness(0.22) saturate(1.3) blur(1px);
+  transform:scale(1.04);
+}
+#bg-grad{
+  position:fixed;inset:0;z-index:1;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%,rgba(0,120,255,0.13) 0%,transparent 70%),
+    linear-gradient(180deg,rgba(6,13,26,0.3) 0%,rgba(6,13,26,0.75) 100%);
+}
+
+/* ══ SHELL ══ */
+.shell{
+  position:relative;z-index:2;
+  display:flex;height:100vh;overflow:hidden;
+}
+.main{
+  flex:1;overflow-y:auto;
+  padding:32px 10px 60px;
+  scrollbar-width:thin;
+  scrollbar-color:var(--border) transparent;
+}
+.main::-webkit-scrollbar{width:4px}
+.main::-webkit-scrollbar-track{background:transparent}
+.main::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+/* ══ SIDEBAR ══ */
+.sidebar{
+  width:340px;flex-shrink:0;
+  border-right:1px solid var(--border);
+  background:rgba(4,10,22,0.7);
+  backdrop-filter:blur(18px);
+  display:flex;flex-direction:column;
+  height:100vh;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  z-index: 100;
+}
+.sidebar.hidden {
+  margin-right: -340px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Sidebar Toggle Button */
+.sidebar-toggle {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 45px;
+  height: 45px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  transition: all 0.2s;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+}
+.sidebar-toggle:hover {
+  background: var(--surface2);
+  border-color: var(--blue);
+  transform: translateY(-2px);
+}
+.sidebar-toggle.active {
+  background: var(--blue);
+  color: #000;
+  border-color: transparent;
+  box-shadow: 0 0 15px var(--glow);
+}
+.sidebar-head{
+  padding:18px 20px 14px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;flex-shrink:0;
+}
+.kick-badge{
+  width:36px;height:36px;border-radius:9px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;overflow:hidden;
+}
+.sidebar-title{font-size:0.95rem;font-weight:700}
+.live-pill{
+  margin-right:auto;padding:3px 10px;border-radius:99px;
+  font-size:0.7rem;font-weight:700;
+}
+.pill-offline{background:rgba(255,255,255,0.07);color:var(--muted)}
+.pill-checking{background:rgba(255,195,0,0.12);color:#ffc300;animation:blink 1.2s infinite}
+.pill-live{background:rgba(83,252,24,0.14);color:var(--kick)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.45}}
+.chat-body{flex:1;overflow:hidden;position:relative;display:flex;flex-direction:column}
+.chat-frame-container{flex:2;position:relative;border-bottom:1px solid var(--border)}
+.chat-frame-container iframe{width:100%;height:100%;border:none}
+.entry-log-container{flex:1;display:flex;flex-direction:column;background:rgba(0,0,0,0.2);min-height:200px}
+.entry-log-head{padding:10px 15px;font-size:0.8rem;font-weight:700;color:var(--blue);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.02)}
+.entry-log-list{flex:1;overflow-y:auto;padding:10px;display:flex;flex-direction:column;gap:5px;scrollbar-width:none}
+.entry-log-list::-webkit-scrollbar{display:none}
+.entry-item{padding:6px 10px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:0.85rem;display:flex;align-items:center;gap:8px;animation:slideIn 0.3s ease-out}
+@keyframes slideIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+.entry-item .time{font-size:0.7rem;color:var(--muted);margin-right:auto}
+.entry-item .user{font-weight:700;color:var(--text)}
+.entry-item .status-dot{width:6px;height:6px;border-radius:50%;background:var(--kick)}
+.chat-offline{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:16px;padding:32px;text-align:center;
+}
+.chat-offline .ico{font-size:3rem;opacity:0.3}
+.chat-offline p{color:var(--muted);font-size:0.85rem;line-height:1.7}
+.chat-offline b{color:var(--blue)}
+.btn-check{
+  padding:9px 22px;border:none;border-radius:10px;cursor:pointer;
+  background:linear-gradient(135deg,var(--kick),#3ad00f);
+  color:#000;font-weight:800;font-family:inherit;font-size:0.85rem;
+  transition:all .25s;
+}
+.btn-check:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(83,252,24,0.3)}
+
+/* ══ HEADER ══ */
+.site-header{text-align:center;margin-bottom:36px}
+.tag{
+  display:inline-block;padding:4px 18px;border-radius:99px;
+  border:1px solid rgba(41,182,246,0.35);
+  background:rgba(41,182,246,0.08);
+  font-size:0.72rem;font-weight:700;letter-spacing:3px;
+  color:var(--blue);text-transform:uppercase;margin-bottom:14px;
+}
+.site-header h1{
+  font-size:3.2rem;font-weight:900;line-height:1.1;margin-bottom:10px;
+  background:linear-gradient(100deg,#fff 20%,var(--blue) 55%,#fff 90%);
+  background-size:200% auto;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  animation:shine 4s linear infinite;
+}
+@keyframes shine{to{background-position:200% center}}
+.site-header p{color:var(--muted);font-size:0.9rem}
+
+/* ══ CARDS ══ */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:18px;
+  backdrop-filter:blur(12px);
+  padding:28px;
+  margin-bottom:22px;
+}
+
+/* ══ SETUP ══ */
+.size-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:center;margin-bottom:20px}
+.size-row label{font-weight:700;color:var(--blue);font-size:0.9rem}
+.pills{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sz-pill{
+  padding:8px 20px;border-radius:99px;font-weight:700;font-family:inherit;
+  font-size:0.88rem;cursor:pointer;transition:all .2s;
+  border:1.5px solid var(--border);background:transparent;color:var(--text);
+}
+.sz-pill:hover{border-color:var(--blue);color:var(--blue);transform:translateY(-2px)}
+.sz-pill.on{
+  background:linear-gradient(135deg,var(--blue),var(--blue2));
+  border-color:transparent;color:#040e1c;
+  box-shadow:0 0 18px var(--glow);
+}
+.custom-n{
+  width:85px;padding:8px 12px;border-radius:99px;
+  border:1.5px solid var(--border);background:rgba(0,0,0,0.4);
+  color:var(--text);text-align:center;font-size:0.88rem;font-weight:700;font-family:inherit;outline:none;
+  transition:all .2s;
+}
+.custom-n:focus{border-color:var(--blue);box-shadow:0 0 12px var(--glow)}
+.info-note{text-align:center;color:var(--muted);font-size:0.82rem;margin-bottom:18px;min-height:20px}
+.info-note b{color:var(--blue)}
+.names-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+  gap:10px;margin-bottom:24px;
+}
+.n-input{
+  width:100%;padding:11px 14px;border-radius:11px;
+  border:1px solid var(--border);background:rgba(0,0,0,0.4);
+  color:var(--text);font-size:0.9rem;font-family:inherit;outline:none;transition:all .2s;
+}
+.n-input:focus{border-color:var(--blue);box-shadow:0 0 12px var(--glow)}
+.n-input::placeholder{color:var(--muted)}
+
+/* Delete Button & Input Wrapper */
+.n-wrapper{position:relative;display:flex;align-items:center;gap:6px}
+.btn-del{
+  position:absolute;left:8px;top:50%;transform:translateY(-50%);
+  width:22px;height:22px;border-radius:6px;border:none;
+  background:rgba(255,68,68,0.15);color:#ff4444;
+  font-size:0.7rem;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s;opacity:0;pointer-events:none;
+}
+.n-wrapper:hover .btn-del{opacity:1;pointer-events:all}
+.btn-del:hover{background:#ff4444;color:#fff}
+.n-input{padding-left:36px} /* make room for delete button */
+
+/* Team Toggle */
+.toggle-row{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:20px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap}
+.team-size-control{display:none;align-items:center;gap:8px;margin-right:15px;padding-right:15px;border-right:1px solid var(--border)}
+.team-size-control label{font-size:0.8rem;color:var(--muted)}
+.team-size-input{width:50px;padding:4px 8px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.3);color:var(--text);font-family:inherit;font-size:0.8rem;text-align:center}
+.team-size-input:focus{border-color:var(--blue);outline:none}
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 22px;
+}
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background-color: var(--surface2); border: 1px solid var(--border);
+  transition: .4s; border-radius: 22px;
+}
+.slider:before {
+  position: absolute; content: ""; height: 14px; width: 14px; left: 3px; bottom: 3px;
+  background-color: var(--muted); transition: .4s; border-radius: 50%;
+}
+input:checked + .slider { background-color: rgba(41,182,246,0.2); border-color: var(--blue); }
+input:checked + .slider:before { transform: translateX(22px); background-color: var(--blue); }
+
+.action-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+
+/* ══ BUTTONS ══ */
+.btn{
+  padding:11px 24px;border:none;border-radius:11px;
+  font-weight:700;font-family:inherit;font-size:0.92rem;cursor:pointer;transition:all .25s;
+}
+.btn-primary{
+  background:linear-gradient(135deg,var(--blue),var(--blue2));
+  color:#040e1c;box-shadow:0 0 18px var(--glow);
+}
+.btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 28px var(--glow)}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:rgba(41,182,246,0.08);border-color:var(--blue)}
+
+/* ══ TOURNAMENT TOOLBAR ══ */
+.toolbar{
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:12px;margin-bottom:20px;
+  padding:14px 20px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;backdrop-filter:blur(10px);
+}
+.toolbar-info{color:var(--muted);font-size:0.88rem}
+.toolbar-info b{color:var(--blue)}
+
+/* ══ RANDOM PICK BUTTON (inside tournament) ══ */
+.pick-bar{
+  display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:16px 22px;
+  background:linear-gradient(135deg,rgba(41,182,246,0.07),rgba(0,191,255,0.03));
+  border:1px solid rgba(41,182,246,0.25);
+  border-radius:14px;
+  margin-bottom:22px;
+}
+.pick-bar-label{font-size:0.88rem;font-weight:700;color:var(--blue);white-space:nowrap}
+.pick-result{
+  flex:1;display:flex;align-items:center;gap:12px;
+  min-width:0;
+}
+.pick-slot{
+  flex:1;min-width:0;padding:10px 16px;border-radius:10px;
+  border:1.5px solid var(--border);background:rgba(0,0,0,0.35);
+  font-size:0.92rem;font-weight:700;text-align:center;
+  transition:all .3s;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-height:44px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);
+}
+.pick-slot.rolling{
+  border-color:var(--blue);
+  box-shadow:0 0 16px var(--glow);
+  color:var(--text);
+  animation:slotShake .09s ease-in-out infinite;
+}
+.pick-slot.locked-in{
+  border-color:var(--gold);
+  background:linear-gradient(135deg,rgba(255,215,0,0.12),rgba(255,165,0,0.05));
+  box-shadow:0 0 22px rgba(255,215,0,0.4);
+  color:var(--gold);
+}
+@keyframes slotShake{
+  0%{transform:translateY(0) scale(1)}
+  30%{transform:translateY(-2px) scale(1.015)}
+  70%{transform:translateY(2px) scale(0.985)}
+  100%{transform:translateY(0) scale(1)}
+}
+.pick-vs{font-size:1.1rem;font-weight:900;color:var(--muted);flex-shrink:0}
+.btn-pick{
+  padding:10px 22px;border:none;border-radius:10px;cursor:pointer;flex-shrink:0;
+  background:linear-gradient(135deg,var(--blue),var(--blue2));
+  color:#040e1c;font-weight:800;font-family:inherit;font-size:0.88rem;
+  transition:all .25s;position:relative;overflow:hidden;
+  box-shadow:0 0 14px var(--glow);
+}
+.btn-pick:hover{transform:translateY(-2px);box-shadow:0 6px 22px var(--glow)}
+.btn-pick:active{transform:scale(0.97)}
+.btn-pick:disabled{opacity:0.45;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ══ BRACKET ══ */
+.bracket-wrap{
+  width: 100%;
+  overflow: visible;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px 0;
+}
+.bracket{
+  display:flex;gap:20px;align-items:stretch;
+  padding:10px;justify-content:center;
+  min-width:max-content;
+  transition: all 0.2s ease-out;
+}
+.round{
+  display:flex;flex-direction:column;
+  justify-content:space-around;
+  min-width:240px;
+  flex:1;
+  flex-shrink:0;
+}
+.round-title{
+  text-align:center;font-weight:700;color:var(--blue);
+  margin-bottom:15px;font-size:1rem;text-transform:uppercase;letter-spacing:2px;
+}
+.round.r-left,.round.r-right{min-width:260px;flex-shrink:0}
+.round.r-center{
+  background:linear-gradient(135deg,rgba(41,182,246,0.1),rgba(0,191,255,0.04));
+  border:1px solid rgba(41,182,246,0.4);border-radius:18px;padding:20px;
+  min-width:320px;max-width:400px;flex-shrink:0;
+  box-shadow:0 0 40px rgba(41,182,246,0.3);
+  animation:cpulse 3s ease-in-out infinite;
+}
+@keyframes cpulse{
+  0%,100%{box-shadow:0 0 40px rgba(41,182,246,0.3)}
+  50%{box-shadow:0 0 65px rgba(41,182,246,0.6)}
+}
+.round.r-center .round-title{
+  font-size:1.3rem;letter-spacing:2px;
+  background:linear-gradient(90deg,#fff,var(--blue));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+/* highlight the randomly picked match */
+.match.picked-match{
+  border-color:var(--gold) !important;
+  box-shadow:0 0 0 3px var(--gold) inset, 0 0 30px rgba(255,215,0,0.45) !important;
+  animation:goldpulse 1s ease-in-out infinite !important;
+}
+@keyframes goldpulse{
+  0%,100%{box-shadow:0 0 0 3px var(--gold) inset, 0 0 30px rgba(255,215,0,0.45)}
+  50%{box-shadow:0 0 0 3px var(--gold) inset, 0 0 55px rgba(255,215,0,0.7)}
+}
+.matches{display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:18px}
+.match{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;overflow:hidden;transition:all .25s;backdrop-filter:blur(8px);
+}
+.match.ready{
+  border-color:var(--blue);
+  box-shadow:0 0 0 2px var(--blue) inset,0 0 20px var(--glow);
+  animation:rpulse 2s ease-in-out infinite;
+}
+@keyframes rpulse{
+  0%,100%{box-shadow:0 0 0 2px var(--blue) inset,0 0 20px var(--glow)}
+  50%{box-shadow:0 0 0 2px var(--blue) inset,0 0 35px var(--glow)}
+}
+.match.done{opacity:0.55}
+.match.bye-match{border-style:dashed;opacity:0.45}
+.match.final-match{
+  border-width:3px;border-color:rgba(41,182,246,0.6);
+  background:linear-gradient(135deg,rgba(41,182,246,0.15),rgba(0,191,255,0.06));
+  box-shadow:0 0 30px var(--glow);
+}
+.player{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:16px 20px;font-size:1.1rem;cursor:pointer;transition:all .18s;
+  border-bottom:1px solid var(--border);
+  user-select:none;gap:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-height:65px;
+}
+.player:last-child{border-bottom:none}
+.player:hover:not(.empty):not(.locked):not(.bye-slot){background:rgba(41,182,246,0.15)}
+.player.winner{background:rgba(41,182,246,0.2);font-weight:700}
+.player.winner::after{content:" 👑"}
+.player.loser{color:rgba(255,255,255,0.22);text-decoration:line-through}
+.player.empty{color:var(--muted);cursor:default;font-style:italic}
+.player.bye-slot{color:var(--blue);cursor:default;font-style:italic;background:rgba(41,182,246,0.05)}
+.player.locked{cursor:not-allowed}
+
+/* ══ CHAMPION ══ */
+.champion{
+  text-align:center;padding:30px 20px;margin-top:28px;
+  background:linear-gradient(135deg,rgba(41,182,246,0.15),rgba(0,191,255,0.08));
+  border:2px solid var(--blue);border-radius:20px;display:none;
+  animation:cglow 2s ease-in-out infinite;
+}
+@keyframes cglow{
+  0%,100%{box-shadow:0 0 32px var(--glow)}
+  50%{box-shadow:0 0 58px rgba(0,191,255,0.55)}
+}
+.champion h2{font-size:1.5rem;margin-bottom:8px}
+.champion .champ-name{
+  font-size:2.5rem;font-weight:900;
+  background:linear-gradient(90deg,#fff,var(--gold));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+.champion .conf{font-size:1.6rem;margin-top:8px}
+
+/* ══ RESPONSIVE ══ */
+@media(max-width:900px){
+  .shell{flex-direction:column;height:auto}
+  .main{overflow-y:visible;padding:20px 16px 40px}
+  .sidebar{width:100%;height:480px;border-right:none;border-top:1px solid var(--border)}
+}
+@media(max-width:580px){
+  .site-header h1{font-size:2rem}
+  .card{padding:18px}
+  .pick-bar{flex-direction:column;align-items:stretch}
+  .pick-result{flex-direction:column}
+  .pick-vs{text-align:center}
+}
+</style>
+</head>
+<body>
+
+<div id="bg"></div>
+<div id="bg-grad"></div>
+
+<div class="shell">
+
+  <!-- ══ MAIN ══ -->
+  <div class="main">
+    <div style="width:100%;margin:0 auto">
+
+      <header class="site-header">
+        <div class="tag">IK3MO</div>
+        <h1>IK3MO</h1>
+        <p>اختر عدد اللاعبين، اكتب أسمائهم، وكل جولة اضغط على الفائز ليتأهل</p>
+      </header>
+
+      <!-- ══ SETUP SCREEN ══ -->
+      <div class="card" id="setup-screen">
+        <div class="size-row">
+          <label>اسم البطولة:</label>
+          <input type="text" id="tournament-name-input" class="n-input" style="max-width: 300px;" placeholder="IK3MO">
+        </div>
+        <div class="size-row">
+          <label>عدد المشاركين:</label>
+          <div class="pills" id="size-pills">
+            <button class="sz-pill" data-size="4">4</button>
+            <button class="sz-pill" data-size="8">8</button>
+            <button class="sz-pill on" data-size="16">16</button>
+            <button class="sz-pill" data-size="32">32</button>
+            <input type="number" min="2" max="128" id="custom-num" class="custom-n" placeholder="مخصص">
+          </div>
+        </div>
+        <div class="info-note" id="info-note"></div>
+        <div class="toggle-row">
+          <label style="font-size:0.9rem;font-weight:700;color:var(--muted)">نظام الفرق (Teams):</label>
+          <label class="switch">
+            <input type="checkbox" id="team-toggle">
+            <span class="slider"></span>
+          </label>
+          <div class="team-size-control" id="team-size-wrap">
+            <label>عدد اللاعبين/فريق:</label>
+            <input type="number" id="team-size" class="team-size-input" value="2" min="1" max="10">
+          </div>
+        </div>
+        <div class="names-grid" id="names-grid"></div>
+        <div class="action-row">
+          <button class="btn btn-ghost" id="btn-clear">🧹 تفريغ</button>
+          <button class="btn btn-ghost" id="btn-randomize">🎲 أسماء عشوائية</button>
+          <button class="btn btn-primary" id="btn-start">🚀 ابدأ البطولة</button>
+        </div>
+      </div>
+
+      <!-- ══ TOURNAMENT SCREEN ══ -->
+      <div id="tournament-screen" style="display:none">
+
+        <div class="toolbar" style="display:flex;align-items:center;justify-content:space-between;position:relative;gap:20px">
+          <div class="toolbar-info" style="flex:0 0 auto;display:flex;align-items:center;gap:8px">
+            <button class="btn btn-ghost" id="btn-reset" style="padding:6px 14px;font-size:0.85rem">↺ بطولة جديدة</button>
+          </div>
+          <div class="toolbar-info" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);pointer-events:none">
+            <span id="tournament-name-display" style="color:var(--gold);font-weight:900;font-size:1.4rem;white-space:nowrap;text-shadow:0 0 12px rgba(255,215,0,0.6)"></span>
+          </div>
+          <div class="toolbar-info" style="flex:0 0 auto;display:flex;align-items:center;gap:8px">
+            <span id="label-players-count">اللاعبون:</span> <b id="info-count">16</b>
+            <span id="info-bye" style="color:var(--blue)"></span>
+            <span style="opacity:0.5">·</span>
+            <span>الجولة الحالية:</span> <b id="info-round">1</b>
+          </div>
+        </div>
+
+        <!-- RANDOM MATCH PICKER — only visible during tournament -->
+        <div class="pick-bar">
+          <span class="pick-bar-label">🎲 ماتش عشوائي:</span>
+          <div class="pick-result">
+            <div class="pick-slot" id="slot-a">—</div>
+            <div class="pick-vs">VS</div>
+            <div class="pick-slot" id="slot-b">—</div>
+          </div>
+          <button class="btn-pick" id="btn-pick" onclick="pickRandomMatch()">🎰 اختر!</button>
+        </div>
+
+        <div class="bracket-wrap">
+          <div class="bracket" id="bracket"></div>
+        </div>
+
+        <div class="champion" id="champion-banner">
+          <h2>🎉 بطل البطولة 🎉</h2>
+          <div class="champ-name" id="champion-name"></div>
+          <div class="conf">✨ 🏆 ✨</div>
+        </div>
+
+      </div><!-- /tournament-screen -->
+    </div>
+  </div><!-- /main -->
+
+  <!-- ══ SIDEBAR TOGGLE ══ -->
+  <button class="sidebar-toggle" id="sidebar-toggle" title="إظهار/إخفاء القائمة الجانبية">
+    <span style="font-size: 1.2rem;">💬</span>
+  </button>
+
+  <!-- ══ KICK SIDEBAR ══ -->
+  <div class="sidebar" id="sidebar-container">
+    <div class="sidebar-head">
+      <div class="kick-badge">
+        <img src="kemo1_1.icon.png" alt="KICK" style="width:100%;height:100%;object-fit:cover;">
+      </div>
+      <div class="sidebar-title">IK3MO</div>
+      <div class="live-pill pill-checking" id="live-pill">يتحقق...</div>
+    </div>
+    <div class="chat-body">
+      <div class="chat-frame-container">
+        <div class="chat-offline" id="chat-offline">
+          <div class="ico">📡</div>
+          <p>جاري التحقق من بث <b>IK3MO</b> على Kick.<br>الشات يظهر تلقائياً عند البث.</p>
+          <button class="btn-check" onclick="kickCheck(true)">🔄 تحقق الآن</button>
+        </div>
+        <iframe id="kick-frame" style="display:none" src="about:blank"
+          allow="autoplay;fullscreen"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>
+      </div>
+      <div class="entry-log-container">
+        <div class="entry-log-head">
+          <span>👥 المسجلين من الشات</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span id="chat-status" style="font-size:0.6rem;color:var(--muted)">🔴 غير متصل</span>
+            <span id="entry-count" style="color:var(--kick)">0</span>
+          </div>
+        </div>
+        <div class="entry-log-list" id="entry-log-list">
+          <!-- entries will appear here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /shell -->
+
+<script>
+/* ═══════════════════════════
+   KICK LIVE CHAT & TEST MODE
+   ═══════════════════════════ */
+let CH = 'ik3mo';
+let testMode = false;
+let kLive = false;
+let pusher = null;
+let chatChannel = null;
+const CHANNEL_META = {
+  ik3mo: { chatroomId: 5675989 },
+  honkfm: { chatroomId: 20137066 }
+};
+
+function updateUIForChannel() {
+  const customName = ST.name.trim();
+  const baseTitle = customName ? customName : (testMode ? "HONKFM (TEST)" : "IK3MO");
+  const type = ST.isTeams ? " (فرق)" : "";
+  const fullTitle = baseTitle + type;
+  
+  document.title = fullTitle;
+  document.querySelector('.site-header h1').textContent = fullTitle;
+  document.querySelector('.tag').textContent = testMode ? "TEST MODE" : "IK3MO";
+  document.querySelector('.sidebar-title').textContent = `IK3MO`;
+  document.querySelector('#chat-offline b').textContent = CH.toUpperCase();
+}
+
+window.addEventListener('keydown', (e) => {
+  const key = e.key.toLowerCase();
+  if (key === 't') {
+    testMode = !testMode;
+    CH = testMode ? 'honkfm' : 'ik3mo';
+    updateUIForChannel();
+    kickCheck(true);
+    connectToKickChat();
+    // Clear log when switching
+    clearChatLog();
+  }
+  else if (key === 'l') {
+    // Add test user
+    const randomNum = Math.floor(Math.random() * 999);
+    handleEntry(`TEST_USER_${randomNum}`);
+  }
+});
+
+async function connectToKickChat() {
+  const statusEl = document.getElementById('chat-status');
+  statusEl.textContent = '🟡 جاري الاتصال...';
+  statusEl.style.color = '#ffc300';
+
+  if (chatChannel) {
+    chatChannel.unbind_all();
+    if (pusher) pusher.unsubscribe(chatChannel.name);
+    chatChannel = null;
+  }
+  if (!pusher) {
+    pusher = new Pusher('32cbd69e4b950bf97679', {
+      cluster: 'us2',
+      forceTLS: true
+    });
+  }
+
+  const meta = CHANNEL_META[CH];
+  if (!meta?.chatroomId) {
+    statusEl.textContent = '🔴 فشل جلب البيانات';
+    statusEl.style.color = '#ff4444';
+    return;
+  }
+
+  subscribeToChat(meta.chatroomId);
+}
+
+function subscribeToChat(chatroomId) {
+  const statusEl = document.getElementById('chat-status');
+  chatChannel = pusher.subscribe(`chatrooms.${chatroomId}.v2`);
+  
+  chatChannel.bind('pusher:subscription_succeeded', () => {
+    statusEl.textContent = '🟢 متصل بالشات';
+    statusEl.style.color = 'var(--kick)';
+  });
+
+  chatChannel.bind('App\\Events\\ChatMessageEvent', (data) => {
+    const msg = data.content.trim();
+    const user = data.sender.username;
+    if (msg.includes('!دخول')) handleEntry(user);
+  });
+
+  pusher.connection.bind('error', () => {
+    statusEl.textContent = '🔴 خطأ في الاتصال';
+    statusEl.style.color = '#ff4444';
+  });
+}
+
+function handleEntry(user) {
+  if (document.getElementById('setup-screen').style.display === 'none') return;
+  
+  // التحقق من عدم التكرار في كل الفرق
+  const allNames = ST.players.join(' & ').toLowerCase();
+  if (allNames.includes(user.toLowerCase())) return;
+
+  let added = false;
+  if (ST.isTeams) {
+    // منطق الفرق: ابحث عن فريق لم يكتمل بعد
+    for (let i = 0; i < ST.size; i++) {
+      let current = ST.players[i] || "";
+      let members = current ? current.split(' & ') : [];
+      
+      if (members.length < ST.teamSize) {
+        members.push(user);
+        ST.players[i] = members.join(' & ');
+        added = true;
+        break;
+      }
+    }
+    // إذا كانت كل الفرق ممتلئة، أضف فريقاً جديداً
+    if (!added) {
+      ST.players.push(user);
+      setSize(ST.players.length);
+      added = true;
+    }
+  } else {
+    // المنطق العادي (لاعب واحد)
+    if (ST.players.length < ST.size) {
+      for(let i=0; i<ST.size; i++) {
+        if(!ST.players[i]) {
+          ST.players[i] = user;
+          added = true;
+          break;
+        }
+      }
+      if (!added) { ST.players.push(user); added = true; }
+    } else {
+      ST.players.push(user);
+      setSize(ST.players.length);
+      added = true;
+    }
+  }
+
+  if (added) {
+    addToEntryLog(user);
+    renderInputs();
+  }
+}
+
+function addToEntryLog(user) {
+  const list = document.getElementById('entry-log-list');
+  const count = document.getElementById('entry-count');
+  
+  const item = document.createElement('div');
+  item.className = 'entry-item';
+  const now = new Date();
+  const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, '0')}`;
+  
+  item.innerHTML = `
+    <div class="status-dot"></div>
+    <div class="user">${user}</div>
+    <div class="time">${timeStr}</div>
+  `;
+  
+  list.insertBefore(item, list.firstChild);
+  count.textContent = list.children.length;
+}
+
+function clearChatLog() {
+  document.getElementById('entry-log-list').innerHTML = '';
+  document.getElementById('entry-count').textContent = '0';
+}
+
+function kickPill(s){
+  const el = document.getElementById('live-pill');
+  el.className = 'live-pill';
+  if(s==='live'){el.classList.add('pill-live');el.textContent='🟢 مباشر'}
+  else if(s==='off'){el.classList.add('pill-offline');el.textContent='⚫ أوفلاين'}
+  else{el.classList.add('pill-checking');el.textContent='🟡 يتحقق...'}
+}
+
+function kickShow(){
+  const f=document.getElementById('kick-frame');
+  const o=document.getElementById('chat-offline');
+  f.src=`https://kick.com/popout/${CH}/chat`;
+  f.style.display='block';
+  o.style.display='none';
+  kickPill('live');kLive=true;
+}
+function kickHide(){
+  const f=document.getElementById('kick-frame');
+  const o=document.getElementById('chat-offline');
+  f.style.display='none';f.src='about:blank';
+  o.style.display='flex';
+  kickPill('off');kLive=false;
+}
+
+async function kickCheck(manual=false){
+  if(!manual)kickPill('check');
+  try{
+    const r=await fetch(`https://kick.com/api/v2/channels/${CH}`,{headers:{'Accept':'application/json'}});
+    if(!r.ok)throw 0;
+    const d=await r.json();
+    const live=d?.livestream!=null;
+    if(live&&!kLive)kickShow();
+    else if(!live&&kLive)kickHide();
+    else if(!live)kickPill('off');
+  }catch{
+    // CORS fallback: just embed — Kick allows chat iframes
+    if(!kLive)kickShow();
+  }
+}
+
+window.addEventListener('load',()=>{
+  kickCheck(true);
+  connectToKickChat();
+  setInterval(()=>kickCheck(),90000);
+});
+
+/* ═══════════════════════════
+   SAMPLE NAMES
+═══════════════════════════ */
+const SAMPLES=[
+  "النمر","الصقر","الأسد","الذيب","الفهد","العقاب","الصاعق","البرق",
+  "الشجاع","البطل","المحارب","الفارس","الحصان","النسر","الرعد","الجبل",
+  "النار","الثلج","الوحش","التنين","الزعيم","القائد","الشمس","القمر",
+  "النجم","الزحلوف","الفيل","الدب","القرد","الثعلب","الذئب","العنيد",
+  "المدمر","الخاطف","الصاروخ","الشبح","القناص","المدفع","الجبار","العملاق",
+  "الطائر","الغواص","المتسلق","العداء","البحار","الناري","الجليدي","الصاعق2"
+];
+const BYE='__BYE__';
+
+/* ═══════════════════════════
+   STATE
+═══════════════════════════ */
+let ST={size:16,players:[],rounds:[],cur:0,bSize:16,byeN:0,isTeams:false,teamSize:2,name:""};
+
+function p2(n){let p=1;while(p<n)p*=2;return p;}
+
+/* ═══════════════════════════
+   RANDOM MATCH PICKER
+═══════════════════════════ */
+let pickRunning=false;
+let pickedMatchId=null; // "roundIdx-matchIdx"
+
+function getOpenMatches(){
+  // all matches in current round that are not yet decided and have 2 real players
+  const r=ST.rounds[ST.cur];
+  if(!r)return[];
+  return r.map((m,i)=>({m,i})).filter(({m})=>
+    !m.winner && m.a && m.a!==BYE && m.b && m.b!==BYE
+  );
+}
+
+function pickRandomMatch(){
+  if(pickRunning)return;
+  const open=getOpenMatches();
+  if(open.length===0){
+    document.getElementById('slot-a').textContent='لا يوجد ماتشات';
+    document.getElementById('slot-b').textContent='—';
+    return;
+  }
+
+  pickRunning=true;
+  document.getElementById('btn-pick').disabled=true;
+
+  // clear old highlight
+  if(pickedMatchId!==null){
+    const old=document.querySelector('.picked-match');
+    if(old)old.classList.remove('picked-match');
+  }
+
+  const slotA=document.getElementById('slot-a');
+  const slotB=document.getElementById('slot-b');
+  slotA.className='pick-slot rolling';
+  slotB.className='pick-slot rolling';
+
+  const names=open.map(o=>[o.m.a,o.m.b]).flat();
+  let ticks=0;
+  const total=24+Math.floor(Math.random()*14);
+  let delay=55;
+
+  // pick the final match ahead of time
+  const chosen=open[Math.floor(Math.random()*open.length)];
+
+  function tick(){
+    // show random names while spinning
+    const rA=names[Math.floor(Math.random()*names.length)];
+    let rB; do{rB=names[Math.floor(Math.random()*names.length)];}while(rB===rA&&names.length>1);
+    slotA.textContent=rA;
+    slotB.textContent=rB;
+    ticks++;
+    if(ticks<total){
+      if(ticks>total*0.55)delay=Math.min(delay*1.2,240);
+      setTimeout(tick,delay);
+    } else {
+      // Land on the real chosen match
+      slotA.textContent=chosen.m.a;
+      slotB.textContent=chosen.m.b;
+      slotA.className='pick-slot locked-in';
+      slotB.className='pick-slot locked-in';
+
+      // Highlight the match in the bracket
+      pickedMatchId=`${ST.cur}-${chosen.i}`;
+      setTimeout(()=>{
+        highlightMatch(ST.cur,chosen.i);
+        pickRunning=false;
+        document.getElementById('btn-pick').disabled=false;
+      },300);
+    }
+  }
+  tick();
+}
+
+function highlightMatch(rIdx,mIdx){
+  // remove any old highlight
+  document.querySelectorAll('.picked-match').forEach(el=>el.classList.remove('picked-match'));
+  // find the match element — we stored data attributes when rendering
+  const el=document.querySelector(`.match[data-r="${rIdx}"][data-m="${mIdx}"]`);
+  if(el)el.classList.add('picked-match');
+}
+
+/* ═══════════════════════════
+   SETUP UI
+═══════════════════════════ */
+function setSize(n){
+  n=Math.max(2,Math.min(128,parseInt(n,10)||2));
+  ST.size=n; ST.bSize=p2(n); ST.byeN=ST.bSize-n;
+  document.querySelectorAll('.sz-pill').forEach(p=>
+    p.classList.toggle('on',parseInt(p.dataset.size,10)===n));
+  renderInputs(); renderNote();
+}
+function renderNote(){
+  const el=document.getElementById('info-note');
+  const label = ST.isTeams ? 'فرق' : 'لاعبون';
+  el.innerHTML=ST.byeN>0
+    ?`📌 مقاعد: <b>${ST.bSize}</b> · ${label}: <b>${ST.size}</b> · بايب: <b>${ST.byeN}</b>`
+    :`📌 مقاعد: <b>${ST.bSize}</b> · جميع المقاعد ممتلئة`;
+}
+function renderInputs(){
+  const g=document.getElementById('names-grid');g.innerHTML='';
+  const label = ST.isTeams ? 'فريق' : 'لاعب';
+  const subLabel = ST.isTeams && ST.teamSize > 1 ? ` (${ST.teamSize} لاعبين)` : '';
+  
+  for(let i=0;i<ST.size;i++){
+    const wrap = document.createElement('div');
+    wrap.className = 'n-wrapper';
+
+    const inp=document.createElement('input');
+    inp.type='text';inp.className='n-input';
+    inp.placeholder=`${label} ${i+1}${subLabel}`;inp.value=ST.players[i]||'';inp.dataset.idx=i;
+    inp.addEventListener('input',e=>{ST.players[e.target.dataset.idx]=e.target.value;});
+    
+    const del = document.createElement('button');
+    del.className = 'btn-del';
+    del.innerHTML = '✕';
+    del.title = 'حذف';
+    del.onclick = () => deletePlayer(i);
+
+    wrap.appendChild(inp);
+    wrap.appendChild(del);
+    g.appendChild(wrap);
+  }
+}
+
+function deletePlayer(idx) {
+  ST.players.splice(idx, 1);
+  if (ST.size > 2) {
+    ST.size--;
+    ST.bSize = p2(ST.size);
+    ST.byeN = ST.bSize - ST.size;
+  }
+  renderInputs();
+  renderNote();
+}
+
+document.getElementById('team-toggle').addEventListener('change', e => {
+  ST.isTeams = e.target.checked;
+  document.getElementById('team-size-wrap').style.display = ST.isTeams ? 'flex' : 'none';
+  renderInputs();
+  renderNote();
+  updateUIForChannel();
+  // Update log header
+  document.querySelector('.entry-log-head span').textContent = ST.isTeams ? '👥 الفرق المسجلة' : '👥 المسجلين من الشات';
+});
+
+document.getElementById('team-size').addEventListener('input', e => {
+   ST.teamSize = Math.max(1, Math.min(10, parseInt(e.target.value) || 1));
+   renderInputs();
+ });
+ 
+ // Sidebar Toggle Logic
+ document.getElementById('sidebar-toggle').addEventListener('click', function() {
+   const sidebar = document.getElementById('sidebar-container');
+   sidebar.classList.toggle('hidden');
+   this.classList.toggle('active');
+   setTimeout(adjustBracketScale, 310); // Adjust scale after sidebar transition
+ });
+
+ function adjustBracketScale() {
+   const wrap = document.querySelector('.bracket-wrap');
+   const bracket = document.getElementById('bracket');
+   if (!wrap || !bracket || document.getElementById('tournament-screen').style.display === 'none') return;
+   
+   // Reset to measure
+   bracket.style.zoom = '1';
+   bracket.style.transform = 'none';
+   
+   const containerWidth = wrap.offsetWidth - 40;
+   const contentWidth = bracket.scrollWidth;
+   
+   if (contentWidth > containerWidth) {
+     const ratio = containerWidth / contentWidth;
+     // Use zoom if supported (Chrome/Edge/Trae), fallback to scale
+     if ('zoom' in document.body.style) {
+       bracket.style.zoom = ratio;
+     } else {
+       bracket.style.transform = `scale(${ratio})`;
+       bracket.style.transformOrigin = 'top center';
+     }
+   }
+ }
+
+ window.addEventListener('resize', adjustBracketScale);
+
+document.getElementById('size-pills').addEventListener('click',e=>{
+  const b=e.target.closest('.sz-pill');if(!b)return;
+  document.getElementById('custom-num').value='';
+  setSize(parseInt(b.dataset.size,10));
+});
+document.getElementById('custom-num').addEventListener('input',e=>{
+  const v=parseInt(e.target.value,10);
+  if(!isNaN(v)&&v>=2){document.querySelectorAll('.sz-pill').forEach(p=>p.classList.remove('on'));setSize(v);}
+});
+document.getElementById('btn-clear').addEventListener('click',()=>{
+  ST.players=[];
+  clearChatLog();
+  renderInputs();
+});
+document.getElementById('btn-randomize').addEventListener('click',()=>{
+  const pool=[...SAMPLES];
+  for(let i=pool.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[pool[i],pool[j]]=[pool[j],pool[i]];}
+  
+  if (ST.isTeams) {
+    ST.players = [];
+    for (let i = 0; i < ST.size; i++) {
+      let teamMembers = [];
+      for (let j = 0; j < ST.teamSize; j++) {
+        teamMembers.push(pool.pop() || "لاعب مجهول");
+      }
+      ST.players.push(teamMembers.join(' & '));
+    }
+  } else {
+    ST.players=pool.slice(0,ST.size).map((n,i)=>`${n} ${i+1}`);
+  }
+  renderInputs();
+});
+document.getElementById('btn-start').addEventListener('click',()=>{
+  const ins=document.querySelectorAll('.n-input:not(#tournament-name-input)');
+  const nameInput = document.getElementById('tournament-name-input');
+  ST.name = nameInput.value.trim();
+  
+  const label = ST.isTeams ? 'فريق' : 'لاعب';
+  ST.players=Array.from(ins).map(i=>i.value.trim()||`${label} ${parseInt(i.dataset.idx)+1}`);
+  buildBracket();
+  document.getElementById('setup-screen').style.display='none';
+  document.getElementById('tournament-screen').style.display='block';
+  updateUIForChannel(); // Refresh title with custom name
+  
+  // Display custom name in toolbar
+  const nameDisplay = document.getElementById('tournament-name-display');
+  nameDisplay.textContent = ST.name ? `🏆 ${ST.name}` : '';
+  
+  // update toolbar label
+  document.getElementById('label-players-count').textContent = ST.isTeams ? 'الفرق:' : 'اللاعبون:';
+  // reset picker slots
+  document.getElementById('slot-a').textContent='—';
+  document.getElementById('slot-b').textContent='—';
+  document.getElementById('slot-a').className='pick-slot';
+  document.getElementById('slot-b').className='pick-slot';
+});
+document.getElementById('btn-reset').addEventListener('click',()=>{
+  if(!confirm('تبدأ بطولة جديدة؟ بيتمسح كل شي'))return;
+  ST.players=[];ST.rounds=[];pickedMatchId=null;
+  clearChatLog();
+  document.getElementById('tournament-screen').style.display='none';
+  document.getElementById('setup-screen').style.display='block';
+  renderInputs();
+});
+
+/* ═══════════════════════════
+   BRACKET LOGIC
+═══════════════════════════ */
+function buildBracket(){
+  ST.rounds=[];ST.cur=0;
+  const real=[...ST.players];
+  for(let i=real.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[real[i],real[j]]=[real[j],real[i]];}
+  const total=ST.bSize/2;
+  const byeSet=new Set([...Array(total)].map((_,i)=>i).sort(()=>Math.random()-.5).slice(0,ST.byeN));
+  const r0=[];let pi=0;
+  for(let m=0;m<total;m++){
+    if(byeSet.has(m)){const p=real[pi++];r0.push({a:p,b:BYE,winner:p,isBye:true});}
+    else{r0.push({a:real[pi++],b:real[pi++],winner:null,isBye:false});}
+  }
+  ST.rounds.push(r0);
+  let prev=r0.length;
+  while(prev>1){const nc=Math.floor(prev/2);ST.rounds.push(Array.from({length:nc},()=>({a:null,b:null,winner:null,isBye:false})));prev=nc;}
+  propagate();renderBracket();
+}
+
+function propagate(){
+  for(let r=0;r<ST.rounds.length-1;r++){
+    ST.rounds[r].forEach((m,i)=>{
+      if(m.winner&&m.winner!==BYE){
+        const nm=ST.rounds[r+1][Math.floor(i/2)];
+        const sl=i%2===0?'a':'b';
+        if(nm[sl]===null||nm[sl]===BYE)nm[sl]=m.winner;
+      }
+    });
+  }
+  let changed=true;
+  while(changed){
+    changed=false;
+    ST.rounds.forEach(rnd=>rnd.forEach(m=>{
+      if(m.winner)return;
+      if(m.a===BYE&&m.b&&m.b!==BYE){m.winner=m.b;m.isBye=true;changed=true;}
+      else if(m.b===BYE&&m.a&&m.a!==BYE){m.winner=m.a;m.isBye=true;changed=true;}
+    }));
+    if(changed){
+      for(let r=0;r<ST.rounds.length-1;r++){
+        ST.rounds[r].forEach((m,i)=>{
+          if(m.winner&&m.winner!==BYE){
+            const nm=ST.rounds[r+1][Math.floor(i/2)];
+            const sl=i%2===0?'a':'b';
+            if(nm[sl]===null||nm[sl]===BYE)nm[sl]=m.winner;
+          }
+        });
+      }
+    }
+  }
+  for(let i=0;i<ST.rounds.length;i++){
+    if(ST.rounds[i].some(m=>!m.winner&&m.a&&m.a!==BYE&&m.b&&m.b!==BYE)){ST.cur=i;return;}
+  }
+  ST.cur=Math.max(0,ST.rounds.length-1);
+}
+
+function renderBracket(){
+  const bracket=document.getElementById('bracket');
+  bracket.innerHTML='';
+  // ... rest of logic ...
+  // at the end
+  setTimeout(adjustBracketScale, 10);
+}
+
+function renderBracket(){
+  const bracket=document.getElementById('bracket');
+  bracket.innerHTML='';
+  const total=ST.rounds.length,last=total-1;
+  const cols=[];
+  for(let r=0;r<last;r++){const h=ST.rounds[r].length/2;cols.push({side:'left',ri:r,s:0,e:h});}
+  cols.push({side:'center',ri:last,s:0,e:ST.rounds[last].length});
+  for(let r=last-1;r>=0;r--){const h=ST.rounds[r].length/2;cols.push({side:'right',ri:r,s:h,e:ST.rounds[r].length});}
+
+  cols.forEach(col=>{
+    const rEl=document.createElement('div');
+    rEl.className=`round r-${col.side}`;
+    const tEl=document.createElement('div');
+    tEl.className='round-title';
+    tEl.textContent=col.side==='center'?'🏆 النهائي 🏆':rTitle(col.ri,total);
+    rEl.appendChild(tEl);
+    const mEl=document.createElement('div');mEl.className='matches';
+    for(let m=col.s;m<col.e;m++){
+      const match=ST.rounds[col.ri][m];
+      const ready=col.ri===ST.cur&&!match.winner&&match.a&&match.a!==BYE&&match.b&&match.b!==BYE;
+      const div=document.createElement('div');
+      div.className=`match${ready?' ready':''}${match.winner?' done':''}${match.isBye?' bye-match':''}${col.side==='center'?' final-match':''}`;
+      // store coords for highlight
+      div.dataset.r=col.ri; div.dataset.m=m;
+      // re-apply highlight if this is the picked match
+      if(pickedMatchId===`${col.ri}-${m}`)div.classList.add('picked-match');
+      div.appendChild(mkPlayer(match,'a',col.ri,m));
+      div.appendChild(mkPlayer(match,'b',col.ri,m));
+      mEl.appendChild(div);
+    }
+    rEl.appendChild(mEl);bracket.appendChild(rEl);
+  });
+
+  document.getElementById('info-count').textContent=ST.players.length;
+  document.getElementById('info-bye').textContent=ST.byeN>0?`(بايب: ${ST.byeN})`:'';
+  document.getElementById('info-round').textContent=ST.cur+1;
+  const lr=ST.rounds[ST.rounds.length-1];
+  const ban=document.getElementById('champion-banner');
+  if(lr.length===1&&lr[0].winner&&lr[0].winner!==BYE){
+    document.getElementById('champion-name').textContent=lr[0].winner;
+    ban.style.display='block';
+  } else ban.style.display='none';
+  
+  // Auto-scale after render
+  setTimeout(adjustBracketScale, 50);
+}
+
+function mkPlayer(match,side,rIdx,mIdx){
+  const row=document.createElement('div');
+  const name=match[side];
+  const isW=match.winner&&match.winner===name&&name!==BYE;
+  const isL=match.winner&&match.winner!==name&&name&&name!==BYE;
+  const isBye=name===BYE,isEmpty=!name;
+  const canClick=rIdx===ST.cur&&!match.winner&&name&&name!==BYE&&match.a&&match.a!==BYE&&match.b&&match.b!==BYE;
+  let cls='player';
+  if(isW)cls+=' winner';else if(isL)cls+=' loser';
+  if(isBye)cls+=' bye-slot';else if(isEmpty)cls+=' empty';else if(!canClick&&!isW&&!isL)cls+=' locked';
+  row.className=cls;
+  row.textContent=isBye?'🟦 بايب':(isEmpty?'—':name);
+  if(canClick)row.addEventListener('click',()=>doWin(rIdx,mIdx,side));
+  return row;
+}
+
+function doWin(rIdx,mIdx,side){
+  const match=ST.rounds[rIdx][mIdx];
+  match.winner=match[side];
+  if(rIdx+1<ST.rounds.length){
+    const nm=ST.rounds[rIdx+1][Math.floor(mIdx/2)];
+    nm[mIdx%2===0?'a':'b']=match.winner;
+  }
+  // if this was the picked match, clear the highlight
+  if(pickedMatchId===`${rIdx}-${mIdx}`){
+    pickedMatchId=null;
+    document.getElementById('slot-a').textContent='—';
+    document.getElementById('slot-b').textContent='—';
+    document.getElementById('slot-a').className='pick-slot';
+    document.getElementById('slot-b').className='pick-slot';
+  }
+  propagate();renderBracket();
+}
+
+function rTitle(ri,total){
+  const rem=total-ri;
+  if(rem===1)return'النهائي 🏆';
+  if(rem===2)return'نصف النهائي';
+  if(rem===3)return'ربع النهائي';
+  if(rem===4)return'دور الـ 16';
+  if(rem===5)return'دور الـ 32';
+  if(rem===6)return'دور الـ 64';
+  return`الجولة ${ri+1}`;
+}
+
+setSize(16);
+</script>
+</body>
+</html>

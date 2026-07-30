@@ -1,0 +1,50 @@
+2026-06-30T12:27:44.487695513Z   dist/thread-stream-worker.mjs.map   12.0kb
+2026-06-30T12:27:44.487697853Z 
+2026-06-30T12:27:44.487701193Z ⚡ Done in 167ms
+2026-06-30T12:27:45.815192766Z ==> Uploading build...
+2026-06-30T12:27:52.718229938Z ==> Uploaded in 3.2s. Compression took 3.7s
+2026-06-30T12:27:52.738294255Z ==> Build successful 🎉
+2026-06-30T12:27:55.63302452Z ==> Deploying...
+2026-06-30T12:27:55.702881157Z ==> Setting WEB_CONCURRENCY=1 by default, based on available CPUs in the instance
+2026-06-30T12:28:13.691147045Z ==> Running 'node --enable-source-maps artifacts/api-server/dist/index.mjs'
+2026-06-30T12:28:15.190696041Z /opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:218
+2026-06-30T12:28:15.190748394Z           throw new PathError(`Missing parameter name at index ${index}`, str);
+2026-06-30T12:28:15.190754924Z                 ^
+2026-06-30T12:28:15.190757805Z 
+2026-06-30T12:28:15.190760585Z PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+2026-06-30T12:28:15.190764005Z     at consumeUntil (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:218:17)
+2026-06-30T12:28:15.190767115Z     at parse (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:262:24)
+2026-06-30T12:28:15.190769725Z     at process (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:466:52)
+2026-06-30T12:28:15.190772455Z     at pathToRegexp (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:478:3)
+2026-06-30T12:28:15.190775046Z     at Object.match (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:416:28)
+2026-06-30T12:28:15.190777906Z     at matcher (/opt/render/project/src/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:86:23)
+2026-06-30T12:28:15.190780366Z     at new Layer (/opt/render/project/src/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:93:62)
+2026-06-30T12:28:15.190782976Z     at router4.route (/opt/render/project/src/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:428:17)
+2026-06-30T12:28:15.190785556Z     at app2.route (/opt/render/project/src/node_modules/.pnpm/express@5.2.1/node_modules/express/lib/application.js:257:22)
+2026-06-30T12:28:15.190788106Z     at app2.app2.<computed> (/opt/render/project/src/node_modules/.pnpm/express@5.2.1/node_modules/express/lib/application.js:478:22) {
+2026-06-30T12:28:15.190790766Z   originalPath: '*'
+2026-06-30T12:28:15.190793367Z }
+2026-06-30T12:28:15.190795827Z 
+2026-06-30T12:28:15.190798437Z Node.js v24.14.1
+2026-06-30T12:28:19.860001385Z ==> Exited with status 1
+2026-06-30T12:28:19.871954073Z ==> Common ways to troubleshoot your deploy: https://render.com/docs/troubleshooting-deploys
+2026-06-30T12:28:24.050652292Z ==> Running 'node --enable-source-maps artifacts/api-server/dist/index.mjs'
+2026-06-30T12:28:25.545094462Z /opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:218
+2026-06-30T12:28:25.545124204Z           throw new PathError(`Missing parameter name at index ${index}`, str);
+2026-06-30T12:28:25.545128404Z                 ^
+2026-06-30T12:28:25.545131294Z 
+2026-06-30T12:28:25.545134244Z PathError [TypeError]: Missing parameter name at index 1: *; visit https://git.new/pathToRegexpError for info
+2026-06-30T12:28:25.545137744Z     at consumeUntil (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:218:17)
+2026-06-30T12:28:25.545141445Z     at parse (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:262:24)
+2026-06-30T12:28:25.545144595Z     at process (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:466:52)
+2026-06-30T12:28:25.545147745Z     at pathToRegexp (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:478:3)
+2026-06-30T12:28:25.545150285Z     at Object.match (/opt/render/project/src/node_modules/.pnpm/path-to-regexp@8.4.2/node_modules/path-to-regexp/src/index.ts:416:28)
+2026-06-30T12:28:25.545152845Z     at matcher (/opt/render/project/src/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:86:23)
+2026-06-30T12:28:25.545155675Z     at new Layer (/opt/render/project/src/node_modules/.pnpm/router@2.2.0/node_modules/router/lib/layer.js:93:62)
+2026-06-30T12:28:25.545158635Z     at router4.route (/opt/render/project/src/node_modules/.pnpm/router@2.2.0/node_modules/router/index.js:428:17)
+2026-06-30T12:28:25.545161466Z     at app2.route (/opt/render/project/src/node_modules/.pnpm/express@5.2.1/node_modules/express/lib/application.js:257:22)
+2026-06-30T12:28:25.545163926Z     at app2.app2.<computed> (/opt/render/project/src/node_modules/.pnpm/express@5.2.1/node_modules/express/lib/application.js:478:22) {
+2026-06-30T12:28:25.545166186Z   originalPath: '*'
+2026-06-30T12:28:25.545168876Z }
+2026-06-30T12:28:25.545171716Z 
+2026-06-30T12:28:25.545174616Z Node.js v24.14.1
