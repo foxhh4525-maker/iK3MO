@@ -367,11 +367,12 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
    --g0   = الفراغ بين مباريات الجولة الأولى (اللي بعدها يتضاعف تلقائياً)
    --conn = نص المسافة بين الأعمدة، وعليها تمشي خطوط الربط */
 .bracket{
-  --row:44px;
-  --vs:6px;
-  --box:calc(var(--row) * 2 + var(--vs));
+  --row:40px;
+  --vs:5px;
+  --pad:3px;                                   /* حشوة إطار الخانة */
+  --box:calc(var(--row) * 2 + var(--vs) + var(--pad) * 2 + 2px);
   --g0:12px;
-  --conn:16px;
+  --conn:15px;
   --line:rgba(41,182,246,0.26);
   --line-hot:rgba(41,182,246,0.85);
   --lw:2px;
@@ -395,9 +396,9 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
 .round{
   display:flex;flex-direction:column;
-  min-width:252px;flex:1;flex-shrink:0;
+  min-width:196px;flex:1;flex-shrink:0;
 }
-.round.r-fwd,.round.r-left,.round.r-right{min-width:258px;flex-shrink:0}
+.round.r-fwd,.round.r-left,.round.r-right{min-width:196px;max-width:236px;flex-shrink:0}
 .round-title{
   align-self:center;
   padding:5px 14px;margin-bottom:14px;
@@ -412,7 +413,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .round.r-center{
   background:rgba(41,182,246,0.05);
   border:1px solid rgba(41,182,246,0.3);border-radius:16px;padding:14px;
-  min-width:296px;max-width:380px;flex-shrink:0;
+  min-width:224px;max-width:268px;flex-shrink:0;
 }
 .round.r-center .round-title{
   background:rgba(41,182,246,0.16);
@@ -434,6 +435,11 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   height:var(--box);min-height:var(--box);
   display:flex;flex-direction:column;align-items:stretch;
   flex:0 0 auto;
+  padding:var(--pad);
+  background:rgba(255,255,255,0.025);
+  border:1px solid rgba(255,255,255,0.06);
+  border-radius:12px;
+  transition:border-color .2s,box-shadow .2s;
 }
 
 /* ── خطوط الربط ── */
@@ -466,39 +472,39 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
 /* ── شريحة اللاعب ── */
 .player{
-  display:flex;align-items:center;gap:10px;
+  display:flex;align-items:center;gap:8px;
   flex:0 0 auto;
   width:100%;
   height:var(--row);min-height:var(--row);
-  padding:0 12px;
+  padding:0 10px;
   white-space:nowrap;
   position:relative;overflow:hidden;
-  background:var(--row-bg);
+  background:linear-gradient(90deg,rgba(255,255,255,0.06),var(--row-bg));
   border:1px solid var(--row-br);
-  border-inline-start:3px solid rgba(255,255,255,0.14);
-  border-radius:9px;
+  border-inline-start:3px solid rgba(255,255,255,0.16);
+  border-radius:8px;
   font-weight:700;cursor:pointer;user-select:none;
   transition:background .18s,border-color .18s,color .18s,transform .18s;
 }
 .p-badge{
-  flex-shrink:0;width:26px;height:26px;border-radius:8px;
+  flex-shrink:0;width:24px;height:24px;border-radius:7px;
   display:grid;place-items:center;
   background:rgba(41,182,246,0.10);
-  color:var(--blue);font-size:0.8rem;font-weight:800;
+  color:var(--blue);font-size:0.78rem;font-weight:800;
   transition:all .18s;
 }
 .p-name{
   flex:1;min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:1rem;line-height:1.2;
+  font-size:1.06rem;font-weight:800;letter-spacing:-0.2px;line-height:1.15;
 }
 .p-mark{flex-shrink:0;font-size:0.9rem}
 .vs-line{height:var(--vs);min-height:var(--vs);flex:0 0 auto}
 .vs-line::before,.vs-line::after,.vs-line span{display:none}
 
 .player:hover:not(.empty):not(.locked):not(.bye-slot):not(.loser){
-  background:rgba(41,182,246,0.14);
-  border-color:rgba(41,182,246,0.4);
+  background:linear-gradient(90deg,rgba(41,182,246,0.22),rgba(41,182,246,0.06));
+  border-color:rgba(41,182,246,0.42);
   border-inline-start-color:var(--blue2);
 }
 .player:hover:not(.empty):not(.locked):not(.bye-slot):not(.loser) .p-badge{
@@ -506,8 +512,8 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 /* الفائز */
 .player.winner{
-  background:rgba(255,215,0,0.09);
-  border-color:rgba(255,215,0,0.28);
+  background:linear-gradient(90deg,rgba(255,215,0,0.16),rgba(255,215,0,0.04));
+  border-color:rgba(255,215,0,0.3);
   border-inline-start-color:var(--gold);
   color:var(--gold);
 }
@@ -527,32 +533,34 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .player.locked{cursor:default}
 
 /* ── حالات المباراة ── */
-.match.ready > .player:not(.empty):not(.bye-slot){
-  border-color:rgba(41,182,246,0.5);
-  box-shadow:0 0 14px rgba(41,182,246,0.18);
+.match.ready{
+  border-color:rgba(41,182,246,0.55);
+  background:rgba(41,182,246,0.07);
   animation:rpulse 2.4s ease-in-out infinite;
 }
+.match.ready > .player:not(.empty):not(.bye-slot){border-color:rgba(41,182,246,0.4)}
 @keyframes rpulse{
-  0%,100%{box-shadow:0 0 12px rgba(41,182,246,0.14)}
-  50%{box-shadow:0 0 24px rgba(41,182,246,0.34)}
+  0%,100%{box-shadow:0 0 10px rgba(41,182,246,0.16)}
+  50%{box-shadow:0 0 26px rgba(41,182,246,0.42)}
 }
 .match.done{opacity:0.9}
 .match.bye-match{opacity:0.5}
 /* النهائي: شرائح أطول شوي */
 .round.r-center .player{height:calc(var(--row) + 8px);min-height:calc(var(--row) + 8px);
-  border-inline-start-width:4px;border-radius:11px}
-.round.r-center .match{height:calc((var(--row) + 8px) * 2 + var(--vs));
-  min-height:calc((var(--row) + 8px) * 2 + var(--vs))}
+  border-inline-start-width:4px;border-radius:10px}
+.round.r-center .player .p-name{font-size:1.14rem}
+.round.r-center .match{height:calc((var(--row) + 8px) * 2 + var(--vs) + var(--pad) * 2 + 2px);
+  min-height:calc((var(--row) + 8px) * 2 + var(--vs) + var(--pad) * 2 + 2px)}
 .match.final-match > .player:not(.winner):not(.empty){
   background:rgba(41,182,246,0.09);border-color:rgba(41,182,246,0.35);
 }
 /* المباراة المسحوبة عشوائياً */
-.match.picked-match > .player{
+.match.picked-match{
   border-color:var(--gold) !important;
-  border-inline-start-color:var(--gold) !important;
-  box-shadow:0 0 18px rgba(255,215,0,0.35) !important;
+  background:rgba(255,215,0,0.07) !important;
   animation:goldpulse 1.2s ease-in-out infinite !important;
 }
+.match.picked-match > .player{border-color:rgba(255,215,0,0.45) !important}
 @keyframes goldpulse{
   0%,100%{box-shadow:0 0 14px rgba(255,215,0,0.28)}
   50%{box-shadow:0 0 30px rgba(255,215,0,0.6)}
@@ -560,12 +568,12 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
 /* شاشات صغيرة: نصغّر كل شي من متغيّر واحد */
 @media (max-width:700px){
-  .bracket{--row:36px;--g0:9px;--conn:12px}
-  .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:190px}
-  .round.r-center{min-width:206px;padding:10px}
-  .p-badge{width:22px;height:22px;border-radius:7px;font-size:0.7rem}
-  .p-name{font-size:0.88rem}
-  .player{padding:0 9px;gap:8px}
+  .bracket{--row:34px;--g0:9px;--conn:12px}
+  .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:158px;max-width:190px}
+  .round.r-center{min-width:178px;padding:9px}
+  .p-badge{width:21px;height:21px;border-radius:6px;font-size:0.68rem}
+  .p-name{font-size:0.94rem}
+  .player{padding:0 8px;gap:7px}
   .round-title{font-size:0.64rem;padding:4px 11px;margin-bottom:10px}
 }
 
@@ -723,8 +731,8 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .btn{padding:9px 18px;font-size:0.85rem}
   .sz-pill{padding:6px 13px;font-size:0.82rem}
   /* مقاسات الشجرة كلها من المتغيّرات فوق (--row / --g0 / --conn) */
-  .bracket{--row:33px;--g0:8px;--conn:11px}
-  .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:172px}
-  .round.r-center{min-width:186px;padding:9px}
-  .p-name{font-size:0.84rem}
+  .bracket{--row:32px;--g0:8px;--conn:11px}
+  .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:146px;max-width:176px}
+  .round.r-center{min-width:162px;padding:8px}
+  .p-name{font-size:0.9rem}
 }
