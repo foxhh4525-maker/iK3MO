@@ -16,6 +16,14 @@ const CHANNEL_META: Record<string, { chatroomId: number }> = {
   honkfm: { chatroomId: 20137066 },
 };
 
+// 🤖 بادئة أسماء البوتات التجريبية.
+// عربية عن قصد: أسماء حسابات كيك كلها لاتينية/أرقام/شرطة سفلية، فمستحيل
+// يتصادم اسم بوت مع اسم لاعب حقيقي. وما فيها " N " فما تلخبط فاصل الفرق.
+const BOT_PREFIX = "بوت ";
+function isBotName(name: string): boolean {
+  return (name || "").startsWith(BOT_PREFIX);
+}
+
 function drawRoundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -1040,6 +1048,53 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     return Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000));
   }
 
+  // 🤖 يضيف بوتات تجريبية تعدّي من نفس مسار "!دخول" الحقيقي (addEntryToState)
+  // بدل ما ندس أسماء بالقائمة مباشرة — كذا وضع الفرق وحساب البايب وسجل
+  // الدخول كلها تتصرّف بالضبط زي البطولة الحقيقية، فالتجربة تكون ذات معنى.
+  function addBots(count: number) {
+    // نجمع الأسماء الموجودة (بما فيها أعضاء الفرق) عشان ما نكرّر رقم بوت
+    const taken = new Set(
+      st.players.flatMap((p) => (p ? p.split(" N ") : [])).map(normalizeUsername)
+    );
+    let next = st;
+    const added: string[] = [];
+    let n = 1;
+    // سقف الدوران حارس أمان: يمنع أي حلقة لا نهائية لو صار شي غير متوقع
+    while (added.length < count && n <= 500) {
+      const name = `${BOT_PREFIX}${n}`;
+      n++;
+      if (taken.has(normalizeUsername(name))) continue;
+      next = addEntryToState(next, name);
+      taken.add(normalizeUsername(name));
+      added.push(name);
+    }
+    if (!added.length) return;
+    // صورة رمزية فورية لكل بوت (نفس مولّد الصور الاحتياطي تاع اللاعبين
+    // الحقيقيين) عشان قائمة المسجلين وصفحة /live تبان طبيعية بالتجربة
+    const entryLog = next.entryLog.map((e) =>
+      added.includes(e.user) && !e.avatar ? { ...e, avatar: fallbackAvatar(e.user) } : e
+    );
+    update({ ...next, entryLog });
+  }
+
+  // 🧹 يشيل كل البوتات ويخلي اللاعبين الحقيقيين مكانهم — يشتغل حتى داخل
+  // الفرق (يشيل البوت من فريقه، ويحذف الفريق كامل لو صار فاضي)
+  function clearBots() {
+    const players = st.players
+      .map((p) => (p ? p.split(" N ").filter((m) => !isBotName(m)).join(" N ") : p))
+      .filter((p) => p);
+    const entryLog = st.entryLog.filter((e) => !isBotName(e.user));
+    const size = Math.max(players.length, 2);
+    const bSize = p2(size);
+    const byeN = bSize - size;
+    update({ ...st, players, size, bSize, byeN, entryLog });
+  }
+
+  // عدد البوتات الموجودين حالياً (يشمل اللي داخل فرق)
+  const botCount = st.players
+    .flatMap((p) => (p ? p.split(" N ") : []))
+    .filter(isBotName).length;
+
   // 🚪 طرد لاعب واحد بعينه من خانته (تدعم وضع الفرق حيث كل خانة فيها أكثر من
   // اسم مفصولين بـ " N "). لو كانت الخانة فردية أو صارت فاضية بعد الطرد،
   // الخانة كاملة تُحذف. تُستدعى من زر ✕ اللي يظهر عند التأشير (hover) على
@@ -1977,6 +2032,44 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   )}
                 </div>
 
+                {/* 🤖 بوتات تجريبية — تظهر فقط بعد ما تفتح بوابة الانضمام،
+                    عشان تجرّب شكل الشجرة بأي عدد قبل ما تبدأ البطولة الحقيقية */}
+                {st.joinDeadline && (
+                  <div className="size-row" style={{ alignItems: "center", flexWrap: "wrap" }}>
+                    <label>🤖 بوتات تجريبية:</label>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                      {[1, 2, 4, 8, 16].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          className="btn btn-ghost"
+                          style={{ padding: "6px 13px", fontSize: "0.82rem", fontWeight: 800 }}
+                          onClick={() => addBots(n)}
+                          title={`أضف ${n} بوت للتجربة`}
+                        >+{n}</button>
+                      ))}
+
+                      {botCount > 0 && (
+                        <>
+                          <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                            عددهم الآن: <b style={{ color: "var(--blue)" }}>{botCount}</b>
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn-ghost"
+                            style={{ padding: "6px 13px", fontSize: "0.82rem", fontWeight: 800, color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
+                            onClick={clearBots}
+                            title="يشيل كل البوتات ويخلي اللاعبين الحقيقيين"
+                          >🧹 امسح البوتات</button>
+                        </>
+                      )}
+                    </div>
+                    <div style={{ width: "100%", fontSize: "0.75rem", color: "var(--muted)", marginTop: "6px", lineHeight: 1.7 }}>
+                      يدخلون من نفس مسار <b>!دخول</b> الحقيقي، فيتوزعون على الفرق ويتحسب لهم البايب بالضبط زي اللاعبين العاديين.
+                    </div>
+                  </div>
+                )}
+
                 <div className="toggle-row">
                   <label style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--muted)" }}>نظام الفرق (Teams):</label>
                   <label className="switch">
@@ -2044,6 +2137,28 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     🚀 ابدأ البطولة
                   </button>
                 </div>
+
+                {/* ⚠️ تحذير: فيه بوتات تجريبية لسا بالقائمة قبل البدء */}
+                {botCount > 0 && (
+                  <div style={{
+                    marginTop: "12px", padding: "12px 16px", borderRadius: "12px",
+                    background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.3)",
+                    display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap",
+                  }}>
+                    <span style={{ fontWeight: 800, color: "#f87171", fontSize: "0.87rem" }}>
+                      🤖 فيه {botCount} بوت تجريبي بالقائمة
+                    </span>
+                    <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                      لو هذي بطولة حقيقية امسحهم قبل ما تبدأ، وإلا بيدخلون الشجرة مع اللاعبين.
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ padding: "6px 13px", fontSize: "0.8rem", fontWeight: 800, color: "#f87171", borderColor: "rgba(248,113,113,0.4)", marginRight: "auto" }}
+                      onClick={clearBots}
+                    >🧹 امسحهم الآن</button>
+                  </div>
+                )}
 
                 {/* 🔔 بانر احترافي يظهر تحت زر البدء مباشرة لما العدد غير كافي —
                     بيتحدّث لحظيًا مع كل انضمام جديد من الشات (بدل alert مزعج) */}
