@@ -57,6 +57,8 @@ export interface TournamentState {
   byeN: number;
   isTeams: boolean;
   teamSize: number;
+  /** معرّف المباراة المسحوبة عشوائياً بصيغة "جولة-رقم" (ستروك أحمر بالشجرة) */
+  pickedMatchId?: string | null;
   name: string;
   gameType: string;
   champion: string;
@@ -135,6 +137,8 @@ export interface TournamentArchive {
   champion: string;
   isTeams: boolean;
   teamSize: number;
+  /** معرّف المباراة المسحوبة عشوائياً بصيغة "جولة-رقم" (ستروك أحمر بالشجرة) */
+  pickedMatchId?: string | null;
   players: string[];
   rounds: Match[][];
   finishedAt: string;
