@@ -188,19 +188,22 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                     );
                   })}
                 </div>
+
+                {/* 👑 البطل يظهر جوّا نفس عمود النهائي (تحت مباراة النهائي
+                    مباشرة) مفصول بخط، باسم ملوّن متحرّك وتاج فوقه — بدل ما
+                    يطلع بقائمة منفصلة تحت الشجرة. */}
+                {col.side === "center" && champion && (
+                  <div className="champ-slot">
+                    <div className="champ-crown">👑</div>
+                    <div className="champ-label">بطل البطولة</div>
+                    <div className="champ-winner">{champion}</div>
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </div>
-
-      {champion && (
-        <div className="champion">
-          <h2>🎉 بطل البطولة 🎉</h2>
-          <div className="champ-name">{champion}</div>
-          <div className="conf">✨ 🏆 ✨</div>
-        </div>
-      )}
     </>
   );
 }
