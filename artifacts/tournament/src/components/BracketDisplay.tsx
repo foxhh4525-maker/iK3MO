@@ -172,16 +172,17 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                             ولا يأثر على مكان خط الربط إطلاقاً. */}
                         {col.side === "center" && (
                           <div className={`final-crown${champion ? " is-won" : ""}`}>
-                            {champion
-                              ? (
-                                <>
-                                  <div className="champ-label">صاحب الكأس</div>
-                                  <div className="champ-banner">
-                                    <span className="champ-winner">{champion}</span>
-                                  </div>
-                                </>
-                              )
-                              : <span className="final-cup" aria-hidden="true">🏆</span>}
+                            {/* الكأس موجود دايماً — عند التتويج ينفجر ويتلاشى
+                                وتطلع بطاقة الفائز مكانه بنفس اللحظة. */}
+                            <span className="final-cup" aria-hidden="true">🏆</span>
+                            {champion && (
+                              <div className="champ-box">
+                                <div className="champ-label">صاحب الكأس</div>
+                                <div className="champ-banner">
+                                  <span className="champ-winner">{champion}</span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
                         <PlayerRow
