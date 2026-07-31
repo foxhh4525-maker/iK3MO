@@ -132,28 +132,12 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
 
             return (
               <div key={ci} className={`round r-${col.side}`}>
-                {/* 📐 رأس العمود بارتفاع ثابت لكل الجولات (--head-h) والمحتوى
-                    مرصوص لأسفله. كذا مركز كل مباراة يبقى بنفس الارتفاع
-                    بكل الأعمدة، وظهور اسم الفائز ما ينزّل مباراة النهائي
-                    ولا يفكّ خط الربط عن آخر اسمين. */}
+                {/* 📐 رأس موحّد لكل الأعمدة — عنوان الجولة فقط، فتطلع كل
+                    العناوين على نفس المستوى (النهائي = نصف النهائي = ...). */}
                 <div className="round-head">
-                  {col.side === "center" ? (
-                    <>
-                      {/* الترتيب: النهائي ← الكأس ← "اسم الفائز" ← الاسم الملوّن */}
-                      <div className="round-title">النهائي</div>
-                      <div className={`final-cup${champion ? " is-won" : ""}`} aria-hidden="true">🏆</div>
-                      {champion && (
-                        <div className="champ-slot">
-                          <div className="champ-label">اسم الفائز</div>
-                          <div className="champ-banner">
-                            <span className="champ-winner">{champion}</span>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="round-title">{rTitle(col.ri, total)}</div>
-                  )}
+                  <div className="round-title">
+                    {col.side === "center" ? "النهائي" : rTitle(col.ri, total)}
+                  </div>
                 </div>
 
                 <div className="matches" style={matchesStyle}>
@@ -181,6 +165,18 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
 
                     return (
                       <div key={m} className={cls} data-r={col.ri} data-m={m}>
+                        {/* 🏆 فوق خانة النهائي مباشرة وبإطار مدموج معها:
+                            يعرض الكأس قبل التتويج، وأول ما يتحدد البطل يختفي
+                            الكأس ويطلع اسمه بنفس المكان. الفاصل السفلي
+                            (final-spacer) بنفس الارتفاع عشان الخانة تظل
+                            بمنتصف العمود وخط الربط ما ينزاح. */}
+                        {col.side === "center" && (
+                          <div className={`final-crown${champion ? " is-won" : ""}`}>
+                            {champion
+                              ? <span className="champ-winner">{champion}</span>
+                              : <span className="final-cup" aria-hidden="true">🏆</span>}
+                          </div>
+                        )}
                         <PlayerRow
                           name={match.a}
                           match={match}
@@ -205,6 +201,7 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                           pickedMatchId={pickedMatchId}
                         />
                         {col.side !== "center" && <span className="conn" aria-hidden="true" />}
+                        {col.side === "center" && <span className="final-spacer" aria-hidden="true" />}
                       </div>
                     );
                   })}
