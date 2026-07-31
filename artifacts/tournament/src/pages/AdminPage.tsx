@@ -2070,6 +2070,22 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
                   <div className="setup-sep" />
 
+                  {/* 🟢 يخلي صفحة /bracket تعرض بوابة الانضمام (عدّاد + !دخول
+                      + عدد المنضمين) قبل ما تبدأ البطولة — عشان تحطها بالبث
+                      من بدري بدل ما تكون فاضية. */}
+                  <div className="setup-field">
+                    <label>🟢 الشاشة الخضراء</label>
+                    <button
+                      className={`green-early-btn${st.greenEarly ? " on" : ""}`}
+                      onClick={() => update({ ...st, greenEarly: !st.greenEarly })}
+                      title="إظهار بوابة الانضمام بصفحة /bracket قبل بدء البطولة"
+                    >
+                      {st.greenEarly ? "✓ ظاهرة من بدري" : "إظهار من بدري"}
+                    </button>
+                  </div>
+
+                  <div className="setup-sep" />
+
                   <div className="setup-field setup-join">
                     <label>⏱️ مهلة الانضمام</label>
                     {st.joinDeadline ? (
