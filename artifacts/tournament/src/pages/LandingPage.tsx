@@ -1203,6 +1203,22 @@ export default function LandingPage() {
         .lp-modal-err{margin-top:12px;font-size:.82rem;color:#ffb4b4;text-align:center;font-weight:800}
 
 
+
+        /* ═══════════ 👤 زر تسجيل الدخول — نسخة أوضح ═══════════ */
+        .lp-login-btn{
+          background:linear-gradient(180deg,rgba(41,182,246,.34),rgba(41,182,246,.12));
+          border:1.5px solid rgba(127,212,255,.8);
+          color:#fff;font-weight:900;
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.28), 0 5px 18px rgba(41,182,246,.3);
+        }
+        .lp-login-btn svg{opacity:1}
+        .lp-login-btn:hover{
+          transform:translateY(-2px);
+          border-color:#a5e3ff;
+          background:linear-gradient(180deg,rgba(41,182,246,.5),rgba(41,182,246,.2));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.35), 0 0 24px rgba(41,182,246,.5);
+        }
+
         /* ═══════════ 🎨 شكل زر حالة البطولة ═══════════
            موضوع بعد القواعد الأساسية عشان يفوز عليها بترتيب الملف. */
 
@@ -1293,7 +1309,10 @@ export default function LandingPage() {
              display:contents على .lp-nav-right يرفع أطفاله ليصيروا عناصر
              مباشرة داخل .lp-nav، فنقدر نرتّبهم بـ order بحرية:
              [تسجيل الدخول] [زر البطولة] [الكأس] [الأيقونات] */
-          .lp-nav{flex-wrap:wrap;row-gap:8px;gap:7px;margin-bottom:0}
+          .lp-nav{
+            flex-wrap:wrap;row-gap:8px;gap:7px;margin-bottom:0;
+            justify-content:flex-start;   /* الدخول + زر البطولة يلتصقون باليسار */
+          }
           .lp-nav-right{display:contents}
           .lp-nav-left{order:1}
           .lp-watch-desktop{display:flex;order:2;margin-inline-end:auto}
@@ -1313,13 +1332,13 @@ export default function LandingPage() {
           /* صورة الهيرو أقصر — كانت 48vh وتاكل نص الشاشة فتدفع الكروت تحت
              حدود العرض. تقصيرها هو اللي يخلي الهيدر + الصورة + الكروت
              يبينون مع بعض بدون تمرير. */
-          .lp-bg{height:min(34vh,300px)}
+          .lp-bg{height:min(28vh,240px)}
 
           /* المسافة انتقلت للكروت نفسها بعد ما اختفى الزر من فوقها.
              58vh هو الرقم الوحيد اللي يتحكم بارتفاعها — كبّره تنزل أكثر. */
           .lp-grid{
             position:static;top:auto;padding:0;gap:9px;
-            margin-top:max(calc(min(34vh,300px) + clamp(6px,2vw,16px)), 40vh);
+            margin-top:max(calc(min(28vh,240px) + clamp(6px,2vw,16px)), 34vh);
           }
         }
 
@@ -1339,8 +1358,9 @@ export default function LandingPage() {
           .lp-nav{flex-wrap:nowrap}
           .lp-nav-left{order:1}
           .lp-nav-right{order:2;direction:ltr}
+          /* الفاصلة تجي أول عنصر بالمجموعة = بين تسجيل الدخول وزر البطولة */
+          .lp-nav-sep{order:0;display:block;height:30px;margin:0 4px}
           .lp-watch-desktop{order:1}
-          .lp-nav-sep{order:2}
           .lp-nav-icon.lp-support-btn{order:3}
           .lp-nav-icon[aria-label="كيك"]{order:4}
           .lp-nav-icon[aria-label="ديسكورد"]{order:5}
