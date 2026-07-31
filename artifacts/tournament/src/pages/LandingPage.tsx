@@ -1205,6 +1205,47 @@ export default function LandingPage() {
         .lp-modal-note b{color:#7fd4ff;font-weight:900}
         .lp-modal-err{margin-top:12px;font-size:.82rem;color:#ffb4b4;text-align:center;font-weight:800}
 
+        /* ═══════════ 📱 تصحيحات الجوال — لازم تبقى بآخر الملف ═══════════
+           السبب: قواعد مثل .lp-watch-row و .lp-user-avatar و .lp-user-chip
+           معرّفة بأسفل الملف (أسطر 930+) بعد بلوك الجوال (سطر 670).
+           الـ media query ما تزيد الأولوية (specificity) — فعند التساوي تفوز
+           القاعدة الأخيرة بالملف. يعني كل إعدادات الجوال فوق كانت تنلغي!
+           هذا اللي خلّى صورة الحساب تظل ظاهرة، وزر البطولة يختفي (display:none)
+           فتطلع الكروت ملتصقة بالهيدر. حطّ التصحيحات هنا يضمن تطبيقها. */
+        @media (max-width:640px){
+          /* 👤 بعد تسجيل الدخول: أيقونة الخروج فقط — بدون صورة ولا اسم */
+          .lp-user-avatar{display:none}
+          .lp-user-name{display:none}
+          .lp-user-chip{
+            padding:0;gap:0;max-width:none;
+            border:none;background:none;box-shadow:none;
+          }
+          .lp-logout-btn{width:34px;height:34px;background:rgba(255,255,255,.12)}
+          .lp-logout-btn svg{width:17px;height:17px}
+
+          /* قبل تسجيل الدخول: أيقونة دائرية بدون كلمة */
+          .lp-login-btn{
+            width:38px;height:38px;padding:0;border-radius:50%;
+            justify-content:center;gap:0;
+          }
+          .lp-login-text{display:none}
+          .lp-login-btn svg{width:18px;height:18px;opacity:1}
+
+          /* زر البطولة يطلع من الهيدر وينزل لأسفل الشاشة، والكروت تحته.
+             74vh هو الرقم الوحيد اللي يتحكم بالمسافة — كبّره تنزل أكثر. */
+          .lp-watch-desktop{display:none}
+          .lp-watch-row{
+            display:flex;justify-content:center;
+            position:relative;z-index:3;
+            margin-top:max(calc(min(48vh,400px) + clamp(60px,15vw,110px)), 74vh);
+          }
+          .lp-grid{
+            position:static;top:auto;
+            margin-top:clamp(44px,12vw,72px);
+            padding:0;gap:9px;
+          }
+        }
+
       `}</style>
 
       <div className="lp-page">
