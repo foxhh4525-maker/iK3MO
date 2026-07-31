@@ -1315,7 +1315,14 @@ export default function LandingPage() {
           }
           .lp-nav-right{display:contents}
           .lp-nav-left{order:1}
-          .lp-watch-desktop{display:flex;order:2;margin-inline-end:auto}
+          /* !important عشان ما تلغيه قاعدة .lp-watch-desktop{display:none}
+             الموجودة ببلوك الجوال الأقدم بأعلى الملف. */
+          .lp-watch-desktop{
+            display:flex !important;
+            order:2 !important;
+            margin-inline-end:auto;   /* يدفع باقي الأيقونات لليمين */
+          }
+          .lp-nav-left{margin-inline-end:0}
           .lp-nav-icon{order:3}
           .lp-board-toggle{order:4}   /* 🏆 بأقصى اليمين */
           .lp-nav-sep{display:none}
@@ -1332,13 +1339,13 @@ export default function LandingPage() {
           /* صورة الهيرو أقصر — كانت 48vh وتاكل نص الشاشة فتدفع الكروت تحت
              حدود العرض. تقصيرها هو اللي يخلي الهيدر + الصورة + الكروت
              يبينون مع بعض بدون تمرير. */
-          .lp-bg{height:min(28vh,240px)}
+          .lp-bg{height:min(24vh,200px)}
 
           /* المسافة انتقلت للكروت نفسها بعد ما اختفى الزر من فوقها.
              58vh هو الرقم الوحيد اللي يتحكم بارتفاعها — كبّره تنزل أكثر. */
           .lp-grid{
             position:static;top:auto;padding:0;gap:9px;
-            margin-top:max(calc(min(28vh,240px) + clamp(6px,2vw,16px)), 34vh);
+            margin-top:max(calc(min(24vh,200px) + clamp(6px,2vw,14px)), 28vh);
           }
         }
 
@@ -1355,7 +1362,12 @@ export default function LandingPage() {
              [تسجيل دخول] [مشاهدة البطولة] [الدعم] [كيك] [ديسكورد]
              نحدد كل عنصر برقم صريح + direction:ltr داخل المجموعة، فالترتيب
              مضمون ولا يعتمد على اتجاه الصفحة. */
-          .lp-nav{flex-wrap:nowrap}
+          /* نسحب الهيدر خارج حشوة .lp-page عشان يوصل لحافة الشاشة تقريباً.
+             الرقم 8px هو المسافة الباقية من الحافة — صغّره يقرب أكثر. */
+          .lp-nav{
+            flex-wrap:nowrap;
+            margin-left:calc(8px - clamp(12px,4vw,20px));
+          }
           .lp-nav-left{order:1}
           .lp-nav-right{order:2;direction:ltr}
           /* الفاصلة تجي أول عنصر بالمجموعة = بين تسجيل الدخول وزر البطولة */
