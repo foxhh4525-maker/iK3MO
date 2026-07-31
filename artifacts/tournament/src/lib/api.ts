@@ -243,14 +243,25 @@ export async function getWinners(): Promise<Winner[]> {
   }
 }
 
-export async function postWinner(w: Winner, token: string): Promise<void> {
+// ⚠️ كانت تبلع كل الأخطاء بصمت: ما تفحص res.ok ولا ترجع شي — فلو رفض
+// الخادم الطلب (صلاحية ناقصة / توكن منتهي) تطلع العملية ناجحة والاسم ما
+// ينحفظ. الحين ترجع رسالة الخطأ لو فشلت، و null لو نجحت. القيمة المرجّعة
+// اختيارية فالاستدعاءات القديمة تشتغل زي ما هي.
+export async function postWinner(w: Winner, token: string): Promise<string | null> {
   try {
-    await fetch(`${BASE}/winners`, {
+    const res = await fetch(`${BASE}/winners`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(w),
     });
-  } catch {}
+    if (res.ok) return null;
+    let msg = `فشل الحفظ (${res.status})`;
+    if (res.status === 401 || res.status === 403) msg = "ما عندك صلاحية إضافة فائزين";
+    try { const d = await res.json(); if (d?.error) msg = d.error; } catch {}
+    return msg;
+  } catch {
+    return "تعذّر الاتصال بالخادم";
+  }
 }
 
 // ✅ useSSE محسّن — يعيد الاتصال تلقائياً ويمنع memory leaks
