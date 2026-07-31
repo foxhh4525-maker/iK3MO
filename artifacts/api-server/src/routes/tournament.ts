@@ -580,6 +580,17 @@ router.post("/player/match-win", requireAdmin, requirePermission("tournament"), 
       res.status(400).json({ error: "اسم اللاعب مطلوب" });
       return;
     }
+    // 🚫 نظام الفرق ما يسجّل نقاط توب إطلاقاً.
+    // الحارس هنا بالخادم مو بالواجهة فقط: كذا لو نسخة قديمة من صفحة الأدمن
+    // لسا شغالة بمتصفح أحد، أو جا الطلب من أي مصدر ثاني، ما ينحسب.
+    // "الخانة" بوضع الفرق تحتوي فريق كامل ("سعود N فهد") فتسجيلها يخرّب
+    // القائمة بأسماء فرق مدموجة بدل أسماء لاعبين.
+    const current = await getTournamentState();
+    if (current && (current as any).isTeams) {
+      res.json({ skipped: true, reason: "teams-mode" });
+      return;
+    }
+
     const raw = Math.trunc(Number(delta ?? 1));
     const d = Number.isFinite(raw) && raw !== 0 ? Math.max(-1, Math.min(1, raw)) : 1;
     const row = await dbIncrementPlayerMatchWin(name, name, d);
