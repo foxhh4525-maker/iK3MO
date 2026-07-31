@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
-import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
 import { defaultState, type TournamentState } from "@/lib/types";
 import { useSSE } from "@/lib/api";
 import BracketDisplay from "@/components/BracketDisplay";
@@ -9,7 +8,6 @@ import BracketDisplay from "@/components/BracketDisplay";
 export default function ViewerPage() {
   const [st, setSt] = useState<TournamentState>(defaultState());
   const [connected, setConnected] = useState(false);
-  const [sidebarHidden, setSidebarHidden] = useState(true);
   // نبضة كل ثانية عشان عداد نافذة الانضمام يتحدث بالواجهة
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -30,20 +28,6 @@ export default function ViewerPage() {
     setConnected(true);
   });
 
-  const participantCount = st.phase === "setup"
-    ? st.entryLog.length
-    : (st.players?.length || st.entryLog.length);
-  const gameMeta =
-    st.gameType === "Rocket League"
-      ? { icon: "🚗", subtitle: "بطولة سريعة ومنافسة عالية", accent: "linear-gradient(135deg, #0ea5e9, #1d4ed8)", glow: "rgba(14, 165, 233, 0.42)" }
-      : st.gameType === "Roblox"
-        ? { icon: "🎮", subtitle: "واجهة ممتعة واحترافية للمشاركين", accent: "linear-gradient(135deg, #8b5cf6, #4338ca)", glow: "rgba(139, 92, 246, 0.42)" }
-        : st.gameType === "بروهاله"
-          ? { icon: "🏆", subtitle: "بطولة فريدة ذات طابع خاص", accent: "linear-gradient(135deg, #f59e0b, #b45309)", glow: "rgba(245, 158, 11, 0.42)" }
-          : { icon: "✨", subtitle: "استعد للانطلاق والتميز", accent: "linear-gradient(135deg, #14b8a6, #0f172a)", glow: "rgba(20, 184, 166, 0.42)" };
-
-  const recentJoiners = [...st.entryLog].reverse().slice(0, 5);
-
   function getJoinSecondsLeft(): number {
     if (!st.joinDeadline) return 0;
     return Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000));
@@ -54,21 +38,6 @@ export default function ViewerPage() {
   return (
     <>
       <style>{`
-        @keyframes floatGlow {
-          0%, 100% { transform: translateY(0px) scale(1); opacity: 0.7; }
-          50% { transform: translateY(-8px) scale(1.04); opacity: 1; }
-        }
-        @keyframes participantsPulse {
-          0%, 100% { opacity: 0.6; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.25); }
-        }
-        .game-card-hover {
-          transition: transform 180ms ease, box-shadow 180ms ease;
-        }
-        .game-card-hover:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 24px 55px rgba(0,0,0,0.35);
-        }
         .glass-card {
           background: rgba(0, 0, 0, 0.58);
           border: 1px solid rgba(255,255,255,0.14);
@@ -76,108 +45,71 @@ export default function ViewerPage() {
           -webkit-backdrop-filter: blur(14px);
           box-shadow: 0 16px 40px rgba(0,0,0,0.35);
         }
-        .game-orb {
-          animation: floatGlow 3.2s ease-in-out infinite;
-        }
-        .participants-bar {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 14px;
-          flex-wrap: wrap;
-          border-radius: 20px;
-          padding: 14px 20px;
-          margin-bottom: 18px;
-        }
-        .participants-bar-left {
-          display: flex;
-          align-items: center;
-          gap: 14px;
-        }
-        .participants-icon {
-          width: 46px;
-          height: 46px;
-          border-radius: 14px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 1.3rem;
-          flex: 0 0 auto;
-          box-shadow: 0 8px 20px rgba(0,0,0,0.35);
-        }
-        .participants-label {
-          font-size: 0.78rem;
-          color: var(--muted);
-          font-weight: 700;
-          margin-bottom: 2px;
-        }
-        .participants-count {
-          font-size: 1.5rem;
-          font-weight: 900;
-          color: #fff;
-          display: flex;
-          align-items: baseline;
-          gap: 6px;
-        }
-        .participants-suffix {
-          font-size: 0.78rem;
-          font-weight: 700;
-          color: var(--muted);
-        }
-        .participants-bar-right {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 0.8rem;
-          font-weight: 700;
-          color: var(--kick);
-          background: rgba(83,252,24,0.1);
-          border: 1px solid rgba(83,252,24,0.3);
-          padding: 6px 12px;
-          border-radius: 999px;
-          white-space: nowrap;
-        }
-        .participants-live-dot {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
-          background: var(--kick);
-          animation: participantsPulse 1.5s ease-in-out infinite;
-          box-shadow: 0 0 8px rgba(83,252,24,0.7);
-        }
-        .participants-bar { border: 1px solid rgba(83,252,24,0.22); }
-        .participants-avatars { display: flex; align-items: center; margin-inline-start: 6px; }
-        .participant-avatar-wrap {
-          width: 30px; height: 30px; border-radius: 50%;
-          border: 2px solid var(--bg);
-          box-shadow: 0 0 0 1px rgba(83,252,24,0.55), 0 4px 10px rgba(0,0,0,0.4);
-          overflow: hidden; margin-inline-start: -10px;
-          background: linear-gradient(135deg, var(--kick), var(--blue));
-          flex-shrink: 0; animation: slideIn 0.35s ease-out;
-        }
-        .participant-avatar-wrap:first-child { margin-inline-start: 0; }
-        .participant-avatar-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-        @keyframes slideIn { from { opacity:0; transform:translateX(10px) scale(0.8); } to { opacity:1; transform:translateX(0) scale(1); } }
-        .participants-names-row {
-          margin-top: 4px; font-size: 0.72rem; color: var(--muted);
-          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px;
-        }
-        .participants-names-row b { color: var(--kick); font-weight: 800; }
+
+        /* ===== ⬅️ زر الرجوع للرئيسية ===== */
+        /* زجاجي بحدّ متدرّج، والسهم يتحرك مع المرور عليه */
         .viewer-back-btn{
           position: fixed; top: 16px; left: 16px; z-index: 50;
-          display: flex; align-items: center; gap: 8px;
-          padding: 9px 16px; border-radius: 999px;
-          background: rgba(0,0,0,0.55); border: 1px solid rgba(255,255,255,0.18);
-          color: #fff; font-weight: 700; font-size: 0.82rem; text-decoration: none;
-          backdrop-filter: blur(8px); transition: all .2s ease;
+          display: inline-flex; align-items: center; gap: 9px;
+          padding: 10px 20px 10px 16px; border-radius: 999px;
+          color: #eaf6ff; font-weight: 800; font-size: 0.84rem;
+          font-family: Cairo, sans-serif; letter-spacing: .2px;
+          text-decoration: none; white-space: nowrap;
+          background: linear-gradient(180deg, rgba(41,182,246,.18), rgba(4,10,22,.72));
+          border: 1px solid rgba(120,212,255,.42);
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 8px 22px rgba(0,0,0,.45);
+          backdrop-filter: blur(10px);
+          -webkit-backdrop-filter: blur(10px);
+          transition: transform .2s ease, box-shadow .2s ease,
+                      border-color .2s ease, background .2s ease;
         }
-        .viewer-back-btn:hover{ background: rgba(41,182,246,0.25); border-color: rgba(41,182,246,0.5); transform: translateY(-2px); }
+        .viewer-back-btn:hover{
+          transform: translateY(-2px);
+          border-color: #7fd4ff;
+          background: linear-gradient(180deg, rgba(41,182,246,.32), rgba(4,10,22,.75));
+          box-shadow: inset 0 1px 0 rgba(255,255,255,.22), 0 12px 28px rgba(41,182,246,.3);
+        }
+        .viewer-back-btn:active{ transform: translateY(0) }
+        .viewer-back-arrow{
+          font-size: 1rem; line-height: 1; display: inline-block;
+          transition: transform .2s ease;
+        }
+        .viewer-back-btn:hover .viewer-back-arrow{ transform: translateX(-4px) }
+
+        /* ===== 🏠 زر العودة بعد انتهاء البطولة ===== */
+        .viewer-home-btn{
+          display: inline-flex; align-items: center; gap: 10px;
+          padding: 14px 32px; border-radius: 999px;
+          font-family: Cairo, sans-serif; font-weight: 900; font-size: 1rem;
+          color: #fff; text-decoration: none; white-space: nowrap;
+          background: linear-gradient(135deg, #39c4ff 0%, #1976e6 55%, #0d4fb0 100%);
+          border: 1px solid rgba(255,255,255,.24);
+          box-shadow: 0 10px 26px rgba(25,118,230,.45),
+                      inset 0 1px 0 rgba(255,255,255,.28);
+          transition: transform .2s ease, box-shadow .2s ease, filter .2s ease;
+        }
+        .viewer-home-btn:hover{
+          transform: translateY(-3px); filter: brightness(1.07);
+          box-shadow: 0 16px 34px rgba(25,118,230,.6),
+                      inset 0 1px 0 rgba(255,255,255,.35);
+        }
+        .viewer-home-btn:active{ transform: translateY(0) }
+        .viewer-home-row{
+          display: flex; justify-content: center;
+          margin-top: 28px;
+        }
+
+        @media (max-width: 640px){
+          .viewer-back-btn{ top: 12px; left: 12px; padding: 8px 16px 8px 13px; font-size: .78rem }
+          .viewer-home-btn{ padding: 12px 26px; font-size: .92rem }
+        }
       `}</style>
       <div id="bg" style={{ backgroundImage: `url(${bgImg})` }} />
       <div id="bg-grad" />
 
       <a className="viewer-back-btn" href="/" aria-label="الرجوع للصفحة الرئيسية">
-        ← الرئيسية
+        <span className="viewer-back-arrow" aria-hidden="true">←</span>
+        الرئيسية
       </a>
 
       <div className="viewer-badge">
@@ -185,7 +117,7 @@ export default function ViewerPage() {
         {connected ? "بث مباشر" : "جاري الاتصال..."}
       </div>
 
-      <div className={`shell viewer-shell${sidebarHidden ? "" : " chat-open"}`}>
+      <div className="shell viewer-shell">
         {/* MAIN */}
         <div className="main">
           <div style={{ width: "100%", margin: "0 auto" }}>
@@ -194,57 +126,6 @@ export default function ViewerPage() {
               <h1>iK3MO</h1>
               <p>شاهد البطولة مباشرة</p>
             </header>
-
-            <div className="participants-bar glass-card" style={{ background: `linear-gradient(160deg, rgba(41,182,246,0.22), rgba(0,20,45,0.75))`, border: "1px solid rgba(41,182,246,0.35)", boxShadow: `0 14px 34px ${gameMeta.glow}` }}>
-              <div className="participants-bar-left">
-                <div className="participants-icon" style={{ background: gameMeta.accent }}>👥</div>
-                <div>
-                  <div className="participants-label">{st.isTeams ? "الفرق المشاركة" : "اللاعبون المشاركون"}</div>
-                  <div className="participants-count">
-                    {participantCount}
-                    <span className="participants-suffix">{st.isTeams ? "فريق" : "لاعب"}</span>
-                    {recentJoiners.length > 0 && (
-                      <div className="participants-avatars">
-                        {recentJoiners.map((e, i) => (
-                          <div className="participant-avatar-wrap" key={i} title={e.user}>
-                            <img
-                              src={e.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(e.user)}&backgroundType=gradientLinear&backgroundColor=53fc18,29b6f6&textColor=060d1a&fontWeight=800`}
-                              alt={e.user}
-                              referrerPolicy="no-referrer"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {recentJoiners.length > 0 && (
-                    <div className="participants-names-row">
-                      آخر انضمام: <b>{recentJoiners[0].user}</b>
-                      {recentJoiners.length > 1 && ` +${recentJoiners.length - 1} آخرين`}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div
-                className="participants-bar-right"
-                style={
-                  (st.phase === "setup" && !joinWindowOpen)
-                    ? { color: "#ff4444", background: "rgba(255,68,68,0.1)", border: "1px solid rgba(255,68,68,0.35)" }
-                    : undefined
-                }
-              >
-                <span
-                  className="participants-live-dot"
-                  style={
-                    (st.phase === "setup" && !joinWindowOpen)
-                      ? { background: "#ff4444", boxShadow: "0 0 8px rgba(255,68,68,0.7)" }
-                      : undefined
-                  }
-                />
-                {st.phase !== "setup" ? "البطولة جارية الآن" : joinWindowOpen ? "التسجيل مفتوح الآن" : "التسجيل مغلق حالياً"}
-              </div>
-            </div>
-
 
             {st.phase === "setup" ? (
               <div className="waiting-screen">
@@ -430,13 +311,10 @@ export default function ViewerPage() {
 
                 {/* ✅ لما تنتهي البطولة (يتحدد البطل) يظهر زر للزوار يرجعهم للصفحة الرئيسية */}
                 {st.champion && (
-                  <div style={{ display: "flex", justifyContent: "center", marginTop: "24px" }}>
-                    <a
-                      href="https://kemo-tournament.onrender.com/"
-                      className="btn btn-primary"
-                      style={{ padding: "12px 28px", fontSize: "0.95rem", textDecoration: "none", display: "inline-block" }}
-                    >
-                      🏠 العودة للصفحة الرئيسية
+                  <div className="viewer-home-row">
+                    <a className="viewer-home-btn" href="/">
+                      <span aria-hidden="true">🏠</span>
+                      العودة للصفحة الرئيسية
                     </a>
                   </div>
                 )}
@@ -444,59 +322,7 @@ export default function ViewerPage() {
             )}
           </div>
         </div>
-
-
-        {/* SIDEBAR */}
-        <div className={`sidebar${sidebarHidden ? " sidebar-hidden" : ""}`}>
-          <div className="sidebar-head">
-            <div className="kick-badge">
-              <img src={iconImg} alt="iK3MO" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            </div>
-            <div className="sidebar-title">iK3MO</div>
-            <div className="live-pill pill-offline">⚫ شات</div>
-          </div>
-          <div className="chat-body">
-            <div className="chat-frame-container">
-              <iframe
-                src="https://kick.com/popout/ik3mo/chat"
-                allow="autoplay;fullscreen"
-                sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-              />
-            </div>
-            <div className="entry-log-container">
-              <div className="entry-log-head">
-                <span>👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
-                <span style={{ color: "var(--kick)" }}>{st.entryLog.length}</span>
-              </div>
-              <div className="entry-log-list">
-                {[...st.entryLog].reverse().map((e, i) => (
-                  <div key={i} className="entry-item">
-                    {e.avatar ? (
-                      <img className="avatar" src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
-                    ) : (
-                      <div className="status-dot" />
-                    )}
-                    <div className="user">{e.user}</div>
-                    <div className="time">{e.time}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
-
-      {/* Sidebar toggle */}
-      <button
-        className={`sidebar-toggle${!sidebarHidden ? " sb-active" : ""}`}
-        onClick={() => setSidebarHidden(h => !h)}
-        title={sidebarHidden ? "إظهار الشات" : "إخفاء الشات"}
-      >
-        <span>💬</span>
-        <span style={{ fontSize: "0.82rem", fontFamily: "Cairo, sans-serif", fontWeight: 700 }}>
-          {sidebarHidden ? "الشات" : "إخفاء"}
-        </span>
-      </button>
     </>
   );
 }
