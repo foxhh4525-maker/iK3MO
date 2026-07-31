@@ -59,6 +59,8 @@ export interface TournamentState {
   teamSize: number;
   /** معرّف المباراة المسحوبة عشوائياً بصيغة "جولة-رقم" (ستروك أحمر بالشجرة) */
   pickedMatchId?: string | null;
+  /** إظهار شاشة الجرين سكرين من قبل بدء البطولة (تعرض بوابة الانضمام) */
+  greenEarly?: boolean;
   name: string;
   gameType: string;
   champion: string;
@@ -139,6 +141,8 @@ export interface TournamentArchive {
   teamSize: number;
   /** معرّف المباراة المسحوبة عشوائياً بصيغة "جولة-رقم" (ستروك أحمر بالشجرة) */
   pickedMatchId?: string | null;
+  /** إظهار شاشة الجرين سكرين من قبل بدء البطولة (تعرض بوابة الانضمام) */
+  greenEarly?: boolean;
   players: string[];
   rounds: Match[][];
   finishedAt: string;
