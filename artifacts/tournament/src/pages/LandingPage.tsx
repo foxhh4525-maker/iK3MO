@@ -1203,33 +1203,38 @@ export default function LandingPage() {
         .lp-modal-err{margin-top:12px;font-size:.82rem;color:#ffb4b4;text-align:center;font-weight:800}
 
 
-        /* ═══════════ 🎨 شكل زر حالة البطولة (نسخة محسّنة) ═══════════
+        /* ═══════════ 🎨 شكل زر حالة البطولة ═══════════
            موضوع بعد القواعد الأساسية عشان يفوز عليها بترتيب الملف. */
 
-        /* 🔴 ما فيه بطولة — أحمر واضح بدل الرمادي الباهت */
-        .lp-watch-btn.is-off{
-          background:linear-gradient(135deg,rgba(239,68,68,.26),rgba(96,16,16,.42));
-          border:1px solid rgba(255,99,99,.55);
-          color:#ffc4c4;
-          box-shadow:0 5px 18px rgba(239,68,68,.22), inset 0 1px 0 rgba(255,255,255,.14);
-          cursor:not-allowed;user-select:none;
+        /* 🔴 فيه بطولة/بث — أحمر ملفت مع نبض وهالة، والنقطة تومض زي مؤشر LIVE */
+        .lp-watch-btn:not(.is-off){
+          position:relative;overflow:hidden;
+          background:linear-gradient(135deg,#ff5252 0%,#e11d1d 55%,#9f0f0f 100%);
+          border:1px solid rgba(255,255,255,.3);
+          color:#fff;font-weight:900;
+          box-shadow:0 6px 20px rgba(225,29,29,.5), inset 0 1px 0 rgba(255,255,255,.3);
+          animation:livePulse 2s ease-in-out infinite;
         }
-        .lp-watch-btn.is-off:hover,
-        .lp-watch-btn.is-off:active{transform:none;filter:none}
-        .lp-watch-btn.is-off .lp-watch-dot{
-          background:#ff4d4d;box-shadow:0 0 9px #ff4d4d,0 0 2px #ff4d4d;
-          animation:offBlink 2.4s ease-in-out infinite;opacity:1;
+        @keyframes livePulse{
+          0%,100%{box-shadow:0 6px 20px rgba(225,29,29,.45), inset 0 1px 0 rgba(255,255,255,.3)}
+          50%{box-shadow:0 8px 30px rgba(255,60,60,.85), 0 0 0 5px rgba(255,60,60,.15),
+                        inset 0 1px 0 rgba(255,255,255,.38)}
         }
-        @keyframes offBlink{
-          0%,100%{opacity:.4;transform:scale(.85)}
-          50%{opacity:1;transform:scale(1)}
+        .lp-watch-btn:not(.is-off):hover{
+          filter:brightness(1.08);transform:translateY(-2px);
         }
-
-        /* 🟢 فيه بطولة — نفس الأزرق بس بلمعة تمر عليه فيبان إنه حيّ وينضغط */
-        .lp-watch-btn:not(.is-off){position:relative;overflow:hidden}
+        .lp-watch-btn:not(.is-off) .lp-watch-dot{
+          background:#fff;box-shadow:0 0 10px #fff,0 0 3px #fff;
+          animation:liveBlink 1.1s ease-in-out infinite;
+        }
+        @keyframes liveBlink{
+          0%,100%{opacity:1;transform:scale(1)}
+          50%{opacity:.25;transform:scale(.8)}
+        }
+        /* لمعة تمر على الزر */
         .lp-watch-btn:not(.is-off)::after{
           content:"";position:absolute;inset:0;pointer-events:none;
-          background:linear-gradient(100deg,transparent 38%,rgba(255,255,255,.28) 50%,transparent 62%);
+          background:linear-gradient(100deg,transparent 38%,rgba(255,255,255,.3) 50%,transparent 62%);
           transform:translateX(-130%) skewX(-18deg);
           animation:watchSheen 2.8s ease-in-out infinite;
         }
@@ -1237,9 +1242,25 @@ export default function LandingPage() {
           0%{transform:translateX(-130%) skewX(-18deg)}
           55%,100%{transform:translateX(230%) skewX(-18deg)}
         }
+
+        /* ⚫ ما فيه بطولة — هادي ومطفي عشان الفرق يبان فوراً */
+        .lp-watch-btn.is-off{
+          background:linear-gradient(135deg,rgba(90,102,120,.5),rgba(46,56,72,.62));
+          border:1px solid rgba(255,255,255,.12);
+          color:rgba(255,255,255,.55);
+          box-shadow:none;animation:none;
+          cursor:not-allowed;user-select:none;
+        }
+        .lp-watch-btn.is-off:hover,
+        .lp-watch-btn.is-off:active{transform:none;filter:none;box-shadow:none}
+        .lp-watch-btn.is-off .lp-watch-dot{
+          background:#ff4444;box-shadow:0 0 6px rgba(255,68,68,.65);
+          animation:none;opacity:.8;
+        }
         @media (prefers-reduced-motion: reduce){
+          .lp-watch-btn:not(.is-off){animation:none}
           .lp-watch-btn:not(.is-off)::after{animation:none;opacity:0}
-          .lp-watch-btn.is-off .lp-watch-dot{animation:none;opacity:1}
+          .lp-watch-btn:not(.is-off) .lp-watch-dot{animation:none}
         }
 
         /* ═══════════ 📱 تصحيحات الجوال — لازم تبقى بآخر الملف ═══════════
@@ -1289,11 +1310,16 @@ export default function LandingPage() {
           /* النسخة اللي كانت فوق الكروت ما عاد لها داعي */
           .lp-watch-row{display:none}
 
+          /* صورة الهيرو أقصر — كانت 48vh وتاكل نص الشاشة فتدفع الكروت تحت
+             حدود العرض. تقصيرها هو اللي يخلي الهيدر + الصورة + الكروت
+             يبينون مع بعض بدون تمرير. */
+          .lp-bg{height:min(34vh,300px)}
+
           /* المسافة انتقلت للكروت نفسها بعد ما اختفى الزر من فوقها.
              58vh هو الرقم الوحيد اللي يتحكم بارتفاعها — كبّره تنزل أكثر. */
           .lp-grid{
             position:static;top:auto;padding:0;gap:9px;
-            margin-top:max(calc(min(48vh,400px) + clamp(4px,1.5vw,12px)), 44vh);
+            margin-top:max(calc(min(34vh,300px) + clamp(6px,2vw,16px)), 40vh);
           }
         }
 
@@ -1306,10 +1332,18 @@ export default function LandingPage() {
             justify-content:flex-start;
             max-width:calc(100% - 285px);   /* ما يزاحم اللوحة اللي باليمين */
           }
-          /* ترتيب العرض من اليسار: تسجيل الدخول أولاً بالزاوية، وبعده
-             مشاهدة البطولة ← الدعم ← كيك ← ديسكورد. */
+          /* الترتيب من اليسار:
+             [تسجيل دخول] [مشاهدة البطولة] [الدعم] [كيك] [ديسكورد]
+             نحدد كل عنصر برقم صريح + direction:ltr داخل المجموعة، فالترتيب
+             مضمون ولا يعتمد على اتجاه الصفحة. */
+          .lp-nav{flex-wrap:nowrap}
           .lp-nav-left{order:1}
-          .lp-nav-right{order:2}
+          .lp-nav-right{order:2;direction:ltr}
+          .lp-watch-desktop{order:1}
+          .lp-nav-sep{order:2}
+          .lp-nav-icon.lp-support-btn{order:3}
+          .lp-nav-icon[aria-label="كيك"]{order:4}
+          .lp-nav-icon[aria-label="ديسكورد"]{order:5}
           /* اللوحة ترتفع لزاوية اليمين العليا بدل ما تكون تحت صف الهيدر */
           .lp-board{top:clamp(24px,2.6vh,32px)}
         }
