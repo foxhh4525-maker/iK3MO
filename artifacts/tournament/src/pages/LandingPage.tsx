@@ -1228,18 +1228,32 @@ export default function LandingPage() {
           .lp-login-text{display:none}
           .lp-login-btn svg{width:18px;height:18px;opacity:1}
 
-          /* زر البطولة يطلع من الهيدر وينزل لأسفل الشاشة، والكروت تحته.
-             74vh هو الرقم الوحيد اللي يتحكم بالمسافة — كبّره تنزل أكثر. */
-          .lp-watch-desktop{display:none}
-          .lp-watch-row{
-            display:flex;justify-content:center;
-            position:relative;z-index:3;
-            margin-top:max(calc(min(15vh,400px) + clamp(24px,6vw,48px)), 56vh);
+          /* 🏆 زر حالة البطولة صار داخل الهيدر جنب تسجيل الدخول.
+             display:contents على .lp-nav-right يرفع أطفاله ليصيروا عناصر
+             مباشرة داخل .lp-nav، فنقدر نرتّبهم بـ order بحرية:
+             [تسجيل الدخول] [زر البطولة] [الكأس] [الأيقونات] */
+          .lp-nav{flex-wrap:wrap;row-gap:8px;gap:7px;margin-bottom:0}
+          .lp-nav-right{display:contents}
+          .lp-nav-left{order:1}
+          .lp-watch-desktop{display:flex;order:2;margin-inline-end:auto}
+          .lp-board-toggle{order:3}
+          .lp-nav-icon{order:4}
+          .lp-nav-sep{display:none}
+          /* الزر مضغوط عشان يقعد بصف واحد مع باقي الأيقونات */
+          .lp-watch-btn{
+            padding:8px 13px;font-size:.7rem;gap:6px;
+            max-width:none;
           }
+          .lp-watch-dot{width:7px;height:7px}
+
+          /* النسخة اللي كانت فوق الكروت ما عاد لها داعي */
+          .lp-watch-row{display:none}
+
+          /* المسافة انتقلت للكروت نفسها بعد ما اختفى الزر من فوقها.
+             58vh هو الرقم الوحيد اللي يتحكم بارتفاعها — كبّره تنزل أكثر. */
           .lp-grid{
-            position:static;top:auto;
-            margin-top:clamp(23px,5vw,32px);
-            padding:0;gap:9px;
+            position:static;top:auto;padding:0;gap:9px;
+            margin-top:max(calc(min(48vh,400px) + clamp(30px,8vw,58px)), 58vh);
           }
         }
 
