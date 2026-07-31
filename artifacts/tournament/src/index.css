@@ -1061,22 +1061,30 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
 /* ── ⏳ لوحة بوابة الانضمام (تُستخدم بصفحة العرض وبالجرين سكرين) ── */
 .gate{
-  display:flex;flex-direction:column;align-items:center;gap:14px;
-  padding:30px 26px 26px;border-radius:22px;
+  position:relative;overflow:hidden;
+  width:100%;max-width:720px;          /* لوحة عريضة بدل ما تنضغط على المحتوى */
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+  padding:34px 30px 28px;border-radius:24px;
   background:linear-gradient(180deg,rgba(12,26,50,0.82),rgba(5,12,26,0.9));
   border:1px solid rgba(41,182,246,0.28);
   box-shadow:0 22px 60px rgba(0,0,0,0.5), 0 0 40px rgba(41,182,246,0.12);
   backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
 }
+.gate::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,transparent,var(--blue),var(--gold),var(--blue),transparent);
+  opacity:.85;
+}
+.gate.is-closed::before{background:linear-gradient(90deg,transparent,#ef4444,transparent)}
 .gate-title{
-  font-size:clamp(1.1rem,3.4vw,1.55rem);font-weight:900;color:var(--gold);
+  font-size:clamp(1.3rem,4vw,1.9rem);font-weight:900;color:var(--gold);
   text-shadow:0 0 16px rgba(255,215,0,0.45);text-align:center;
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 /* الحلقة: دائرة SVG تفرغ تدريجياً مع الوقت */
-.gate-ring{position:relative;width:168px;height:168px;flex-shrink:0}
+.gate-ring{position:relative;width:200px;height:200px;flex-shrink:0}
 .gate-ring svg{width:100%;height:100%;transform:rotate(-90deg);display:block}
-.gate-ring circle{fill:none;stroke-width:9;stroke-linecap:round}
+.gate-ring circle{fill:none;stroke-width:8;stroke-linecap:round}
 .gate-track{stroke:rgba(255,255,255,0.09)}
 .gate-bar{
   stroke:var(--blue);
@@ -1092,31 +1100,39 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
 }
 .gate-time{
-  font-size:2.5rem;font-weight:900;line-height:1;color:#fff;
+  font-size:3rem;font-weight:900;line-height:1;color:#fff;
   font-variant-numeric:tabular-nums;letter-spacing:1px;
 }
 .gate.is-hot .gate-time{color:#ff6b6b}
-.gate-unit{font-size:0.6rem;font-weight:800;letter-spacing:3px;color:var(--muted)}
+.gate-unit{font-size:0.66rem;font-weight:800;letter-spacing:4px;color:var(--muted);margin-top:3px}
 .gate-status{
-  display:inline-flex;align-items:center;gap:8px;
-  padding:7px 18px;border-radius:99px;
-  font-size:0.84rem;font-weight:800;
+  display:inline-flex;align-items:center;gap:9px;
+  padding:9px 24px;border-radius:99px;
+  font-size:0.95rem;font-weight:900;letter-spacing:.3px;
   background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.34);color:#4ade80;
 }
 .gate.is-closed .gate-status{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.34);color:#ff8b8b}
-.gate-dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:gateBlink 1.6s ease-in-out infinite}
+.gate-dot{width:9px;height:9px;border-radius:50%;background:currentColor;animation:gateBlink 1.6s ease-in-out infinite}
 @keyframes gateBlink{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
-.gate-hint{font-size:0.88rem;color:var(--text);opacity:0.75;text-align:center}
+.gate-hint{
+  width:100%;padding-top:14px;margin-top:2px;
+  border-top:1px solid var(--border);
+  font-size:1rem;color:var(--text);opacity:0.85;text-align:center;
+}
 .gate-hint b{
-  color:var(--blue);font-weight:900;
-  background:rgba(41,182,246,0.12);border-radius:6px;padding:2px 8px;
+  display:inline-block;margin:0 4px;
+  color:#04121f;font-weight:900;font-size:1.05rem;
+  background:linear-gradient(135deg,#39c4ff,#1976e6);
+  border-radius:8px;padding:4px 12px;
+  box-shadow:0 3px 10px rgba(25,118,230,0.35);
 }
 .gate-count{
   display:inline-flex;align-items:center;gap:8px;
   font-size:0.9rem;font-weight:800;color:var(--text);
 }
+.gate-count{font-size:0.98rem}
 .gate-count span{
-  min-width:32px;text-align:center;padding:3px 11px;border-radius:99px;
+  min-width:36px;text-align:center;padding:4px 13px;border-radius:99px;
   background:var(--blue);color:#04121f;font-weight:900;
 }
 /* شاشة الانتظار قبل فتح البوابة — نقاط تتحرك بدل الرمز الدوّار */
@@ -1150,7 +1166,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   white-space:normal;overflow-wrap:anywhere;word-break:break-word;
   line-height:1.35;
 }
-.gate.has-players{width:100%;max-width:860px}
+.gate.has-players{max-width:900px}
 
 .gate-wait{display:flex;gap:9px;padding:6px 0}
 .gate-wait i{
@@ -1164,9 +1180,11 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   50%{transform:translateY(-10px) scale(1);opacity:1}
 }
 @media (max-width:640px){
-  .gate{padding:24px 18px 20px;gap:12px}
-  .gate-ring{width:140px;height:140px}
-  .gate-time{font-size:2.05rem}
+  .gate{padding:24px 16px 20px;gap:13px;border-radius:20px}
+  .gate-ring{width:154px;height:154px}
+  .gate-time{font-size:2.25rem}
+  .gate-status{font-size:0.86rem;padding:8px 18px}
+  .gate-hint{font-size:0.9rem}
 }
 /* بالشاشة الخضراء: خلفيات صلبة بدون بلور ولا توهّج */
 .green-mode .gate{
