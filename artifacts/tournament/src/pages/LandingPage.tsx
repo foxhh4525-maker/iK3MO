@@ -352,6 +352,41 @@ export default function LandingPage() {
   // ── زر مشاهدة البطولة ──
   // معرّف مرة وحدة ويتعرض بمكانين: داخل الهيدر (ديسكتوب) وفوق الكروت (جوال).
   // اللي مخفي منهم بـ display:none ما يدخل شجرة الوصولية أصلاً، فما فيه تكرار فعلي.
+  // ── 🔑 اختصار مخفي للوحة الأدمن ──
+  // اكتب 34353435 بأي مكان بالصفحة الرئيسية (بدون حقل إدخال مفتوح) وتنتقل
+  // مباشرة لصفحة الأدمن. المسار نسبي (/admin) عشان يشتغل على أي دومين —
+  // على استضافتك يطلع https://ik3mo.onrender.com/admin تلقائياً.
+  useEffect(() => {
+    const CODE = "34353435";
+    let buf = "";
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const onKey = (e: KeyboardEvent) => {
+      // نتجاهل الكتابة داخل الحقول (نافذة تسجيل الدخول مثلاً)
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.ctrlKey || e.altKey || e.metaKey) return;
+      if (!/^[0-9]$/.test(e.key)) return;
+
+      buf = (buf + e.key).slice(-CODE.length);
+      // نصفّر المخزّن لو توقف عن الكتابة 3 ثواني، عشان أرقام متفرقة ما تتجمّع
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { buf = ""; }, 3000);
+
+      if (buf === CODE) {
+        buf = "";
+        if (timer) clearTimeout(timer);
+        window.location.href = "/admin";
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (timer) clearTimeout(timer);
+    };
+  }, []);
+
   const watchBtn = isTournamentLive ? (
     <a className="lp-watch-btn" href="/live" aria-label="مشاهدة البطولة">
       <span
