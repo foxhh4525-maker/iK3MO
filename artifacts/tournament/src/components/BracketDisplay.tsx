@@ -132,9 +132,24 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
 
             return (
               <div key={ci} className={`round r-${col.side}`}>
-                <div className="round-title">
-                  {col.side === "center" ? "🏆 النهائي" : rTitle(col.ri, total)}
-                </div>
+                {col.side === "center" ? (
+                  /* 🏆 رأس النهائي: كأس كبير فوق، وتحته العنوان، وبعده البطل
+                     لما يتحدد — كلهم فوق مباراة النهائي مباشرة بدل ما يطلع
+                     البطل بقائمة تحت الشجرة. */
+                  <div className="final-head">
+                    <div className={`final-cup${champion ? " is-won" : ""}`} aria-hidden="true">🏆</div>
+                    <div className="round-title">النهائي</div>
+                    {champion && (
+                      <div className="champ-slot">
+                        <div className="champ-label">بطل البطولة</div>
+                        <div className="champ-winner">{champion}</div>
+                        <div className="champ-conf" aria-hidden="true">✨ 🎉 ✨</div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="round-title">{rTitle(col.ri, total)}</div>
+                )}
                 <div className="matches" style={matchesStyle}>
                   {slice.map((match, mi) => {
                     const m = col.s + mi;
@@ -188,17 +203,6 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                     );
                   })}
                 </div>
-
-                {/* 👑 البطل يظهر جوّا نفس عمود النهائي (تحت مباراة النهائي
-                    مباشرة) مفصول بخط، باسم ملوّن متحرّك وتاج فوقه — بدل ما
-                    يطلع بقائمة منفصلة تحت الشجرة. */}
-                {col.side === "center" && champion && (
-                  <div className="champ-slot">
-                    <div className="champ-crown">👑</div>
-                    <div className="champ-label">بطل البطولة</div>
-                    <div className="champ-winner">{champion}</div>
-                  </div>
-                )}
               </div>
             );
           })}
