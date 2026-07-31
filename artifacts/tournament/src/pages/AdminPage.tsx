@@ -102,13 +102,14 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     if (autoStartedRef.current) return;
     if (Date.now() < st.joinDeadline) return;
     autoStartedRef.current = true;
-    if (!getStartBlockReason()) {
+    // ⏯️ ما نبدأ تلقائياً إلا لو مفتاح "بدء تلقائي" مفعّل. لو مقفل (أو ما فيه
+    // لاعبين كفاية) نكتفي بإقفال باب الانضمام وننتظر ضغطة "ابدأ البطولة".
+    if (st.autoStart && !getStartBlockReason()) {
       startTournament();
     } else {
-      // ما فيه لاعبين كفاية — نقفل باب الانضمام بس بدون ما نبدأ
       update({ ...st, joinDeadline: null });
     }
-  }, [st.joinDeadline, st.phase, st.players, tick]);
+  }, [st.joinDeadline, st.phase, st.players, st.autoStart, tick]);
 
   const [records, setRecords] = useState<TournamentRecord[]>([]);
   const [savingGame, setSavingGame] = useState<string | null>(null);
@@ -1657,7 +1658,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       <div id="bg" style={{ backgroundImage: `url(${bgImg})` }} />
       <div id="bg-grad" />
 
-      <div className="shell">
+      <div className="shell admin-shell">
         <div className="main">
           <div style={{ width: "100%", margin: "0 auto" }}>
             <header className="site-header" style={{ position: "relative" }}>
@@ -2360,6 +2361,27 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                           </button>
                         </>
                       )}
+                    </div>
+                  </div>
+
+                  <div className="setup-sep" />
+
+                  {/* ⏯️ بدء تلقائي: لو مفعّل، أول ما تخلص مهلة الباب تبدأ
+                      البطولة لحالها بدون ما تضغط "ابدأ البطولة". */}
+                  <div className="setup-field">
+                    <label>⏯️ بدء تلقائي</label>
+                    <div className="teams-row">
+                      <label className="switch">
+                        <input
+                          type="checkbox"
+                          checked={!!st.autoStart}
+                          onChange={e => update({ ...st, autoStart: e.target.checked })}
+                        />
+                        <span className="slider" />
+                      </label>
+                      <span className="join-unit">
+                        {st.autoStart ? "تبدأ فور انتهاء مهلة الباب" : "مقفل — تبدأ يدوياً"}
+                      </span>
                     </div>
                   </div>
 
