@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import { defaultState, type TournamentState } from "@/lib/types";
-import { useSSE } from "@/lib/api";
+import { getState, useSSE } from "@/lib/api";
 import BracketDisplay from "@/components/BracketDisplay";
 
 export default function ViewerPage() {
@@ -22,6 +22,14 @@ export default function ViewerPage() {
   }, [st.phase]);
 
   // ✅ useSSE callback مبسط - يحدث الـ state فقط بدون side effects
+  // 🔄 جلب الحالة مرة عند الفتح — SSE يبث عند الاتصال، لكن لو تأخر أو
+  // انقطع (Render cold start / إعادة تشغيل الخادم / إغلاق مصدر OBS وفتحه)
+  // تظل الصفحة على الحالة الافتراضية وتقول "البطولة لسا ما بدأت" وهي بادية.
+  // هذا الطلب المباشر يضمن الحالة الصحيحة فوراً.
+  useEffect(() => {
+    getState().then((s) => { if (s) setSt(s); }).catch(() => {});
+  }, []);
+
   useSSE((data) => {
     console.log("[Viewer] SSE received, phase:", data.phase, "rounds:", data.rounds?.length);
     setSt(data);
