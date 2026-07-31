@@ -173,7 +173,11 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                         {col.side === "center" && (
                           <div className={`final-crown${champion ? " is-won" : ""}`}>
                             {champion
-                              ? <span className="champ-winner">{champion}</span>
+                              ? (
+                                <div className="champ-banner">
+                                  <span className="champ-winner">{champion}</span>
+                                </div>
+                              )
                               : <span className="final-cup" aria-hidden="true">🏆</span>}
                           </div>
                         )}
