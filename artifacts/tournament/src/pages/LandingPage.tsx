@@ -645,7 +645,7 @@ export default function LandingPage() {
 
         /* ===== الكروت ===== */
         .lp-grid{
-          position:absolute;top:56.5%;left:0;right:0;
+          position:absolute;top:62%;left:0;right:0;
           max-width:1400px;margin:0 auto;display:flex;flex-wrap:wrap;
           justify-content:center;align-items:stretch;z-index:2;
           gap:clamp(10px,2.5vw,16px);
@@ -714,7 +714,7 @@ export default function LandingPage() {
           /* الكروت تنزل تحت زر البطولة */
           .lp-grid{
             position:static;top:auto;
-            margin-top:clamp(18px,5vw,28px);
+            margin-top:clamp(40px,11vw,68px);
             padding:0;
             gap:9px;
           }
@@ -993,6 +993,13 @@ export default function LandingPage() {
         }
         .lp-logout-btn svg{width:14px;height:14px}
         .lp-logout-btn:hover{background:rgba(255,80,80,.25);color:#fff}
+
+        /* 💻 الديسكتوب: بعد تسجيل الدخول تطلع الصورة + أيقونة الخروج فقط،
+           بدون الاسم. الجوال ما يتأثر — يبقى زي ما هو. */
+        @media (min-width:641px){
+          .lp-user-chip .lp-user-name{display:none}
+          .lp-user-chip{gap:6px;padding:4px 5px;max-width:none}
+        }
 
         /* ===== لفل + شريط التقدّم تحت كل كرت (للمسجّلين فقط) ===== */
         .lp-card-level{
