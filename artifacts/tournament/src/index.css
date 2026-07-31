@@ -469,6 +469,15 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 .lvl-ctrl{display:flex;gap:5px;flex-shrink:0}
 
+/* صف الإضافة اليدوية */
+.lvl-add{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 12px;margin:4px 0 10px;border-radius:11px;
+  background:rgba(255,255,255,0.03);border:1px dashed var(--border2);
+}
+.lvl-add .lb-name-input{flex:1 1 140px}
+.lvl-add .lb-select{flex:0 1 150px}
+
 /* ترقيم الصفحات */
 .lvl-pager{
   display:flex;align-items:center;justify-content:center;gap:5px;
