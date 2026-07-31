@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
@@ -225,10 +225,23 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const [statsData, setStatsData] = useState<PlayerStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState("");
+  const [lvlPage, setLvlPage] = useState(0);   // صفحة قائمة المستويات (8 بالصفحة)
+  const LVL_PER_PAGE = 8;
   const [statsSearched, setStatsSearched] = useState("");
 
-  async function loadPlayerStats() {
-    const name = statsQuery.trim();
+  // 📋 أسماء اللاعبين تُجلب تلقائياً — ما تحتاج بحث. نفس مصدر قائمة التوب
+  // (كل من فاز بماتش يدخل القائمة) مع فلتر كتابي اختياري.
+  const [lvlPlayers, setLvlPlayers] = useState<LeaderboardEntry[]>([]);
+  useEffect(() => {
+    getLeaderboard(200).then(rows => setLvlPlayers(rows || [])).catch(() => {});
+  }, []);
+  const lvlFiltered = useMemo(() => {
+    const q = statsQuery.trim().toLowerCase();
+    return q ? lvlPlayers.filter(p => p.username.toLowerCase().includes(q)) : lvlPlayers;
+  }, [lvlPlayers, statsQuery]);
+
+  async function loadPlayerStats(nameArg?: string) {
+    const name = (nameArg ?? statsQuery).trim();
     if (!name) return;
     setStatsLoading(true);
     setStatsError("");
@@ -1922,46 +1935,82 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
             </div>
             )}
 
-            {/* ── إحصائيات اللاعبين: اكتب اسم الحساب وشوف فوزاته ولفله في كل لعبة ── */}
+            {/* 🧩 القائمتان جنب بعض عشان توفير المساحة — تنزل وحدة تحت الثانية
+                تلقائياً على الشاشات الضيقة. */}
+            <div className="panels-row">
+
+            {/* ── 🎚️ نظام المستويات: اكتب اسم الحساب وشوف لفله بكل لعبة ── */}
             {canRecords && (
-              <div className="card">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                  <span style={{ fontSize: "1.15rem" }}>📊</span>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>إحصائيات اللاعبين</h3>
-                  <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>— اكتب اسم الحساب وشوف فوزاته ولفله في كل لعبة</span>
+              <div className="card panel-half">
+                <div className="lb-head">
+                  <span style={{ fontSize: "1.15rem" }}>🎚️</span>
+                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نظام المستويات</h3>
+                  <span className="lb-sub">— لفل اللاعب بكل لعبة</span>
                 </div>
 
-                <div style={{ display: "flex", gap: "8px", margin: "10px 0 4px", flexWrap: "wrap" }}>
-                  <input
-                    type="text"
-                    className="n-input"
-                    style={{ flex: 1, minWidth: "180px", padding: "9px 12px" }}
-                    placeholder="🔍 اسم حساب اللاعب (كيك)"
-                    value={statsQuery}
-                    onChange={(e) => setStatsQuery(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") loadPlayerStats(); }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                    disabled={statsLoading || !statsQuery.trim()}
-                    onClick={loadPlayerStats}
-                  >{statsLoading ? "..." : "🔍 بحث"}</button>
-                </div>
+                {/* 🔎 فلتر اختياري — القائمة تحت تظهر تلقائياً بدون بحث */}
+                <input
+                  type="text"
+                  className="n-input"
+                  style={{ width: "100%", padding: "9px 12px", margin: "8px 0 10px" }}
+                  placeholder="🔎 فلتر بالاسم (اختياري)"
+                  value={statsQuery}
+                  onChange={(e) => { setStatsQuery(e.target.value); setLvlPage(0); }}
+                />
                 {statsError && <div style={{ color: "#ff4444", fontSize: "0.82rem", margin: "8px 0" }}>⚠️ {statsError}</div>}
+
+                {/* 📋 أسماء اللاعبين — تظهر مباشرة، 8 بالصفحة */}
+                <div className="lvl-list">
+                  {lvlFiltered.length === 0 && (
+                    <div className="lb-empty">{statsQuery.trim() ? "ما فيه اسم يطابق الفلتر" : "ما فيه لاعبين مسجّلين بعد"}</div>
+                  )}
+                  {lvlFiltered.slice(lvlPage * LVL_PER_PAGE, lvlPage * LVL_PER_PAGE + LVL_PER_PAGE).map((pl, i) => {
+                    const rank = lvlPage * LVL_PER_PAGE + i + 1;
+                    const isOpen = statsSearched.toLowerCase() === pl.username.toLowerCase();
+                    return (
+                      <button
+                        key={pl.username}
+                        className={`lvl-row as-btn${isOpen ? " on" : ""}`}
+                        onClick={() => loadPlayerStats(pl.username)}
+                        disabled={statsLoading}
+                        title="اضغط عشان تشوف لفله بكل لعبة"
+                      >
+                        <span className="lvl-rank">{rank}</span>
+                        <span className="lvl-name">{pl.username}</span>
+                        <span className="lvl-badge">⭐ {levelFromWins(pl.wins)}</span>
+                        <span className="lvl-wins">{pl.wins}</span>
+                        <span className="lvl-go">{isOpen ? "▾" : "←"}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {lvlFiltered.length > LVL_PER_PAGE && (() => {
+                  const pages = Math.ceil(lvlFiltered.length / LVL_PER_PAGE);
+                  const cur = Math.min(lvlPage, pages - 1);
+                  return (
+                    <div className="lvl-pager">
+                      <button className="lvl-pg-nav" disabled={cur === 0} onClick={() => setLvlPage(cur - 1)}>›</button>
+                      {Array.from({ length: pages }, (_, i) => (
+                        <button key={i} className={`lvl-pg${i === cur ? " on" : ""}`} onClick={() => setLvlPage(i)}>{i + 1}</button>
+                      ))}
+                      <button className="lvl-pg-nav" disabled={cur >= pages - 1} onClick={() => setLvlPage(cur + 1)}>‹</button>
+                    </div>
+                  );
+                })()}
 
                 {statsData && (
                   <div style={{ marginTop: "12px" }}>
-                    <div style={{ fontSize: "0.9rem", fontWeight: 800, marginBottom: "10px" }}>
-                      👤 <span style={{ color: "#7fd4ff" }}>{statsData.username}</span>
-                      <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginRight: "8px" }}>
-                        · إجمالي الفوزات: {Object.values(statsData.wins || {}).reduce((a, b) => a + b, 0)}
+                    <div className="lvl-detail-head">
+                      <span>👤 <b>{statsData.username}</b></span>
+                      <span className="lvl-detail-sum">
+                        إجمالي الفوزات: {Object.values(statsData.wins || {}).reduce((a, b) => a + b, 0)}
                       </span>
+                      <button className="cardpick-close" onClick={() => { setStatsData(null); setStatsSearched(""); }} aria-label="إغلاق">✕</button>
                     </div>
-                    <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
+                    <div className="lvl-list">
                       {records.length === 0 && (
-                        <div style={{ fontSize: "0.82rem", color: "var(--muted)", gridColumn: "1 / -1" }}>ماكاين ألعاب مضافة.</div>
+                        <div className="lb-empty">ما فيه ألعاب مضافة بعد</div>
                       )}
                       {records.map((rec) => {
                         const game = rec.tournamentName;
@@ -1970,25 +2019,22 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         const inLevel = progressWithinLevel(wins);
                         const pct = (inLevel / WINS_PER_LEVEL) * 100;
                         return (
-                          <div key={rec.id} style={{ borderRadius: "12px", padding: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "6px" }}>
-                              <span style={{ fontWeight: 800, fontSize: "0.88rem" }}>{rec.displayName || game}</span>
-                              <span style={{ fontSize: "0.78rem", fontWeight: 900, color: "#7fd4ff" }}>⭐ لفل {level}</span>
+                          <div key={rec.id} className="lvl-row">
+                            <span className="lvl-name" title={rec.displayName || game}>{rec.displayName || game}</span>
+                            <span className="lvl-badge">⭐ {level}</span>
+                            <div className="lvl-track" title={`${wins} فوز · باقي ${WINS_PER_LEVEL - inLevel} للفل ${level + 1}`}>
+                              <div className="lvl-fill" style={{ width: `${pct}%` }} />
                             </div>
-                            <div style={{ position: "relative", height: "7px", borderRadius: "999px", background: "rgba(255,255,255,0.1)", overflow: "hidden", marginBottom: "8px" }}>
-                              <div style={{ position: "absolute", inset: "0 auto 0 0", width: `${pct}%`, borderRadius: "999px", background: "linear-gradient(90deg,#1976e6,#39c4ff)", transition: "width .4s ease" }} />
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                              <div style={{ display: "flex", gap: "6px" }}>
-                                <button type="button" className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: "0.9rem", lineHeight: 1 }} onClick={() => adjustPlayerWin(game, -1)} disabled={wins <= 0} title="نقص فوز">−</button>
-                                <button type="button" className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: "0.9rem", lineHeight: 1 }} onClick={() => adjustPlayerWin(game, 1)} title="زيادة فوز">＋</button>
-                              </div>
-                              <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{wins} فوز · باقي {WINS_PER_LEVEL - inLevel} للفل {level + 1}</span>
+                            <span className="lvl-wins">{wins}</span>
+                            <div className="lvl-ctrl">
+                              <button type="button" className="lb-step" onClick={() => adjustPlayerWin(game, -1)} disabled={wins <= 0} title="نقص فوز">−</button>
+                              <button type="button" className="lb-step" onClick={() => adjustPlayerWin(game, 1)} title="زيادة فوز">＋</button>
                             </div>
                           </div>
                         );
                       })}
                     </div>
+
                   </div>
                 )}
               </div>
@@ -1996,7 +2042,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
             {/* ── 🏆 نقاط الأكثر انتصاراً: تحكم يدوي كامل (تعديل/تصفير) ── */}
             {canRecords && (
-              <div className="card">
+              <div className="card panel-half">
                 <div className="lb-head">
                   <span style={{ fontSize: "1.15rem" }}>🏆</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نقاط الأكثر انتصاراً</h3>
@@ -2079,6 +2125,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 </div>
               </div>
             )}
+
+            </div>{/* /panels-row */}
 
             {!canTournament && (
               <div className="card" style={{ textAlign: "center", padding: "28px 16px", opacity: 0.85 }}>
