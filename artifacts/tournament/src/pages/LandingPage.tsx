@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/تصميم بدون عنوان.png";
 import { getRecords, getState, getPlayerStats, getLeaderboard, useSSE } from "@/lib/api";
@@ -74,7 +74,8 @@ export default function LandingPage() {
   const [nameInput, setNameInput] = useState("");
   const [linkCode, setLinkCode] = useState("");
   const [verifyMsg, setVerifyMsg] = useState("");
-  const [copied, setCopied] = useState(false);         // تأكيد بصري بعد نسخ الكود
+  const [codeExpired, setCodeExpired] = useState(false);
+  const [copied, setCopied] = useState(false);         // تأكيد بصري بعد نسخ الأمر
   const [codeExpiresAt, setCodeExpiresAt] = useState(0); // وقت انتهاء الأمر (للعداد التنازلي)
   const [nowTs, setNowTs] = useState(Date.now());
 
@@ -119,21 +120,6 @@ export default function LandingPage() {
   //
   // نجلب 50 مركز مو 5: الظاهر للجميع هو أول TOP_COUNT فقط، لكن نحتاج
   // القائمة الأطول عشان نحسب مركز اللاعب لو كان خارج الظاهرين.
-  // ── 📱 كشف الجوال بـ JavaScript ──
-  // ليش مو @media وحدها: تخطيط الجوال ما كان ينطبق عند المستخدم رغم صحة الـ CSS.
-  // الستايلات المضمّنة (inline) أعلى أولوية من أي ستايل‑شيت، فما يمكن يتغلّب عليها
-  // شي — لا كاش ولا تعارض أولويات. القواعد بالـ CSS تبقى كطبقة احتياطية.
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const apply = () => setIsMobile(mq.matches);
-    apply();
-    mq.addEventListener?.("change", apply);
-    return () => mq.removeEventListener?.("change", apply);
-  }, []);
-
-  // بالجوال اللوحة تنفتح كقائمة منبثقة من أيقونة بالهيدر (بدل ما تزحم الصفحة)
-  const [boardOpen, setBoardOpen] = useState(false);
   const [fullBoard, setFullBoard] = useState<LeaderboardEntry[]>([]);
   const refreshLeaderboard = useCallback(() => {
     getLeaderboard(50).then((rows) => setFullBoard(rows || [])).catch(() => {});
@@ -214,10 +200,10 @@ export default function LandingPage() {
 
   // عدّاد تنازلي لصلاحية أمر الربط — يشتغل فقط وقت انتظار الرسالة
   useEffect(() => {
-    if (!loginOpen || loginStep !== "verify") return;
+    if (!loginOpen || loginStep !== "verify" || codeExpired) return;
     const id = setInterval(() => setNowTs(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [loginOpen, loginStep]);
+  }, [loginOpen, loginStep, codeExpired]);
 
   function genCode(): string {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -232,18 +218,20 @@ export default function LandingPage() {
     setNameInput("");
     setLinkCode("");
     setVerifyMsg("");
+    setCodeExpired(false);
     setCopied(false);
   }
 
   // رجوع لخطوة كتابة الاسم (نوقف الاستماع عشان ما يبقى اشتراك معلّق)
   function backToEnter() {
     teardownVerify();
+    setCodeExpired(false);
     setCopied(false);
     setVerifyMsg("");
     setLoginStep("enter");
   }
 
-  // نسخ الكود مع تأكيد بصري لمدة ثانيتين
+  // نسخ الأمر مع تأكيد بصري لمدة ثانيتين
   function copyCmd() {
     const text = `!ربط ${linkCode}`;
     if (!navigator.clipboard?.writeText) return;
@@ -306,6 +294,7 @@ export default function LandingPage() {
     if (!name) return;
     const code = genCode();
     setLinkCode(code);
+    setCodeExpired(false);
     setCopied(false);
     setVerifyMsg("");
     setCodeExpiresAt(Date.now() + LINK_CODE_TTL_MS);
@@ -313,11 +302,9 @@ export default function LandingPage() {
     setLoginStep("verify");
     connectVerify(name, code);
     if (expireTimerRef.current) clearTimeout(expireTimerRef.current);
-    // انتهى الوقت؟ نولّد كود جديد تلقائياً بدل ما نطلب من المستخدم يضغط زر.
-    // startVerify تعيد ضبط المؤقّت بنفسها، فالتجديد يستمر ما دامت النافذة مفتوحة،
-    // ويتوقف تلقائياً عند الإغلاق لأن closeLogin تنادي teardownVerify.
     expireTimerRef.current = setTimeout(() => {
-      startVerify();
+      setCodeExpired(true);
+      teardownVerify();
     }, LINK_CODE_TTL_MS);
   }
 
@@ -343,48 +330,6 @@ export default function LandingPage() {
   }, [records, seenImages]);
 
   const rankIcon = (i: number) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : String(i + 1));
-
-  // ── 📱 ستايلات الجوال المضمّنة (تتغلّب على أي شي) ──
-  const mBg: CSSProperties | undefined = isMobile ? {
-    position: "absolute",
-    inset: "0 0 auto 0",
-    height: "min(40vh, 320px)",
-    backgroundAttachment: "scroll",
-    backgroundSize: "88% auto",      // 88% من عرض الشاشة — أصغر، بدون قص
-    backgroundPosition: "center 14%", // مرفوعة للأعلى
-    backgroundRepeat: "no-repeat",
-  } : undefined;
-
-  // صف زر البطولة: فوق الكروت مباشرة، وهو اللي يدفعها لأسفل الشاشة
-  const mWatchRow: CSSProperties | undefined = isMobile ? {
-    position: "static",
-    marginTop: "52vh",
-    marginBottom: "12px",
-  } : undefined;
-
-  const mGrid: CSSProperties | undefined = isMobile ? {
-    position: "static",
-    top: "auto",
-    margin: "0 auto",
-    padding: 0,
-    gap: 9,
-  } : undefined;
-
-  const mBoard: CSSProperties | undefined = isMobile ? {
-    position: "fixed",
-    top: "50%",
-    left: "50%",
-    right: "auto",
-    transform: boardOpen ? "translate(-50%,-50%) scale(1)" : "translate(-50%,-50%) scale(.94)",
-    width: "min(320px, calc(100vw - 32px))",
-    maxHeight: "80vh",
-    overflowY: "auto",
-    margin: 0,
-    animation: "none",
-    zIndex: 1100,
-    opacity: boardOpen ? 1 : 0,
-    pointerEvents: boardOpen ? "auto" : "none",
-  } : undefined;
 
   // الوقت المتبقي لصلاحية أمر الربط بصيغة m:ss
   const secondsLeft = Math.max(0, Math.ceil((codeExpiresAt - nowTs) / 1000));
@@ -566,51 +511,15 @@ export default function LandingPage() {
         }
         .lp-board-hint b{color:#7fd4ff;font-weight:900}
 
-        /* زر اللوحة وزر إغلاقها: للجوال فقط */
-        .lp-board-toggle{display:none;color:#ffd54a}
-        .lp-board-close{display:none}
-        .lp-board-backdrop{display:none}
-
-        /* ===== 📱 الجوال: اللوحة تصير قائمة منبثقة بأيقونة =====
-           قبل كانت في سير الصفحة وتاخذ ~230px فوق الكروت، فكل شي يطلع مزحوم. */
         @media (max-width:640px){
-          .lp-board-toggle{display:flex}
-
-          .lp-board-backdrop{
-            display:block;position:fixed;inset:0;z-index:1090;
-            background:rgba(2,6,14,.55);
-            backdrop-filter:blur(12px);
-            -webkit-backdrop-filter:blur(12px);
-            animation:fadeIn .2s ease-out;
-          }
           .lp-board{
-            position:fixed;z-index:1100;margin:0;animation:none;
-            top:50%;left:50%;
-            transform:translate(-50%,-50%) scale(.94);
-            width:min(320px, calc(100vw - 32px));
-            max-height:calc(100vh - 90px);max-height:calc(100dvh - 90px);
-            overflow-y:auto;
-            padding:14px 12px 12px;
-            opacity:0;pointer-events:none;
-            transition:opacity .2s ease, transform .2s cubic-bezier(.22,1,.36,1);
+            position:static;margin:14px auto 0;
+            width:min(330px,100%);
+            padding:10px 10px 9px;
+            animation-delay:.15s;
           }
-          .lp-board.is-open{opacity:1;pointer-events:auto;transform:translate(-50%,-50%) scale(1)}
-
-          .lp-board-close{
-            display:flex;align-items:center;justify-content:center;
-            position:absolute;top:9px;left:9px;
-            width:28px;height:28px;border-radius:50%;border:none;cursor:pointer;
-            background:rgba(255,255,255,.1);color:#fff;font-size:14px;line-height:1;
-          }
-          .lp-board-row{padding:8px 9px;gap:9px}
-          .lp-board-name{font-size:.8rem}
-        }
-
-        /* صف زر البطولة — فوق الكروت. بالديسكتوب مطلق زي الكروت،
-           وبالجوال يرجع لسير الصفحة عبر الستايل المضمّن. */
-        .lp-watch-row{
-          position:absolute;top:calc(56.5% - 60px);left:0;right:0;z-index:3;
-          display:flex;justify-content:center;
+          .lp-board-row{padding:6px 8px;gap:8px}
+          .lp-board-name{font-size:.78rem}
         }
 
         /* ===== الكروت ===== */
@@ -644,20 +553,13 @@ export default function LandingPage() {
             padding-bottom:34px;
           }
           /* الخلفية تصير منطقة "هيرو" أعلى الصفحة فقط.
-             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari.
-
-             ⚠️ الأهم: الصورة 7105×3518 أي نسبة 2:1 عريضة. مع background-size:cover
-             (الافتراضي بالقاعدة الأساسية) المتصفح يكبّرها لتغطي طول الصندوق فيقص
-             حوالي ثلثي عرضها على شاشة الجوال. الحل: 100% auto — العرض كامل بدون
-             أي قص جانبي، والطول يجي طبيعي (~50vw)، فتبان الصورة كلها. */
+             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari. */
           .lp-bg{
             position:absolute;
             inset:0 0 auto 0;
-            height:min(40vh,320px);
+            height:min(64vh,520px);
             background-attachment:scroll;
-            background-size:88% auto;   /* أصغر من عرض الشاشة */
-            background-position:center 14%;  /* مرفوعة للأعلى */
-            background-repeat:no-repeat;
+            background-position:center 16%;
           }
           /* تدرّج ينهي الخلفية بنعومة بدل قطع حاد */
           .lp-bg::before{
@@ -665,50 +567,11 @@ export default function LandingPage() {
             background:linear-gradient(180deg,transparent,#040914);
             pointer-events:none;
           }
-          /* الكروت تبدأ تحت نص الشاشة.
-             52vh = الموضع المطلوب، ناقص ~72px (حشوة الصفحة + طول صف الهيدر).
-             max() تحمينا لو الشاشة قصيرة جداً أو بالوضع الأفقي فما تصير سالبة. */
-          /* الكروت تحت نص الشاشة.
-             ⚠️ مقصود: حشوة علوية بـ vh صافية — بدون max() ولا calc().
-             لو أي دالة منهما ما تُقرأ على المتصفح، يُلغى الإعلان بالكامل
-             وترجع القيمة الأساسية (margin:0 auto) فتطلع الكروت فوق مباشرة.
-             padding خالية من الدوال ما يمكن تفشل. */
           .lp-grid{
             position:static;top:auto;
-            margin:0 auto;
-            padding:48vh 0 0;
-            gap:9px;
+            margin-top:18px;
+            padding:0;
           }
-
-          /* الهيدر أنحف عشان يدخل بصف واحد أو صفين مرتبين */
-          .lp-nav-group{gap:8px;row-gap:8px}
-          .lp-nav-icon{width:34px;height:34px}
-          .lp-nav-icon svg{width:18px;height:18px}
-          .lp-watch-btn{padding:8px 13px;font-size:.74rem;gap:7px}
-          /* تسجيل الدخول: أيقونة دائرية فقط، بدون نص */
-          .lp-login-btn{
-            width:36px;height:36px;padding:0;border-radius:50%;
-            justify-content:center;gap:0;
-          }
-          .lp-login-text{display:none}
-          .lp-login-btn svg{width:17px;height:17px;opacity:1}
-          .lp-user-chip{max-width:min(50vw,190px);padding:4px 6px;gap:7px}
-          .lp-user-name{font-size:.74rem}
-          .lp-user-avatar{width:26px;height:26px}
-
-          /* اسم اللعبة كان يتقصّ على كرت بعرض ~160px */
-          .lp-card-head{font-size:clamp(.88rem,3.6vw,1.12rem);max-width:96%}
-          .lp-card{min-height:178px}
-          .lp-card-spotlight{padding:26px 9px 14px;gap:8px}
-          /* اسم الفائز هو بطل الكرت — نكبّره شوي بالجوال */
-          .lp-card-winner{font-size:1rem}
-          .lp-trophy{font-size:1.3rem}
-          /* الشرارات أقرب للاسم عشان ما تتقصّ على كرت ضيّق */
-          .lp-card-winner-group::before{left:2px}
-          .lp-card-winner-group::after{right:2px}
-          .lp-card-level{padding:7px 9px 9px}
-          .lp-level-badge{font-size:.74rem}
-          .lp-level-next{font-size:.6rem}
         }
         @media (max-width: 520px){
           .lp-card-wrap{flex-basis:calc(50% - 8px);max-width:calc(50% - 8px)}
@@ -830,61 +693,8 @@ export default function LandingPage() {
         }
         .rgb-name{
           font-weight:900;color:#7fd4ff;
-          letter-spacing:.2px;display:inline-block;
-          /* 🎉 التلوين شغّال دائماً — جوال وكمبيوتر، بدون حاجة للتأشير.
-             التأخير مربوط برقم الكرت فما تنبض كل الأسماء بنفس اللحظة. */
-          animation:rgbShift 3.2s linear infinite;
-          animation-delay:calc(var(--card-i, 0) * .4s);
-          transition:transform .3s cubic-bezier(.22,1,.36,1);
-        }
-
-        /* ===== 🎉 شرارات احتفالية دائمة حول اسم الفائز ===== */
-        .lp-card-winner-group{position:relative}
-        .lp-card-winner-group::before,
-        .lp-card-winner-group::after{
-          content:"✦";
-          position:absolute;top:38%;
-          font-size:.8rem;color:#ffd54a;
-          opacity:0;pointer-events:none;
-          text-shadow:0 0 10px rgba(255,196,0,.95);
-        }
-        .lp-card-winner-group::before{
-          left:-2px;
-          animation:sparkLeft 1.9s ease-out infinite;
-          animation-delay:calc(var(--card-i, 0) * .4s);
-        }
-        .lp-card-winner-group::after{
-          right:-2px;
-          animation:sparkRight 1.9s ease-out infinite;
-          animation-delay:calc(.5s + var(--card-i, 0) * .4s);
-        }
-
-        /* التأشير بالماوس يشدّ الإيقاع فقط (الأفكت أصلاً شغّال) */
-        @media (hover:hover){
-          .lp-card-wrap:hover .rgb-name{animation-duration:1.3s;transform:scale(1.08)}
-          .lp-card-wrap:hover .lp-card-winner-group::before,
-          .lp-card-wrap:hover .lp-card-winner-group::after{animation-duration:.95s}
-          .lp-card-wrap:hover .lp-trophy{animation-duration:.85s}
-          .lp-card-wrap:hover .lp-card::after{animation:sheenSweep 1.4s ease-out infinite .1s}
-        }
-
-        @keyframes sparkLeft{
-          0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0deg)}
-          25%{opacity:1}
-          100%{opacity:0;transform:translate(-14px,-19px) scale(1.2) rotate(120deg)}
-        }
-        @keyframes sparkRight{
-          0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0deg)}
-          25%{opacity:1}
-          100%{opacity:0;transform:translate(14px,-19px) scale(1.2) rotate(-120deg)}
-        }
-
-        /* من يفضّل حركة أقل: نثبّت لون واحد ونلغي الشرارات */
-        @media (prefers-reduced-motion: reduce){
-          .rgb-name{animation:none;color:#7fd4ff;text-shadow:0 0 12px rgba(41,182,246,.75)}
-          .lp-card-winner-group::before,
-          .lp-card-winner-group::after{animation:none;opacity:0}
-          .lp-card-wrap:hover .lp-card::after{animation:none}
+          text-shadow:0 0 12px rgba(41,182,246,.75), 0 0 2px rgba(41,182,246,.5);
+          letter-spacing:.2px;
         }
 
         .lp-card-main{flex:1}
@@ -1083,16 +893,14 @@ export default function LandingPage() {
         .lp-cmd-card{padding:2px 0 0}
         .lp-cmd-row{
           display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
-          /* rtl هنا يخلي !ربط يجي يمين (طبيعي للعربي) والكود يساره */
-          direction:rtl;margin-bottom:14px;
+          direction:ltr;margin-bottom:14px;
         }
         .lp-cmd-word{
           font-family:Cairo,sans-serif;font-weight:900;
           font-size:clamp(1.3rem,6vw,1.65rem);color:#fff;
           text-shadow:0 2px 10px rgba(0,0,0,.55);
         }
-        /* ltr داخل الخانات عشان أحرف الكود تبقى بترتيبها الصحيح */
-        .lp-cmd-chars{display:flex;gap:6px;direction:ltr}
+        .lp-cmd-chars{display:flex;gap:6px}
         /* كل حرف بخانة مستقلة — أوضح بكثير للقراءة والكتابة اليدوية */
         .lp-cmd-char{
           width:clamp(34px,9vw,42px);height:clamp(43px,11vw,51px);border-radius:11px;
@@ -1144,17 +952,15 @@ export default function LandingPage() {
           font-family:'Courier New',monospace;font-weight:900;font-size:.76rem;direction:ltr;
           color:#ffd54a;background:rgba(255,196,0,.1);border-radius:999px;padding:2px 9px;
         }
+        .lp-verify-spinner{width:16px;height:16px;border-radius:50%;border:2px solid rgba(41,182,246,.35);border-top-color:#39c4ff;animation:spin .8s linear infinite;flex-shrink:0}
+        @keyframes spin{to{transform:rotate(360deg)}}
 
-        /* زر الرجوع بزاوية فوق يسار — مقابل الاكس على اليمين */
         .lp-modal-back{
-          position:absolute;top:14px;left:14px;z-index:2;
-          display:flex;align-items:center;gap:3px;
-          padding:7px 11px;border-radius:999px;cursor:pointer;
-          background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);
-          color:rgba(255,255,255,.6);font-size:.72rem;font-weight:800;font-family:Cairo,sans-serif;
-          transition:background .18s ease, color .18s ease;
+          display:block;margin:12px auto 0;background:none;border:none;cursor:pointer;
+          color:rgba(255,255,255,.45);font-size:.78rem;font-weight:800;font-family:Cairo,sans-serif;
+          transition:color .18s ease;
         }
-        .lp-modal-back:hover{background:rgba(255,255,255,.16);color:#fff}
+        .lp-modal-back:hover{color:#7fd4ff}
         .lp-modal-note{
           margin-top:14px;text-align:center;font-size:.72rem;font-weight:700;
           color:rgba(255,255,255,.38);line-height:1.7;
@@ -1165,20 +971,11 @@ export default function LandingPage() {
       `}</style>
 
       <div className="lp-page">
-        <div className="lp-bg" style={mBg} />
+        <div className="lp-bg" />
 
         {/* ===== الهيدر: تسجيل الدخول (يسار) + أيقونات السوشل + زر مشاهدة البطولة (يمين) ===== */}
         <nav className="lp-nav">
           <div className="lp-nav-group">
-            {/* 🥇 أيقونة الأكثر انتصاراً — تظهر بالجوال فقط وتفتح اللوحة كقائمة منبثقة */}
-            <button
-              className="lp-nav-icon lp-board-toggle"
-              onClick={() => setBoardOpen(true)}
-              aria-label="الأكثر انتصاراً"
-              title="الأكثر انتصاراً"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 9.5 7 4 7.8l4 3.9-1 5.6 5-2.7 5 2.7-1-5.6 4-3.9L14.5 7 12 2Zm0 15.6-3.2 1.7.6-3.6-2.6-2.5 3.6-.5L12 9.4l1.6 3.3 3.6.5-2.6 2.5.6 3.6L12 17.6Z"/><path d="M7 20h10v2H7z"/></svg>
-            </button>
             <a className="lp-nav-icon" href="https://discord.gg/ArYbJ9McA" target="_blank" rel="noopener noreferrer" aria-label="ديسكورد">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.24.5a14.6 14.6 0 0 1 4.3 1.7 16.5 16.5 0 0 0-14.9 0 14 14 0 0 1 4.3-1.7L8.6 3a19.8 19.8 0 0 0-4.9 1.4C1 9 .3 13.6.6 18a20 20 0 0 0 6 3l1-1.6a12.7 12.7 0 0 1-1.9-.9l.5-.4a14.2 14.2 0 0 0 12 0l.5.4a12.7 12.7 0 0 1-1.9.9l1 1.6a20 20 0 0 0 6-3c.4-5-.7-9.6-3.5-13.6ZM8.7 15.2c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm6.6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"/></svg>
             </a>
@@ -1203,8 +1000,30 @@ export default function LandingPage() {
             </a>
 
             <span className="lp-nav-sep" />
+            {/* 🚫 لو ما فيه بطولة جارية ولا باب انضمام مفتوح: الزر يطلع مطفي وما ينضغط */}
+            {isTournamentLive ? (
+              <a className="lp-watch-btn" href="/live" aria-label="مشاهدة البطولة">
+                <span
+                  className={`lp-watch-dot dot-${watchDotStatus}`}
+                  title={watchDotStatus === "green" ? "باب الانضمام مفتوح الآن" : "البطولة جارية الآن"}
+                />
+                مشاهدة البطولة
+              </a>
+            ) : (
+              <span
+                className="lp-watch-btn is-off"
+                role="link"
+                aria-disabled="true"
+                title="لا توجد بطولة جارية حالياً"
+              >
+                <span className="lp-watch-dot dot-red" />
+                لا توجد بطولة حالياً
+              </span>
+            )}
 
-            {/* 👤 الحساب — مكان زر البطولة سابقاً */}
+            <span className="lp-nav-sep" />
+
+            {/* 👤 الحساب — بأقصى اليمين */}
             {session ? (
               <div className="lp-user-chip">
                 <span className="lp-user-avatar">
@@ -1232,7 +1051,7 @@ export default function LandingPage() {
             ) : (
               <button className="lp-login-btn" onClick={openLogin}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/></svg>
-                <span className="lp-login-text">تسجيل دخول</span>
+                تسجيل دخول
               </button>
             )}
           </div>
@@ -1241,10 +1060,7 @@ export default function LandingPage() {
         {/* ===== 🏆 لوحة الترتيب — ظاهرة دائماً بدون ضغط ===== */}
         {/* أول 5 مراكز للجميع، واللي تحتهم ما يبانون — إلا لو حسابك مربوط
             فيطلع لك سطر مستقل فيه رقم مركزك الحقيقي (7 مثلاً). */}
-        {boardOpen && <div className="lp-board-backdrop" onClick={() => setBoardOpen(false)} />}
-
-        <aside className={`lp-board${boardOpen ? " is-open" : ""}`} style={mBoard} aria-label="ترتيب الفائزين">
-          <button className="lp-board-close" onClick={() => setBoardOpen(false)} aria-label="إغلاق">✕</button>
+        <aside className="lp-board" aria-label="ترتيب الفائزين">
           <div className="lp-board-title">الاكثر انتصار 🥇</div>
           <div className="lp-board-note">تحسب نقاط الفوز عند الانتصار في اي قيم داخل البطولة</div>
 
@@ -1287,32 +1103,8 @@ export default function LandingPage() {
           )}
         </aside>
 
-        {/* ===== زر البطولة — فوق الكروت مباشرة ===== */}
-        {/* 🚫 لو ما فيه بطولة جارية ولا باب انضمام مفتوح: مطفي وما ينضغط */}
-        <div className="lp-watch-row" style={mWatchRow}>
-          {isTournamentLive ? (
-            <a className="lp-watch-btn" href="/live" aria-label="مشاهدة البطولة">
-              <span
-                className={`lp-watch-dot dot-${watchDotStatus}`}
-                title={watchDotStatus === "green" ? "باب الانضمام مفتوح الآن" : "البطولة جارية الآن"}
-              />
-              مشاهدة البطولة
-            </a>
-          ) : (
-            <span
-              className="lp-watch-btn is-off"
-              role="link"
-              aria-disabled="true"
-              title="لا توجد بطولة جارية حالياً"
-            >
-              <span className="lp-watch-dot dot-red" />
-              لا توجد بطولة حالياً
-            </span>
-          )}
-        </div>
-
         {/* ===== كروت الأبطال ===== */}
-        <div className="lp-grid" style={mGrid}>
+        <div className="lp-grid">
           {slots.map((slot, i) => (
             <div key={i} className={`lp-card-wrap${slot.empty ? " is-empty" : ""}`} style={{ ["--card-i" as any]: i }}>
               <div className="lp-card-inner">
@@ -1426,18 +1218,15 @@ export default function LandingPage() {
               </>
             ) : (
               <>
-                <button className="lp-modal-back" onClick={backToEnter} aria-label="تغيير الاسم">
-                  ‹ تغيير الاسم
-                </button>
-
                 <div className="lp-modal-icon">🔗</div>
                 <div className="lp-modal-title">باقي خطوة وحدة</div>
                 <div className="lp-modal-sub">
-                  انسخ الكود وأرسله في شات <b>{KICK_CHANNEL}</b>
+                  انسخ الأمر تحت، والصقه في شات <b>{KICK_CHANNEL}</b> من حساب <b>@{nameInput.trim()}</b>.
+                  <br />أول ما نشوف رسالتك بنسجّلك تلقائياً.
                 </div>
 
-                {/* الكود — أوضح وأكبر عنصر بالنافذة */}
-                <div className="lp-cmd-label"><span>1</span> انسخ الكود</div>
+                {/* الأمر — أوضح وأكبر عنصر بالنافذة */}
+                <div className="lp-cmd-label"><span>1</span> انسخ الأمر</div>
                 <div className="lp-cmd-card">
                   <div className="lp-cmd-row">
                     <span className="lp-cmd-word">!ربط</span>
@@ -1450,25 +1239,35 @@ export default function LandingPage() {
                   <button
                     className={`lp-cmd-copy${copied ? " is-done" : ""}`}
                     onClick={copyCmd}
-                    aria-label="انسخ الكود"
-                  >{copied ? "✓ تم النسخ" : "انسخ الكود"}</button>
+                    aria-label="نسخ الأمر"
+                  >{copied ? "✓ تم نسخ الأمر" : "📋 نسخ الأمر"}</button>
                 </div>
 
-                <div className="lp-cmd-label" style={{ marginTop: 18 }}><span>2</span> ارسل الكود في الشات</div>
+                <div className="lp-cmd-label" style={{ marginTop: 18 }}><span>2</span> ارسل الأمر في الشات</div>
                 <a className="lp-kick-btn" href={`https://kick.com/${KICK_CHANNEL}`} target="_blank" rel="noopener noreferrer">
                   <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 2h5v6.3L12 2h6l-6.6 8L18.5 22h-6.2l-4-6-1.3 1.5V22H2V2Z"/></svg>
-                  فتح الشات داخل الكيك ↗
+                  فتح قناة {KICK_CHANNEL} في كيك ↗
                 </a>
 
-                <div className="lp-wait">
-                  <span className="lp-wait-timer">{codeTimer}</span>
-                </div>
+                {codeExpired ? (
+                  <>
+                    <div className="lp-modal-err">⏱️ انتهت صلاحية الأمر</div>
+                    <button className="lp-modal-btn ghost" onClick={startVerify}>🔄 توليد أمر جديد</button>
+                  </>
+                ) : (
+                  <div className="lp-wait">
+                    <span className="lp-verify-spinner" />
+                    <span className="lp-wait-timer">{codeTimer}</span>
+                  </div>
+                )}
 
                 <div className="lp-modal-note">
                   أرسله من حساب <b>@{nameInput.trim()}</b>
                 </div>
 
                 {verifyMsg && <div className="lp-modal-err">{verifyMsg}</div>}
+
+                <button className="lp-modal-back" onClick={backToEnter}>‹ تغيير الاسم</button>
               </>
             )}
           </div>
