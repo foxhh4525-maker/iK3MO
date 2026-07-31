@@ -447,6 +447,14 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 .join-btn:hover{transform:translateY(-1px)}
 .join-btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.green-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.green-open-btn{
+  padding:10px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;
+  font-family:inherit;font-size:0.8rem;font-weight:800;
+  color:var(--blue);background:rgba(41,182,246,0.10);
+  border:1px solid var(--border);transition:all .18s;
+}
+.green-open-btn:hover{background:var(--blue);color:#04121f;border-color:var(--blue)}
 .green-early-btn{
   padding:10px 16px;border-radius:10px;cursor:pointer;white-space:nowrap;
   font-family:inherit;font-size:0.82rem;font-weight:800;
