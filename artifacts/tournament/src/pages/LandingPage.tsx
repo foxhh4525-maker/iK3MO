@@ -1,2339 +1,1563 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import PusherLib from "pusher-js";
-import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
-import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getLeaderboard, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
-import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
-import WinnerHistoryBar from "@/components/WinnerHistoryBar";
-import {
-  p2, buildBracket, doWin, setSize as stSetSize, getOpenMatches, rTitle,
-} from "@/lib/tournament";
-import { playMatchStart, playWin, playChampion, playStart, isSoundEnabled, toggleSound } from "@/lib/sounds";
-import BracketDisplay from "@/components/BracketDisplay";
+import bgImg from "@assets/تصميم بدون عنوان.png";
+import { getRecords, getState, getPlayerStats, getLeaderboard, useSSE } from "@/lib/api";
+import { type TournamentRecord, type PlayerStats, type PlayerSession, type LeaderboardEntry, levelFromWins, progressWithinLevel, WINS_PER_LEVEL } from "@/lib/types";
 
-const CHANNEL_META: Record<string, { chatroomId: number }> = {
-  ik3mo: { chatroomId: 5675989 },
-  honkfm: { chatroomId: 20137066 },
-};
+// إعدادات شات كيك (نفس المستخدمة بصفحة الأدمن) — عشان نتحقق من هوية اللاعب:
+// اللاعب يكتب أمر الربط بشاته الحقيقي، ونحن نسمع الرسالة مباشرة من قناة القناة.
+const KICK_PUSHER_KEY = "32cbd69e4b950bf97679";
+const KICK_PUSHER_CLUSTER = "us2";
+const KICK_CHANNEL = "ik3mo";
+const KICK_CHATROOM_ID = 5675989;
+const LINK_CODE_TTL_MS = 5 * 60 * 1000; // صلاحية أمر الربط: 5 دقائق ثم يُطلب توليد جديد
 
-function drawRoundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number
-) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+// 🟡 مفتاح تخزين "آخر صور شافها المستخدم" — لكل جهاز بشكل مستقل
+const SEEN_IMAGES_KEY = "seenCardImages";
+
+// 🏆 عدد المراكز الظاهرة باللوحة (اللي تحتها ما يبانون إلا لو أنت واحد منهم)
+const TOP_COUNT = 5;
+
+// 💚 رابط الدعم
+const SUPPORT_URL = "https://creators.sa/ik3mo";
+
+function normalizeName(u: string): string {
+  return (u || "").normalize("NFKC").trim().toLowerCase();
+}
+function safeParse(v: string): unknown {
+  try { return JSON.parse(v); } catch { return v; }
+}
+function nestedPayload(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.data === "string") return nestedPayload(safeParse(rec.data));
+  if (rec.data && typeof rec.data === "object") return nestedPayload(rec.data);
+  return rec;
 }
 
-interface Props {
-  token: string;
-  role: "admin" | "helper";
-  permissions: AdminPermissions;
-  onLogout: () => void;
+// بصمة صور الكرت — أي تغيير بالصورة أو صورة الخلفية يعني "صورة جديدة"
+function imageSig(r: { image?: string; image2?: string }): string {
+  return `${r.image || ""}|${r.image2 || ""}`;
 }
 
-type SlotState = "idle" | "rolling" | "locked";
 
-export default function AdminPage({ token, role, permissions, onLogout }: Props) {
-  const canTournament = role === "admin" || !!permissions?.tournament;
-  const canRecords = role === "admin" || !!permissions?.records;
-  const [st, setSt] = useState<TournamentState>(defaultState());
-  const [CH, setCH] = useState("ik3mo");
-  const [kLive, setKLive] = useState(false);
-  const [chatStatus, setChatStatus] = useState<"offline" | "connecting" | "live">("offline");
-  const [slotA, setSlotA] = useState("—");
-  const [slotB, setSlotB] = useState("—");
-  const [slotStateA, setSlotStateA] = useState<SlotState>("idle");
-  const [slotStateB, setSlotStateB] = useState<SlotState>("idle");
-  const [pickRunning, setPickRunning] = useState(false);
-  const [syncError, setSyncError] = useState("");
-  const [soundOn, setSoundOn] = useState(true);
-
-  // ⏱️ مدة نافذة الانضمام بالدقائق (يحددها الأدمن قبل ما يفتح الباب)
-  const [joinDurationInput, setJoinDurationInput] = useState(1);
-  // نبضة كل ثانية عشان العداد التنازلي يتحدث بالواجهة (الوقت الفعلي مخزّن بـ st.joinDeadline)
-  // ملاحظة: لازم نستخدم قيمة tick فعلياً (مو بس نتجاهلها بـ [, setTick]) عشان
-  // نقدر نحطها بمصفوفة اعتمادات الـ useEffect تاع البدء التلقائي تحت — وإلا
-  // الإفكت ما يعاود يتفحص كل ثانية ويضل معلّق حتى لو الوقت خلص فعلاً.
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    if (!st.joinDeadline) return;
-    const id = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [st.joinDeadline]);
-
-  // ⏱️ عندما تنتهي مهلة نافذة الانضمام تلقائيًا، تبدأ البطولة بمفردها (بدون
-  // أي تدخل من الأدمن) — طالما فيه عدد لاعبين كافي. لو ما فيه لاعبين كفاية
-  // نكتفي بإغلاق الباب فقط (ما نقدر نبدأ ببطولة بدون لاعبين).
-  // 🎨 الفائز اللي الأدمن فاتح له لوحة تخصيص الثيم/الإيموجي/اللقب حالياً
-  const [editingWinner, setEditingWinner] = useState<Winner | null>(null);
-
-  function saveWinnerCustomization(patch: Partial<Winner>) {
-    if (!editingWinner) return;
-    const winnerHistory = st.winnerHistory.map(w => w.id === editingWinner.id ? { ...w, ...patch } : w);
-    update({ ...st, winnerHistory });
-    setEditingWinner(prev => prev ? { ...prev, ...patch } : prev);
-  }
-
-  function deleteWinnerRecord(w: Winner) {
-    if (!confirm(`حذف سجل الفائز "${w.name}"؟`)) return;
-    update({ ...st, winnerHistory: st.winnerHistory.filter(x => x.id !== w.id) });
-  }
-
-  const autoStartedRef = useRef(false);
-  useEffect(() => {
-    if (st.phase !== "setup" || !st.joinDeadline) { autoStartedRef.current = false; return; }
-    if (autoStartedRef.current) return;
-    if (Date.now() < st.joinDeadline) return;
-    autoStartedRef.current = true;
-    if (!getStartBlockReason()) {
-      startTournament();
-    } else {
-      // ما فيه لاعبين كفاية — نقفل باب الانضمام بس بدون ما نبدأ
-      update({ ...st, joinDeadline: null });
-    }
-  }, [st.joinDeadline, st.phase, st.players, tick]);
-
+export default function LandingPage() {
   const [records, setRecords] = useState<TournamentRecord[]>([]);
-  const [savingGame, setSavingGame] = useState<string | null>(null);
-  const [recError, setRecError] = useState("");
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
-  // 📊 حالة مساحات التخزين (قاعدة البيانات + Cloudinary) — تُفحص عند فتح لوحة
-  // الأدمن وبعدين كل دقيقة، عشان الشريط يعكس الوضع الحالي فعلياً وليس لحظة الدخول بس.
-  const [storageStatus, setStorageStatus] = useState<StorageStatusResponse | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    const check = () => { getStorageStatus(token).then(s => { if (!cancelled) setStorageStatus(s); }); };
-    check();
-    const id = setInterval(check, 60_000);
-    return () => { cancelled = true; clearInterval(id); };
-  }, [token]);
-
-  // 🔁 نقل الصور القديمة (Base64) المخزّنة بقاعدة البيانات إلى Cloudinary — تشغيل يدوي.
-  const [migrating, setMigrating] = useState(false);
-  const [migrateResult, setMigrateResult] = useState<string>("");
-  async function handleMigrateImages() {
-    if (migrating) return;
-    setMigrating(true);
-    setMigrateResult("");
+  // ── 🟡 تتبّع الصور الجديدة: نخزّن آخر بصمة صور شافها المستخدم لكل لعبة ──
+  const [seenImages, setSeenImages] = useState<Record<string, string>>(() => {
     try {
-      const r = await migrateImages(token);
-      setMigrateResult(`✅ تم نقل ${r.migrated} صورة (تجاوزنا ${r.skipped} كانت أصلاً روابط، وفشل ${r.failed})`);
-      getStorageStatus(token).then(setStorageStatus);
-    } catch (e: any) {
-      setMigrateResult(`❌ ${e?.message || "فشل نقل الصور"}`);
-    } finally {
-      setMigrating(false);
-    }
-  }
-  // مسودّات أسماء الفائزين لكل لعبة (يتحكم بها المستخدم قبل الحفظ)
-  const [winnerDrafts, setWinnerDrafts] = useState<Record<string, string>>({});
-  // أسماء الألعاب القابلة للتعديل
-  const [gameNames, setGameNames] = useState<Record<string, string>>({});
-  const [newGameName, setNewGameName] = useState("");
-
-  const refreshRecords = useCallback(() => {
-    getRecords().then((recs) => {
-      setRecords(recs);
-      // نزامن المسودّات مع القيم المحفوظة (بدون ما ندوس على تعديل جارٍ للمستخدم)
-      setWinnerDrafts((prev) => {
-        const next = { ...prev };
-        for (const r of recs) {
-          if (next[r.tournamentName] === undefined) next[r.tournamentName] = r.winnerName || "";
-        }
-        return next;
-      });
-    }).catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    refreshRecords();
-  }, [refreshRecords]);
-
-  // ── 🏆 نقاط "الأكثر انتصاراً" (تحكم يدوي كامل من الأدمن) ──
-  const [lb, setLb] = useState<LeaderboardEntry[]>([]);
-  const [lbLimit, setLbLimit] = useState(10);
-  const [lbBusy, setLbBusy] = useState(false);
-  const [lbMsg, setLbMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [lbDraft, setLbDraft] = useState<Record<string, string>>({});
-  const [lbNewName, setLbNewName] = useState("");
-  const [lbNewPts, setLbNewPts] = useState(1);
-
-  async function loadLeaderboard(limit = lbLimit) {
-    setLbBusy(true);
-    try {
-      const rows = await getLeaderboard(limit);
-      setLb(rows);
-      setLbDraft({});
-    } finally {
-      setLbBusy(false);
-    }
-  }
-
-  // تعيين قيمة صريحة لنقاط لاعب (تشمل الصفر = تصفير فردي)
-  async function applyPoints(username: string, value: number) {
-    if (!token) return;
-    setLbBusy(true);
-    setLbMsg(null);
-    try {
-      await setMatchWins(username, Math.max(0, Math.floor(value)), token);
-      setLbMsg({ ok: true, text: `تم تحديث نقاط ${username} إلى ${Math.max(0, Math.floor(value))}` });
-      await loadLeaderboard();
-    } catch (err) {
-      setLbMsg({ ok: false, text: err instanceof Error ? err.message : "فشل التعديل" });
-    } finally {
-      setLbBusy(false);
-    }
-  }
-
-  async function resetAllPoints() {
-    if (!token) return;
-    if (!window.confirm("تصفير نقاط كل اللاعبين نهائياً؟ ما يمكن التراجع.")) return;
-    setLbBusy(true);
-    setLbMsg(null);
-    try {
-      const cleared = await resetAllMatchWins(token);
-      setLbMsg({ ok: true, text: `تم تصفير النقاط (${cleared} لاعب)` });
-      await loadLeaderboard();
-    } catch (err) {
-      setLbMsg({ ok: false, text: err instanceof Error ? err.message : "فشل التصفير" });
-    } finally {
-      setLbBusy(false);
-    }
-  }
-
-  useEffect(() => { if (token) loadLeaderboard(); /* eslint-disable-next-line */ }, [token]);
-
-  // ── بحث إحصائيات اللاعبين (فوزات + لفل لكل لعبة) ──
-  const [statsQuery, setStatsQuery] = useState("");
-  const [statsData, setStatsData] = useState<PlayerStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
-  const [statsError, setStatsError] = useState("");
-  const [statsSearched, setStatsSearched] = useState("");
-
-  async function loadPlayerStats() {
-    const name = statsQuery.trim();
-    if (!name) return;
-    setStatsLoading(true);
-    setStatsError("");
-    try {
-      const data = await getPlayerStats(name);
-      setStatsData(data || { username: name, wins: {} });
-      setStatsSearched(name);
-    } catch {
-      setStatsError("تعذّر جلب الإحصائيات");
-    } finally {
-      setStatsLoading(false);
-    }
-  }
-
-  // تعديل يدوي (+1/-1) لفوزات لاعب في لعبة — تصحيح من الأدمن.
-  async function adjustPlayerWin(game: string, delta: number) {
-    if (!statsSearched) return;
-    const current = statsData?.wins?.[game] ?? 0;
-    const next = Math.max(0, current + delta);
-    // تحديث تفاؤلي فوري
-    setStatsData((prev) => prev ? { ...prev, wins: { ...prev.wins, [game]: next } } : prev);
-    try {
-      await setPlayerWins(statsSearched, game, next, token);
-    } catch (e: any) {
-      setStatsError(e?.message || "تعذّر تحديث الفوزات");
-      // نرجّع القيمة الصحيحة من الخادم لو فشل
-      const data = await getPlayerStats(statsSearched);
-      if (data) setStatsData(data);
-    }
-  }
-
-  // ── إدارة المساعدين (الأدمن الرئيسي فقط) ──
-  const [helpers, setHelpers] = useState<AdminHelper[]>([]);
-  const [helperName, setHelperName] = useState("");
-  const [newHelperPerms, setNewHelperPerms] = useState<AdminPermissions>({ tournament: true, records: false });
-  const [helperError, setHelperError] = useState("");
-  const [creatingHelper, setCreatingHelper] = useState(false);
-  const [revealedCode, setRevealedCode] = useState<{ name: string; code: string } | null>(null);
-
-  const refreshHelpers = useCallback(() => {
-    if (role !== "admin") return;
-    getHelpers(token).then(setHelpers).catch(() => {});
-  }, [role, token]);
-
-  useEffect(() => {
-    refreshHelpers();
-  }, [refreshHelpers]);
-
-  async function handleCreateHelper() {
-    if (!helperName.trim()) return;
-    setCreatingHelper(true);
-    setHelperError("");
-    try {
-      const helper = await createHelper(helperName.trim(), newHelperPerms, token);
-      setHelperName("");
-      setNewHelperPerms({ tournament: true, records: false });
-      setRevealedCode({ name: helper.name, code: helper.code });
-      refreshHelpers();
-    } catch (err: unknown) {
-      setHelperError(err instanceof Error ? err.message : "فشل إنشاء المساعد");
-    } finally {
-      setCreatingHelper(false);
-    }
-  }
-
-  async function handleToggleHelperPerm(h: AdminHelper, key: keyof AdminPermissions) {
-    const nextPerms = { ...h.permissions, [key]: !h.permissions?.[key] };
-    setHelpers((prev) => prev.map((x) => (x.id === h.id ? { ...x, permissions: nextPerms } : x)));
-    try {
-      await updateHelperPermissions(h.id, nextPerms, token);
-    } catch {
-      refreshHelpers();
-    }
-  }
-
-  async function handleDeleteHelper(h: AdminHelper) {
-    setHelpers((prev) => prev.filter((x) => x.id !== h.id));
-    try {
-      await deleteHelper(h.id, token);
-    } catch {
-      refreshHelpers();
-    }
-  }
-
-  // يقرأ الصورة ويصغّرها (حد أقصى 1000px، JPEG) ويرجّع Base64 data URL.
-  function processImage(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const img = new Image();
-        img.onload = () => {
-          const MAX = 1000;
-          let { width, height } = img;
-          if (width > MAX || height > MAX) {
-            const scale = Math.min(MAX / width, MAX / height);
-            width = Math.round(width * scale);
-            height = Math.round(height * scale);
-          }
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) { resolve(dataUrl); return; }
-          ctx.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", 0.85));
-        };
-        img.onerror = () => resolve(dataUrl);
-        img.src = dataUrl;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // حفظ لعبة (upsert بمفتاح اسم اللعبة): اسم الفائز + الصورة معاً.
-  async function saveGame(game: string, winnerName: string, image: string) {
-    setRecError("");
-    setSavingGame(game);
-    try {
-      await putRecord({ tournamentName: game, winnerName, image }, token);
-      refreshRecords();
-    } catch (e: any) {
-      setRecError(e?.message || "تعذّر الحفظ");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  // رفع صورة لعبة: يقرأ الملف ويصغّره، يرفعه للتخزين الخارجي (Cloudinary) ويحفظ
-  // الرابط الراجع مع اسم الفائز الحالي. لو رفع التخزين الخارجي فشل (مثلاً السيرفر
-  // ما عنده مفاتيح Cloudinary بعد)، نرجع نحفظ الصورة Base64 مباشرة عشان الميزة
-  // تفضل شغالة بدون ما توقف الأدمن.
-  async function handleGameImage(game: string, file: File, currentWinner: string) {
-    setRecError("");
-    if (!file.type.startsWith("image/")) {
-      setRecError("الملف المختار ليس صورة");
-      return;
-    }
-    try {
-      const processed = await processImage(file);
-      let image = processed;
-      try {
-        image = await uploadImage(processed, token, "kemo/records");
-      } catch {
-        // فشل الرفع الخارجي — نكمل بالـ Base64 كـ fallback بدل ما نوقف الحفظ
-      }
-      await saveGame(game, currentWinner, image);
-    } catch {
-      setRecError("تعذّر قراءة الصورة");
-    }
-  }
-
-  // رفع الصورة الإضافية (image2) — نفس منطق الرفع الخارجي مع fallback لـ Base64.
-  async function handleGameImage2(game: string, file: File, currentWinner: string, currentImage: string) {
-    setRecError("");
-    if (!file.type.startsWith("image/")) {
-      setRecError("الملف المختار ليس صورة");
-      return;
-    }
-    setSavingGame(game);
-    try {
-      const processed = await processImage(file);
-      let image2 = processed;
-      try {
-        image2 = await uploadImage(processed, token, "kemo/records");
-      } catch {
-        // فشل الرفع الخارجي — نكمل بالـ Base64 كـ fallback
-      }
-      await putRecord({ tournamentName: game, winnerName: currentWinner, image: currentImage, image2 }, token);
-      refreshRecords();
-    } catch (e: any) {
-      setRecError(e?.message || "تعذّر قراءة الصورة");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  // حذف الصورة الإضافية فقط (image2) مع الإبقاء على باقي بيانات اللعبة.
-  async function handleClearGameImage2(game: string, currentWinner: string, currentImage: string) {
-    setRecError("");
-    setSavingGame(game);
-    try {
-      await putRecord({ tournamentName: game, winnerName: currentWinner, image: currentImage, image2: "" }, token);
-      refreshRecords();
-    } catch (e: any) {
-      setRecError(e?.message || "تعذّر حذف الصورة");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  // حفظ اسم الفائز (عند الخروج من الحقل) مع الإبقاء على الصورة الحالية.
-  function handleWinnerBlur(game: string, currentImage: string, savedWinner: string) {
-    const draft = (winnerDrafts[game] ?? "").trim();
-    if (draft === (savedWinner || "").trim()) return; // لا تغيير
-    saveGame(game, draft, currentImage);
-  }
-
-  // حفظ اسم اللعبة المعدل
-  async function handleGameNameBlur(game: string, newName: string, currentWinner: string, currentImage: string) {
-    const trimmedName = (newName || "").trim();
-    if (trimmedName === game) return; // لا تغيير
-    setRecError("");
-    setSavingGame(game);
-    try {
-      await putRecord({
-        tournamentName: game,
-        displayName: trimmedName,
-        winnerName: currentWinner,
-        image: currentImage
-      }, token);
-      refreshRecords();
-    } catch (e: any) {
-      setRecError(e?.message || "تعذّر حفظ الاسم");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  function drawHeader(ctx: CanvasRenderingContext2D, W: number, title: string, winner: string, trophyY: number, titleY: number) {
-    ctx.textAlign = "center";
-    ctx.font = "48px 'Segoe UI Emoji','Noto Color Emoji',sans-serif";
-    ctx.fillText("🏆", W / 2, trophyY);
-    const tName = (title || "بطولة").trim();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "900 26px Tahoma, Arial, sans-serif";
-    ctx.fillText(tName, W / 2, titleY);
-    if (!winner) return titleY + 20;
-    ctx.font = "900 20px Tahoma, Arial, sans-serif";
-    const label = `👑 ${winner} 👑`;
-    const bw = Math.min(560, Math.max(180, ctx.measureText(label).width + 60));
-    const bx = W / 2 - bw / 2;
-    const by = titleY + 16;
-    const bh = 42;
-    ctx.fillStyle = "rgba(255,215,0,0.14)";
-    ctx.strokeStyle = "rgba(255,215,0,0.55)";
-    ctx.lineWidth = 2;
-    drawRoundRect(ctx, bx, by, bw, bh, 21);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = "#ffd700";
-    ctx.fillText(label, W / 2, by + 28);
-    return by + bh;
-  }
-
-  // يولّد صورة من بيانات البطولة الحالية (البراكيت + الفائز) ويرجّعها كـ data URL،
-  // أو null لو ما فيه بيانات كافية (مع رسالة خطأ). العنوان = اسم البطولة الحالية.
-  function generateBracketImage(winner: string): string | null {
-    const rounds = st.rounds || [];
-    const allPlayers = (st.players || []).filter(p => p && p !== BYE);
-    const title = st.name || "بطولة";
-    if (rounds.length === 0 && allPlayers.length === 0 && !winner) {
-      setRecError("ما كاين بيانات بطولة حالية (لا براكيت ولا منافسين) باش نولّدو منها صورة");
-      return null;
-    }
-    if (rounds.length > 0) {
-      const totalRounds = rounds.length;
-      const matchW = 190, matchH = 58, rowH = 92, colGap = 60;
-      const colW = matchW + colGap;
-      const marginX = 40, headerH = 190;
-      const centersY: number[][] = [];
-      centersY[0] = rounds[0].map((_, i) => headerH + i * rowH + rowH / 2);
-      for (let r = 1; r < totalRounds; r++) {
-        centersY[r] = rounds[r].map((_, i) => {
-          const y1 = centersY[r - 1][2 * i];
-          const y2 = centersY[r - 1][2 * i + 1];
-          if (y1 !== undefined && y2 !== undefined) return (y1 + y2) / 2;
-          return y1 ?? y2 ?? headerH;
-        });
-      }
-      const maxY = Math.max(...centersY[0]) + rowH / 2 + 50;
-      const W = marginX * 2 + totalRounds * colW - colGap;
-      const H = Math.max(560, maxY + 40);
-      const canvas = document.createElement("canvas");
-      canvas.width = W;
-      canvas.height = H;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return null;
-      const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-      bgGrad.addColorStop(0, "#0a1a33");
-      bgGrad.addColorStop(1, "#020814");
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, W, H);
-      const glow = ctx.createRadialGradient(W / 2, 60, 10, W / 2, 60, 320);
-      glow.addColorStop(0, "rgba(255,215,0,0.28)");
-      glow.addColorStop(1, "rgba(255,215,0,0)");
-      ctx.fillStyle = glow;
-      ctx.fillRect(0, 0, W, H);
-      ctx.strokeStyle = "rgba(41,182,246,0.35)";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(5, 5, W - 10, H - 10);
-      drawHeader(ctx, W, title, winner, 58, 96);
-      ctx.strokeStyle = "rgba(41,182,246,0.4)";
-      ctx.lineWidth = 2;
-      for (let r = 0; r < totalRounds - 1; r++) {
-        const x1 = marginX + r * colW + matchW;
-        const x2 = marginX + (r + 1) * colW;
-        const midX = (x1 + x2) / 2;
-        rounds[r + 1].forEach((_, i) => {
-          const targetY = centersY[r + 1][i];
-          [2 * i, 2 * i + 1].forEach((si) => {
-            const sourceY = centersY[r][si];
-            if (sourceY === undefined) return;
-            ctx.beginPath();
-            ctx.moveTo(x1, sourceY);
-            ctx.lineTo(midX, sourceY);
-            ctx.lineTo(midX, targetY);
-            ctx.lineTo(x2, targetY);
-            ctx.stroke();
-          });
-        });
-      }
-      ctx.textAlign = "center";
-      rounds.forEach((round, r) => {
-        const x = marginX + r * colW;
-        const isFinal = r === totalRounds - 1;
-        ctx.fillStyle = "rgba(255,255,255,0.55)";
-        ctx.font = "700 13px Tahoma, Arial, sans-serif";
-        ctx.fillText(rTitle(r, totalRounds).replace("🏆", "").trim(), x + matchW / 2, headerH - 18);
-        round.forEach((m, i) => {
-          const cy = centersY[r][i];
-          const y = cy - matchH / 2;
-          ctx.fillStyle = isFinal ? "rgba(255,215,0,0.08)" : "rgba(41,182,246,0.08)";
-          ctx.strokeStyle = isFinal ? "rgba(255,215,0,0.5)" : "rgba(41,182,246,0.35)";
-          ctx.lineWidth = 1.5;
-          drawRoundRect(ctx, x, y, matchW, matchH, 10);
-          ctx.fill();
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(x, cy);
-          ctx.lineTo(x + matchW, cy);
-          ctx.strokeStyle = "rgba(255,255,255,0.12)";
-          ctx.lineWidth = 1;
-          ctx.stroke();
-          ctx.strokeStyle = isFinal ? "rgba(255,215,0,0.5)" : "rgba(41,182,246,0.35)";
-          ctx.lineWidth = 1.5;
-          const half = matchH / 2;
-          const drawSlot = (name: string | null, slotY: number) => {
-            const isBye = name === BYE;
-            const isW = !!m.winner && m.winner === name && name !== BYE;
-            ctx.font = `${isW ? "800" : "500"} 14px Tahoma, Arial, sans-serif`;
-            ctx.fillStyle = isW ? "#ffd700" : isBye ? "rgba(255,255,255,0.35)" : name ? "#e5e7eb" : "rgba(255,255,255,0.3)";
-            let label = isBye ? "بايب" : name || "—";
-            const maxW = matchW - 20;
-            if (ctx.measureText(label).width > maxW) {
-              while (label.length > 3 && ctx.measureText(label + "…").width > maxW) {
-                label = label.slice(0, -1);
-              }
-              label += "…";
-            }
-            ctx.fillText(label, x + matchW / 2, slotY);
-          };
-          drawSlot(m.a, y + half / 2 + 5);
-          drawSlot(m.b, y + half + half / 2 + 5);
-        });
-      });
-      return canvas.toDataURL("image/jpeg", 0.9);
-    }
-    const others = allPlayers.filter(p => p !== winner);
-    const W = 1000, H = 625;
-    const canvas = document.createElement("canvas");
-    canvas.width = W;
-    canvas.height = H;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-    bgGrad.addColorStop(0, "#0a1a33");
-    bgGrad.addColorStop(1, "#020814");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, W, H);
-    const glow = ctx.createRadialGradient(W / 2, 120, 10, W / 2, 120, 260);
-    glow.addColorStop(0, "rgba(255,215,0,0.35)");
-    glow.addColorStop(1, "rgba(255,215,0,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
-    ctx.strokeStyle = "rgba(41,182,246,0.35)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(6, 6, W - 12, H - 12);
-    const afterHeader = drawHeader(ctx, W, title, winner, 95, 150);
-    const listStartY = afterHeader + 34;
-    if (others.length > 0) {
-      ctx.fillStyle = "rgba(255,255,255,0.55)";
-      ctx.font = "700 16px Tahoma, Arial, sans-serif";
-      ctx.fillText(`المنافسون (${allPlayers.length})`, W / 2, listStartY);
-      const gridTop = listStartY + 34;
-      const cols = 4;
-      const cellW = (W - 80) / cols;
-      const rowH = 44;
-      const maxRows = Math.max(1, Math.floor((H - gridTop - 30) / rowH));
-      const shown = others.slice(0, cols * maxRows);
-      shown.forEach((name, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const cx = 40 + cellW * col + cellW / 2;
-        const cy = gridTop + row * rowH;
-        ctx.fillStyle = "rgba(255,255,255,0.08)";
-        drawRoundRect(ctx, cx - cellW / 2 + 8, cy - 22, cellW - 16, 34, 10);
-        ctx.fill();
-        ctx.fillStyle = "#e5e7eb";
-        ctx.font = "600 15px Tahoma, Arial, sans-serif";
-        let display = name;
-        const maxW = cellW - 30;
-        if (ctx.measureText(display).width > maxW) {
-          while (display.length > 3 && ctx.measureText(display + "…").width > maxW) {
-            display = display.slice(0, -1);
-          }
-          display += "…";
-        }
-        ctx.fillText(display, cx, cy + 5);
-      });
-      if (others.length > shown.length) {
-        ctx.fillStyle = "rgba(255,255,255,0.5)";
-        ctx.font = "600 14px Tahoma, Arial, sans-serif";
-        ctx.fillText(`+${others.length - shown.length} آخرين`, W / 2, H - 18);
-      }
-    }
-    return canvas.toDataURL("image/jpeg", 0.9);
-  }
-
-  // يولّد صورة البراكيت الحالي ويحفظها لهذي اللعبة (مع اسم الفائز الحالي أو بطل البطولة).
-  async function handleGenerateGameImage(game: string) {
-    setRecError("");
-    // 🏆 لو فيه براكيت حقيقي، اسم الفائز لازم يجي من نتيجة البراكيت الفعلية
-    // (آخر ماتش بالنهائي) — مو من خانة الاسم اللي الأدمن يكتبها يدوياً. قبل
-    // هذا التعديل كانت الصورة المولّدة ممكن تطلع فيها اسمين متناقضين: الشارة
-    // الذهبية تكتب اسم مختلف عن اللي فعلاً فايز بالبراكيت المرسوم تحتها.
-    const rounds = st.rounds || [];
-    const bracketChampion = rounds.length ? (rounds[rounds.length - 1][0]?.winner || "") : "";
-    const realChampion = (bracketChampion && bracketChampion !== BYE) ? bracketChampion : "";
-    const winner = realChampion || (winnerDrafts[game] ?? "").trim() || (st.champion || "").trim();
-    const image = generateBracketImage(winner);
-    if (!image) return;
-    await saveGame(game, winner, image);
-  }
-
-  // تفريغ لعبة (يمسح اسم الفائز والصورتين بس الكرت يبقى موجود بنفس الاسم).
-  // إخفاء/إظهار كرت الفائز عن الصفحة العامة (بدون حذف الاسم أو الصورة، ويرجع بأي وقت)
-  async function toggleGameVisibility(rec: TournamentRecord) {
-    setRecError("");
-    setSavingGame(rec.tournamentName);
-    try {
-      await setRecordVisibility(rec.id, !rec.isHidden, token);
-      refreshRecords();
-    } catch (e: any) {
-      setRecError(e?.message || "تعذّر تغيير حالة الظهور");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  async function handleClearGame(rec: TournamentRecord) {
-    if (!confirm(`تفريغ "${rec.displayName || rec.tournamentName}" (اسم الفائز والصورة)؟`)) return;
-    setSavingGame(rec.tournamentName);
-    try {
-      await putRecord({ tournamentName: rec.tournamentName, displayName: rec.displayName || "", winnerName: "", image: "", image2: "" }, token);
-      setWinnerDrafts((prev) => ({ ...prev, [rec.tournamentName]: "" }));
-      refreshRecords();
-    } catch {
-      setRecError("فشل التفريغ");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  // حذف الكرت نهائيًا: يشيل السجل بالكامل من قاعدة البيانات فيختفي الكرت
-  // كامل من صفحة الأدمن وصفحة الزوار، ولا يرجع إلا بإضافته من جديد.
-  async function handleDeleteGameCard(rec: TournamentRecord) {
-    if (!confirm(`حذف كرت "${rec.displayName || rec.tournamentName}" نهائيًا؟ هاذي العملية ما ترجعش، غير إضافة كرت جديد بنفس الاسم.`)) return;
-    setRecError("");
-    setSavingGame(rec.tournamentName);
-    try {
-      await deleteRecord(rec.id, token);
-      setWinnerDrafts((prev) => {
-        const next = { ...prev };
-        delete next[rec.tournamentName];
-        return next;
-      });
-      setGameNames((prev) => {
-        const next = { ...prev };
-        delete next[rec.tournamentName];
-        return next;
-      });
-      refreshRecords();
-    } catch {
-      setRecError("فشل حذف الكرت");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  // إضافة كرت جديد: يعمل سجل جديد فاضي بالاسم إللي يكتبه الأدمن، يظهر مباشرة كخانة جديدة.
-  async function handleAddGame() {
-    const name = newGameName.trim();
-    if (!name) {
-      // 🐛 قبل: كان يرجع بصمت بدون أي رسالة، فيبان الزر "ميت" لما الحقل فاضي
-      // (خصوصاً إن الزر ما عنده أي شكل مرئي مختلف وهو معطّل). دابا نوضّح
-      // بالضبط ليش ما ضاف شي.
-      setRecError("⚠️ لازم تكتب اسم اللعبة/الكرت الجديد فالحقل قبل ما تضغط");
-      return;
-    }
-    if (records.some((r) => r.tournamentName === name)) {
-      setRecError("فما كرت بنفس الاسم موجود من قبل");
-      return;
-    }
-    setRecError("");
-    setSavingGame(name);
-    try {
-      await putRecord({ tournamentName: name, winnerName: "", image: "" }, token);
-      setNewGameName("");
-      refreshRecords();
-    } catch (e: any) {
-      setRecError(e?.message || "تعذّر إضافة الكرت");
-    } finally {
-      setSavingGame(null);
-    }
-  }
-
-  useEffect(() => {
-    setSoundOn(isSoundEnabled());
-  }, []);
-
-  function handleToggleSound() {
-    const next = toggleSound();
-    setSoundOn(next);
-  }
-
-  const pusherRef = useRef<PusherClient | null>(null);
-  const chatChannelRef = useRef<PusherChannel | null>(null);
-  const fromPusherRef = useRef(false);
-
-  useEffect(() => {
-    getState().then(data => setSt(data)).catch(() => {});
-  }, []);
-
-  // 🔄 مزامنة لحظية بين الأدمن والمساعد: أي تغيير يسويه أي واحد منهم (بأي
-  // تبويب/جهاز) ينوصل فوراً للطرف الثاني عن طريق نفس قناة الـ SSE اللي
-  // تستخدمها صفحة العرض المباشر. بدون هذا، كل واحد يشوف نسخة قديمة من
-  // الحالة إلى أن يعمل تحديث يدوي للصفحة.
-  const typingRef = useRef(false); // true أثناء ما الأدمن يكتب بخانة اسم لاعب (عشان ما نلخبط عليه وهو يكتب)
-  useSSE((data) => {
-    if (typingRef.current) return; // ما نطبّق تحديث خارجي وهو يكتب حالياً
-    setSt(data);
+      const raw = localStorage.getItem(SEEN_IMAGES_KEY);
+      return raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    } catch { return {}; }
   });
 
-  const sync = useCallback(async (newSt: TournamentState) => {
-    console.log("[Admin] Syncing state, phase:", newSt.phase, "players:", newSt.players.length);
-    try {
-      await postState(newSt, token);
-      setSyncError("");
-    } catch (err) {
-      console.error("[Admin] Sync failed:", err);
-      setSyncError("فشل حفظ الحالة");
-    }
-  }, [token]);
+  // إخفاء العلامة الصفراء لكرت معيّن + حفظ البصمة الجديدة
+  const markImageSeen = useCallback((game: string, sig: string) => {
+    setSeenImages((prev) => {
+      const next = { ...prev, [game]: sig };
+      try { localStorage.setItem(SEEN_IMAGES_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  // ── جلسة اللاعب المسجّل + إحصائياته (فوزات/لفل لكل لعبة) ──
+  const [session, setSession] = useState<PlayerSession | null>(() => {
+    try { const raw = localStorage.getItem("playerSession"); return raw ? (JSON.parse(raw) as PlayerSession) : null; } catch { return null; }
+  });
+  const [stats, setStats] = useState<PlayerStats | null>(null);
+
+  // ── حالة نافذة تسجيل الدخول عبر شات كيك ──
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginStep, setLoginStep] = useState<"enter" | "verify">("enter");
+  const [nameInput, setNameInput] = useState("");
+  const [linkCode, setLinkCode] = useState("");
+  const [verifyMsg, setVerifyMsg] = useState("");
+  const [copied, setCopied] = useState(false);         // تأكيد بصري بعد نسخ الكود
+  const [codeExpiresAt, setCodeExpiresAt] = useState(0); // وقت انتهاء الأمر (للعداد التنازلي)
+  const [nowTs, setNowTs] = useState(Date.now());
+
+  const pusherRef = useRef<any>(null);
+  const chatChannelRef = useRef<any>(null);
+  const expireTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const refreshStats = useCallback(() => {
+    const name = session?.username;
+    if (!name) { setStats(null); return; }
+    getPlayerStats(name).then((s) => { if (s) setStats(s); }).catch(() => {});
+  }, [session]);
 
   useEffect(() => {
-    if (fromPusherRef.current) {
-      fromPusherRef.current = false;
-      sync(st);
-    }
-  }, [st, sync]);
+    refreshStats();
+  }, [refreshStats]);
 
-  const update = useCallback((newSt: TournamentState) => {
-    console.log("[Admin] update() phase:", newSt.phase, "players:", newSt.players.length);
-    setSt(newSt);
-    sync(newSt);
-  }, [sync]);
-
+  // ── 🖼️ صورة اللاعب تُجلب مباشرة من بروفايله في كيك (بدون رفع يدوي) ──
+  const [kickAvatar, setKickAvatar] = useState<string>("");
   useEffect(() => {
-    connectToKickChat();
-    return () => {
-      if (chatChannelRef.current && pusherRef.current) {
-        chatChannelRef.current.unbind_all();
-        pusherRef.current.unsubscribe(chatChannelRef.current.name);
+    const name = session?.username;
+    if (!name) { setKickAvatar(""); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(name)}`, { headers: { Accept: "application/json" } });
+        if (r.ok) {
+          const d = await r.json();
+          if (!cancelled) setKickAvatar(d?.user?.profile_pic || "");
+        }
+      } catch {
+        /* لو تعذّر الجلب نرجع لأول حرف من الاسم */
       }
-    };
-  }, [CH]);
+    })();
+    return () => { cancelled = true; };
+  }, [session]);
 
-  function connectToKickChat() {
-    setChatStatus("connecting");
+  // ── 🏆 ترتيب الفائزين: يجي جاهز من السيرفر ──
+  // المصدر جدول player_match_wins: كل ماتش مكسوب داخل أي بطولة = نقطة،
+  // ولا يتصفّر مع البطولات الجديدة. أي مشارك يفوز يدخل الترتيب تلقائياً
+  // سواء كان حسابه مربوط بالموقع أو لا.
+  //
+  // نجلب 50 مركز مو 5: الظاهر للجميع هو أول TOP_COUNT فقط، لكن نحتاج
+  // القائمة الأطول عشان نحسب مركز اللاعب لو كان خارج الظاهرين.
+  // بالجوال اللوحة تنفتح كنافذة بنص الشاشة من أيقونة الكأس بالهيدر.
+  const [boardOpen, setBoardOpen] = useState(false);
+  const [fullBoard, setFullBoard] = useState<LeaderboardEntry[]>([]);
+  const refreshLeaderboard = useCallback(() => {
+    getLeaderboard(50).then((rows) => setFullBoard(rows || [])).catch(() => {});
+  }, []);
+
+  // ── 🔒 قفل تمرير الصفحة + إغلاق بزر Escape وقت ما تكون اللوحة مفتوحة ──
+  // بدون قفل التمرير، الخلفية تتحرك تحت النافذة بالجوال وتطلع تجربة مكسورة.
+  useEffect(() => {
+    if (!boardOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setBoardOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [boardOpen]);
+
+  // أول 5 مراكز فقط هي الظاهرة للجميع
+  const topBoard = useMemo(() => fullBoard.slice(0, TOP_COUNT), [fullBoard]);
+
+  // ── 📍 مركزك أنت (يظهر فقط لو حسابك مربوط) ──
+  // لو مركزك ضمن أول 5 نضيّي سطرك بالقائمة، ولو تحتهم نعرض سطر مستقل
+  // فيه رقم مركزك الحقيقي (مثلاً: 7) واسمك ونقاطك.
+  const myStanding = useMemo(() => {
+    const me = normalizeName(session?.username || "");
+    if (!me) return null;
+    const idx = fullBoard.findIndex((e) => normalizeName(e.username) === me);
+    if (idx === -1) return { rank: 0, wins: 0, username: session!.username, inTop: false };
+    return { rank: idx + 1, wins: fullBoard[idx].wins, username: fullBoard[idx].username, inTop: idx < TOP_COUNT };
+  }, [fullBoard, session]);
+
+  // ── حالة البطولة الحية (لتلوين نقطة زر "مشاهدة البطولة") ──
+  // phase: "setup" = لا توجد بطولة جارية، "tournament" = البطولة جارية الآن.
+  // joinDeadline: وقت انتهاء نافذة الانضمام لو الأدمن فتحها (null يعني مغلقة).
+  const [liveTournamentPhase, setLiveTournamentPhase] = useState<"setup" | "tournament">("setup");
+  const [liveJoinDeadline, setLiveJoinDeadline] = useState<number | null>(null);
+  // نبضة كل ثانية عشان ننتبه لانتهاء مهلة نافذة الانضمام حتى بدون رسالة SSE جديدة
+  const [, setDotTick] = useState(0);
+  useEffect(() => {
+    if (!liveJoinDeadline) return;
+    const id = setInterval(() => setDotTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [liveJoinDeadline]);
+
+  useEffect(() => {
+    getRecords().then(setRecords).catch(() => {});
+    refreshLeaderboard();
+    getState().then((s) => {
+      setLiveTournamentPhase(s?.phase || "setup");
+      setLiveJoinDeadline(s?.joinDeadline ?? null);
+    }).catch(() => {});
+  }, [refreshLeaderboard]);
+
+  // تحديث لحظي: أي تعديل من الأدمن (يستدعي broadcast بالخادم) يوصل عبر SSE،
+  // فنعيد جلب السجل + إحصائيات اللاعب فوراً (الفوزات تتغيّر عند تحديد فائز جديد).
+  // ⚠️ وهذا كمان اللي يخلّي العلامة الصفراء تطلع لحظياً بمجرد ما الأدمن يرفع صورة جديدة،
+  //    وكمان اللي يحدّث لوحة الترتيب (السيرفر يبث بعد كل ماتش).
+  useSSE((data) => {
+    getRecords().then(setRecords).catch(() => {});
+    refreshStats();
+    refreshLeaderboard();
+    setLiveTournamentPhase(data?.phase || "setup");
+    setLiveJoinDeadline(data?.joinDeadline ?? null);
+  });
+
+  // ⏱️ هل نافذة الانضمام مفتوحة فعلاً الآن (فيه مهلة ولسا ما خلصت)؟
+  const isJoinWindowOpen = !!liveJoinDeadline && liveJoinDeadline > Date.now();
+  // 🔴 أحمر: ما فيه بطولة جارية ولا نافذة انضمام مفتوحة
+  // 🟢 أخضر: الأدمن فتح باب الانضمام الآن
+  // ⚪ أبيض (الوضع الطبيعي): البطولة جارية فعلاً
+  const watchDotStatus: "red" | "green" | "white" =
+    isJoinWindowOpen ? "green" : liveTournamentPhase === "tournament" ? "white" : "red";
+  // فيه شي يستاهل الدخول له؟ (بطولة جارية أو باب انضمام مفتوح)
+  // لو لا → زر المشاهدة يصير مطفي وما ينضغط.
+  const isTournamentLive = watchDotStatus !== "red";
+
+  // إيقاف الاستماع لشات كيك وتنظيف المؤقّت
+  const teardownVerify = useCallback(() => {
     if (chatChannelRef.current) {
-      chatChannelRef.current.unbind_all();
-      if (pusherRef.current) pusherRef.current.unsubscribe(chatChannelRef.current.name);
+      try {
+        chatChannelRef.current.unbind_all();
+        if (pusherRef.current) pusherRef.current.unsubscribe(chatChannelRef.current.name);
+      } catch { /* ignore */ }
       chatChannelRef.current = null;
     }
-    const meta = CHANNEL_META[CH];
-    if (!meta) { setChatStatus("offline"); return; }
+    if (expireTimerRef.current) { clearTimeout(expireTimerRef.current); expireTimerRef.current = null; }
+  }, []);
+
+  useEffect(() => () => teardownVerify(), [teardownVerify]);
+
+  // عدّاد تنازلي لصلاحية أمر الربط — يشتغل فقط وقت انتظار الرسالة
+  useEffect(() => {
+    if (!loginOpen || loginStep !== "verify") return;
+    const id = setInterval(() => setNowTs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [loginOpen, loginStep]);
+
+  function genCode(): string {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    let out = "";
+    for (let i = 0; i < 4; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  }
+
+  function openLogin() {
+    setLoginOpen(true);
+    setLoginStep("enter");
+    setNameInput("");
+    setLinkCode("");
+    setVerifyMsg("");
+    setCopied(false);
+  }
+
+  // رجوع لخطوة كتابة الاسم (نوقف الاستماع عشان ما يبقى اشتراك معلّق)
+  function backToEnter() {
+    teardownVerify();
+    setCopied(false);
+    setVerifyMsg("");
+    setLoginStep("enter");
+  }
+
+  // نسخ الكود مع تأكيد بصري لمدة ثانيتين
+  function copyCmd() {
+    const text = `!ربط ${linkCode}`;
+    if (!navigator.clipboard?.writeText) return;
+    navigator.clipboard.writeText(text)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); })
+      .catch(() => {});
+  }
+
+  function closeLogin() {
+    setLoginOpen(false);
+    teardownVerify();
+  }
+
+  function onVerified(user: string) {
+    const sess: PlayerSession = { username: user };
+    try { localStorage.setItem("playerSession", JSON.stringify(sess)); } catch { /* ignore */ }
+    setSession(sess);
+    setLoginOpen(false);
+    teardownVerify();
+    getPlayerStats(user).then((s) => { if (s) setStats(s); }).catch(() => {});
+  }
+
+  function logout() {
+    try { localStorage.removeItem("playerSession"); } catch { /* ignore */ }
+    setSession(null);
+    setStats(null);
+  }
+
+  function connectVerify(name: string, code: string) {
+    teardownVerify();
+    const target = normalizeName(name);
     try {
       if (!pusherRef.current) {
-        pusherRef.current = new PusherLib("32cbd69e4b950bf97679", { cluster: "us2", forceTLS: true });
+        pusherRef.current = new PusherLib(KICK_PUSHER_KEY, { cluster: KICK_PUSHER_CLUSTER, forceTLS: true });
       }
-      const pusher = pusherRef.current!;
-      const channel = pusher.subscribe(`chatrooms.${meta.chatroomId}.v2`);
+      const channel = pusherRef.current.subscribe(`chatrooms.${KICK_CHATROOM_ID}.v2`);
       chatChannelRef.current = channel;
-      channel.bind("pusher:subscription_succeeded", () => setChatStatus("live"));
-      channel.bind("pusher:subscription_error", () => setChatStatus("offline"));
-      pusher.connection.bind("state_change", (states: any) => {
-        if (states.current === "connected") setChatStatus("live");
-        if (states.current === "failed" || states.current === "disconnected") setChatStatus("offline");
-      });
-      const handleChatMessage = (rawData: unknown) => {
-        const payload = typeof rawData === "string" ? safeJsonParse(rawData) : rawData;
-        const normalized = getNestedPayload(payload) as Record<string, unknown>;
-        const content = normalizeText(
-          (normalized?.content as unknown) ?? (normalized?.message as unknown) ?? (normalized?.text as unknown) ?? ""
-        );
-        const sender = (normalized?.sender as Record<string, unknown> | undefined) ??
-          (normalized?.user as Record<string, unknown> | undefined) ?? (normalized as Record<string, unknown>);
-        const user = normalizeText(
-          (sender?.username as unknown) ?? (sender?.name as unknown) ?? (normalized?.username as unknown) ?? ""
-        );
+      const handler = (rawData: unknown) => {
+        const payload = typeof rawData === "string" ? safeParse(rawData) : rawData;
+        const normalized = nestedPayload(payload);
+        const content = String((normalized?.content as unknown) ?? (normalized?.message as unknown) ?? (normalized?.text as unknown) ?? "").trim();
+        const sender = (normalized?.sender as Record<string, unknown> | undefined) ?? (normalized?.user as Record<string, unknown> | undefined) ?? normalized;
+        const user = String((sender?.username as unknown) ?? (sender?.name as unknown) ?? "").trim();
         if (!content || !user) return;
-
-        // 🚪 أمر الانسحاب الذاتي: يخلي اللاعب يطلع نفسه من القائمة قبل بدء البطولة
-        if (/!خروج|!leave/i.test(content)) {
-          let didLeave = false;
-          setSt(prev => {
-            if (prev.phase !== "setup") return prev;
-            if (!isUserAlreadyJoined(prev.players, user)) return prev;
-            fromPusherRef.current = true;
-            didLeave = true;
-            return removeEntryFromState(prev, user);
-          });
-          if (didLeave) { /* لا داعي لجلب صورة، بس نسحب */ }
-          return;
-        }
-
-        if (!/!دخول|!join/i.test(content)) return;
-
-        let didAdd = false;
-        setSt(prev => {
-          if (prev.phase !== "setup") return prev;
-          // 🚪 باب الانضمام مقفل افتراضياً: ما نقبل ولا !دخول إلا إذا الأدمن أو
-          // المساعد ضغط زر "افتح باب الانضمام" فعلاً (joinDeadline محدد) وما
-          // انتهت مهلته بعد. قبل هذا التعديل كان أي !دخول يُقبل طول الوقت لو
-          // ما فيه joinDeadline أصلاً، وهذا كان يخالف المطلوب.
-          if (!prev.joinDeadline || Date.now() > prev.joinDeadline) return prev;
-          if (isUserAlreadyJoined(prev.players, user)) return prev;
-          fromPusherRef.current = true;
-          didAdd = true;
-          return addEntryToState(prev, user);
-        });
-        if (didAdd) enrichEntryAvatar(user);
+        if (normalizeName(user) !== target) return;
+        if (!/(!ربط|!link|!رابط)/i.test(content)) return;
+        if (!content.toLowerCase().includes(code.toLowerCase())) return;
+        onVerified(user);
       };
-      channel.bind("App\\Events\\ChatMessageEvent", handleChatMessage);
-      channel.bind("ChatMessageEvent", handleChatMessage);
-      channel.bind("App\\Events\\ChatMessageEventV2", handleChatMessage);
-      pusher.connection.bind("error", () => setChatStatus("offline"));
-    } catch (err) {
-      setChatStatus("offline");
-    }
-  }
-
-  // ✅ توحيد اسم المستخدم (يشيل الفراغات الزايدة ويطبّع الأحرف) عشان مقارنة الأسماء
-  // تكون دقيقة 100% بدل الاعتماد على substring اللي كان يفشل أحياناً ويسمح
-  // لنفس الشخص يدخل أكثر من مرة (خصوصاً لو فيه فراغات أو رموز غير مرئية بالاسم).
-  function normalizeUsername(u: string): string {
-    return (u || "").normalize("NFKC").trim().toLowerCase();
-  }
-
-  // ✅ يتحقق هل المستخدم موجود فعلاً بقائمة اللاعبين (يدعم وضع الفرق حيث كل خانة
-  // فيها أكثر من اسم مفصولين بـ " N ") — مقارنة دقيقة (exact match) وليس substring.
-  function isUserAlreadyJoined(players: string[], user: string): boolean {
-    const target = normalizeUsername(user);
-    if (!target) return false;
-    return players.some((p) => {
-      if (!p) return false;
-      return p.split(" N ").some((m) => normalizeUsername(m) === target);
-    });
-  }
-
-  function safeJsonParse(value: string) {
-    try { return JSON.parse(value); } catch { return value; }
-  }
-
-  function getNestedPayload(value: unknown) {
-    if (!value || typeof value !== "object") return value;
-    const record = value as Record<string, unknown>;
-    if (typeof record.data === "string") return getNestedPayload(safeJsonParse(record.data));
-    if (record.data && typeof record.data === "object") return getNestedPayload(record.data);
-    return record;
-  }
-
-  function normalizeText(value: unknown) {
-    return typeof value === "string" ? value.trim() : "";
-  }
-
-  // ✅ إضافة لاعب — يملأ أول خانة فاضية ضمن الحجم المحدد
-  // 🚪 يشيل لاعب معيّن بناءً على أمر !خروج — لو بفريق يشيله من فريقه فقط
-  // (ويشيل الفريق كامل لو صار فاضي بعدها)، ولو فردي يفضي خانته بالكامل.
-  function removeEntryFromState(prev: TournamentState, user: string): TournamentState {
-    const target = normalizeUsername(user);
-    const players = prev.players
-      .map((p) => {
-        if (!p) return p;
-        const members = p.split(" N ").filter((m) => normalizeUsername(m) !== target);
-        return members.join(" N ");
-      })
-      .filter((p) => p);
-    const entryLog = prev.entryLog.filter((e) => normalizeUsername(e.user) !== target);
-    const size = Math.max(players.length, 2);
-    const bSize = p2(size);
-    const byeN = bSize - size;
-    return { ...prev, players, size, bSize, byeN, entryLog };
-  }
-
-  function addEntryToState(prev: TournamentState, user: string): TournamentState {
-    const now = new Date();
-    const timeStr = `${now.getHours()}:${now.getMinutes().toString().padStart(2, "0")}`;
-    const entry: EntryLogItem = { user, time: timeStr };
-    let players = [...prev.players];
-    let size = prev.size;
-    let added = false;
-
-    if (prev.isTeams) {
-      for (let i = 0; i < size; i++) {
-        const current = players[i] || "";
-        const members = current ? current.split(" N ") : [];
-        if (members.length < prev.teamSize) {
-          members.push(user);
-          players[i] = members.join(" N ");
-          added = true;
-          break;
-        }
-      }
-      if (!added) { players.push(user); size = players.length; added = true; }
-    } else {
-      let inserted = false;
-      for (let i = 0; i < size; i++) {
-        if (!players[i]) { players[i] = user; inserted = true; added = true; break; }
-      }
-      if (!inserted) { players.push(user); size = players.length; added = true; }
-    }
-
-    if (!added) return prev;
-
-    const bSize = p2(size);
-    const byeN = bSize - size;
-    return { ...prev, players, size, bSize, byeN, entryLog: [...prev.entryLog, entry] };
-  }
-
-  function handleEntry(user: string, currentSt: TournamentState, updater: typeof update) {
-    if (currentSt.phase !== "setup") return;
-    if (isUserAlreadyJoined(currentSt.players, user)) return;
-    const newSt = addEntryToState(currentSt, user);
-    updater(newSt);
-    enrichEntryAvatar(user);
-  }
-
-  // 🖼️ توليد رابط صورة احتياطية (Fallback) بألوان الموقع (أخضر كيك + أزرق) في حال تعذّر جلب صورة كيك الحقيقية
-  function fallbackAvatar(user: string): string {
-    return `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user)}&backgroundType=gradientLinear&backgroundColor=53fc18,29b6f6&textColor=060d1a&fontWeight=800`;
-  }
-
-  // 🖼️ محاولة جلب صورة بروفايل اللاعب الحقيقية من كيك، ثم تحديث entryLog بها بمجرد توفرها
-  // (بدون إعاقة إضافة اللاعب — الإضافة تتم فورًا، والصورة تُلحق لاحقًا فور وصولها)
-  async function enrichEntryAvatar(user: string) {
-    let avatar: string | null = null;
-    try {
-      const r = await fetch(`https://kick.com/api/v2/channels/${encodeURIComponent(user)}`, { headers: { Accept: "application/json" } });
-      if (r.ok) {
-        const d = await r.json();
-        avatar = d?.user?.profile_pic || null;
-      }
+      channel.bind("App\\Events\\ChatMessageEvent", handler);
+      channel.bind("ChatMessageEvent", handler);
+      channel.bind("App\\Events\\ChatMessageEventV2", handler);
     } catch {
-      avatar = null;
-    }
-    if (!avatar) avatar = fallbackAvatar(user);
-    setSt(prev => ({
-      ...prev,
-      entryLog: prev.entryLog.map(e => (e.user === user && !e.avatar ? { ...e, avatar } : e)),
-    }));
-  }
-
-  async function kickCheck(manual = false) {
-    if (!manual) setKLive(false);
-    try {
-      const r = await fetch(`https://kick.com/api/v2/channels/${CH}`, { headers: { Accept: "application/json" } });
-      if (!r.ok) throw 0;
-      const d = await r.json();
-      const live = d?.livestream != null;
-      setKLive(live);
-    } catch {
-      setKLive(true);
+      setVerifyMsg("تعذّر الاتصال بشات كيك — جرّب مرة ثانية بعد شوي.");
     }
   }
 
-  useEffect(() => {
-    kickCheck(true);
-    const id = setInterval(() => kickCheck(), 90000);
-    return () => clearInterval(id);
-  }, [CH]);
-
-  // 🔁 تبديل نظام الفرق (تشغيل/إلغاء) — الإصلاح: لما نلغي "الفرق" بعد ما كان
-  // فيه لاعبين مجمّعين مع بعض بنفس الخانة (مثلاً "أحمد N هشام")، لازم نفرّط
-  // كل خانة لخانات فردية عشان اللاعبين ما يضلوش عالقين مع بعض. قبل الإصلاح
-  // كان بس يبدّل isTeams بدون ما يلمس players، فتضل الأسماء ملتصقة ببعضها.
-  function toggleTeams(checked: boolean) {
-    if (!checked) {
-      // 🔻 إلغاء الفرق: نفرّط كل خانة (قد تحتوي أكثر من اسم مفصول بـ " N ")
-      // إلى خانات فردية منفصلة.
-      const allMembers = st.players.flatMap((p) => (p ? p.split(" N ") : []));
-      const size = Math.max(allMembers.length, 2);
-      const bSize = p2(size);
-      const byeN = bSize - size;
-      update({ ...st, isTeams: false, players: allMembers, size, bSize, byeN });
-    } else {
-      // 🔺 تفعيل الفرق: كان الباق قبل هذا الإصلاح يكتفي بتبديل isTeams فقط
-      // بدون ما يجمّع اللاعبين الحاليين (المنضمين كأفراد) بفرق فعلية — فتظل
-      // كل خانة فيها لاعب واحد بس حتى لو فعّلت "نظام الفرق". دابا نجمّع كل
-      // اللاعبين الحاليين مباشرة بفرق بحجم teamSize.
-      const allMembers = st.players.flatMap((p) => (p ? p.split(" N ") : []));
-      const teamSize = Math.max(1, st.teamSize);
-      const newPlayers: string[] = [];
-      for (let i = 0; i < allMembers.length; i += teamSize) {
-        newPlayers.push(allMembers.slice(i, i + teamSize).join(" N "));
-      }
-      const size = Math.max(newPlayers.length, 2);
-      const bSize = p2(size);
-      const byeN = bSize - size;
-      update({ ...st, isTeams: true, players: newPlayers, size, bSize, byeN });
-    }
+  function startVerify() {
+    const name = nameInput.trim();
+    if (!name) return;
+    const code = genCode();
+    setLinkCode(code);
+    setCopied(false);
+    setVerifyMsg("");
+    setCodeExpiresAt(Date.now() + LINK_CODE_TTL_MS);
+    setNowTs(Date.now());
+    setLoginStep("verify");
+    connectVerify(name, code);
+    if (expireTimerRef.current) clearTimeout(expireTimerRef.current);
+    // انتهى الوقت؟ نولّد كود جديد تلقائياً بدل ما نطلب من المستخدم يضغط زر.
+    // startVerify تعيد ضبط المؤقّت بنفسها، فالتجديد يستمر ما دامت النافذة مفتوحة،
+    // ويتوقف تلقائياً عند الإغلاق لأن closeLogin تنادي teardownVerify.
+    expireTimerRef.current = setTimeout(() => {
+      startVerify();
+    }, LINK_CODE_TTL_MS);
   }
 
-  function handleSizeChange(n: number) {
-    const newSt = stSetSize(st, n);
-    update(newSt);
-  }
+  // الكروت ديناميكية: كل سجل غير مخفي = كرت واحد، وكرت محذوف من الأدمن
+  // يختفي كامل من هنا تلقائيًا (بدون خانة فاضية مكانه).
+  const slots = useMemo(() => {
+    return records
+      .filter((r) => !r.isHidden)
+      .map((r) => {
+        const sig = imageSig(r);
+        return {
+          game: r.tournamentName,
+          name: r.displayName || r.tournamentName,
+          winner: r.winnerName || "",
+          image: r.image || "",
+          image2: r.image2 || "",
+          sig,
+          // 🟡 فيه صورة، ومختلفة عن آخر بصمة شافها المستخدم = صورة جديدة
+          isNewImage: !!(r.image || r.image2) && seenImages[r.tournamentName] !== sig,
+          empty: false,
+        };
+      });
+  }, [records, seenImages]);
 
-  // 🎲 يفرّط كل اللاعبين المنضمين حاليًا من فرقهم، ويرجّع يوزّعهم بفرق عشوائية
-  // جديدة بنفس حجم الفريق (teamSize) — مفيد لما تحب تعيد تشكيل الفرق بعد ما
-  // ينضم الكل بدل ما يضلوا مرتبين حسب ترتيب انضمامهم بالشات.
-  function shuffleTeams() {
-    if (!st.isTeams) return;
-    const allMembers = st.players.flatMap(p => (p ? p.split(" N ") : []));
-    if (allMembers.length < 2) {
-      alert("⚠️ ما فيه لاعبين كفاية لعمل ترتيب عشوائي — لازم ينضم لاعبين اثنين على الأقل.");
-      return;
-    }
-    const shuffled = [...allMembers];
-    for (let i = shuffled.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-    }
-    const teamSize = Math.max(1, st.teamSize);
-    const newPlayers: string[] = [];
-    for (let i = 0; i < shuffled.length; i += teamSize) {
-      newPlayers.push(shuffled.slice(i, i + teamSize).join(" N "));
-    }
-    const size = Math.max(newPlayers.length, 2);
-    const bSize = p2(size);
-    const byeN = bSize - size;
-    update({ ...st, players: newPlayers, size, bSize, byeN });
-  }
+  const rankIcon = (i: number) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : String(i + 1));
 
-  // ⏱️ يفتح باب الانضمام لمدة محددة بالدقائق — بعد ما تنتهي المهلة، أي !دخول جديد يتجاهله
-  // الكود تلقائيًا (الشيك موجود بـ handleChatMessage)
-  function openJoinWindow(durationMinutes: number) {
-    const deadline = Date.now() + Math.max(1, durationMinutes) * 60 * 1000;
-    update({ ...st, joinDeadline: deadline });
-  }
+  // الوقت المتبقي لصلاحية أمر الربط بصيغة m:ss
+  const secondsLeft = Math.max(0, Math.ceil((codeExpiresAt - nowTs) / 1000));
+  const codeTimer = `${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, "0")}`;
 
-  function cancelJoinWindow() {
-    update({ ...st, joinDeadline: null });
-  }
-
-  function getJoinSecondsLeft(): number {
-    if (!st.joinDeadline) return 0;
-    return Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000));
-  }
-
-  // 🚪 طرد لاعب واحد بعينه من خانته (تدعم وضع الفرق حيث كل خانة فيها أكثر من
-  // اسم مفصولين بـ " N "). لو كانت الخانة فردية أو صارت فاضية بعد الطرد،
-  // الخانة كاملة تُحذف. تُستدعى من زر ✕ اللي يظهر عند التأشير (hover) على
-  // كارت اللاعب.
-  function removeMemberFromSlot(slotIdx: number, memberIdx: number) {
-    const current = st.players[slotIdx];
-    if (!current) return;
-    const members = current.split(" N ").filter(Boolean);
-    const removedMember = members[memberIdx];
-    members.splice(memberIdx, 1);
-
-    const players = [...st.players];
-    if (members.length === 0) {
-      players.splice(slotIdx, 1);
-    } else {
-      players[slotIdx] = members.join(" N ");
-    }
-    const size = Math.max(2, players.length);
-    const bSize = p2(size);
-    const byeN = bSize - size;
-
-    // ✅ نشيل اللاعب المطرود من entryLog كمان، عشان يختفي فوراً من صفحة
-    // البث المباشر (/live) وليس فقط من قائمة الأدمن.
-    const entryLog = removedMember
-      ? st.entryLog.filter((e) => normalizeUsername(e.user) !== normalizeUsername(removedMember))
-      : st.entryLog;
-    update({ ...st, players, size, bSize, byeN, entryLog });
-  }
-
-  // 🧠 يتحقق هل عدد اللاعبين الحقيقيين (المنضمين فعلاً) كافي للبدء — بيرجع
-  // null لو كل شي تمام، أو رسالة واضحة توضح بالضبط كم لاعب ناقص.
-  function getStartBlockReason(): string | null {
-    const joined = st.players.filter(p => p).length;
-    const MIN_PLAYERS = 2;
-    if (joined === 0) {
-      return "⚠️ ما انضم ولا لاعب لسا! خلي المشاهدين يكتبوا !دخول بالشات قبل ما تبدأ.";
-    }
-    if (joined < MIN_PLAYERS) {
-      const missing = MIN_PLAYERS - joined;
-      return `⚠️ اللاعبين غير كافيين! عندك ${joined} لاعب بس، ناقصك ${missing} لاعب على الأقل عشان تقدر تبدأ البطولة.`;
-    }
-    return null;
-  }
-
-  // ✅ بدء البطولة — يعمل مع أي عدد من اللاعبين (يحسب أقرب قوة لـ 2)
-  function startTournament() {
-    const blockReason = getStartBlockReason();
-    if (blockReason) {
-      // البانر الاحترافي تحت الزر بيوضّح السبب لحظيًا — ما في داعي لـ alert مزعج
-      return;
-    }
-    const label = st.isTeams ? "فريق" : "لاعب";
-
-    // العدد يُحسب تلقائياً بناءً على من انضم فعلاً من الشات
-    const joined = st.players.filter(p => p).length;
-    const size = Math.max(joined, 2);
-    const bSize = p2(size);
-    const byeN = bSize - size;
-
-    const players = Array.from({ length: size }, (_, i) => st.players[i] || `${label} ${i + 1}`);
-    const name = st.name;
-    const base = { 
-      ...st, 
-      players, 
-      size,
-      bSize,
-      byeN,
-      name, 
-      phase: "tournament" as const, 
-      champion: "", 
-      winHistory: [], 
-      pickedMatchId: null,
-      cur: 0,
-    };
-    console.log("[Admin] Starting tournament with", players.length, "players");
-    const newSt = buildBracket(base);
-    console.log("[Admin] Bracket built, rounds:", newSt.rounds?.length);
-    update(newSt);
-    playStart();
-    setSlotA("—"); setSlotB("—");
-    setSlotStateA("idle"); setSlotStateB("idle");
-  }
-
-  // 🪄 كرت تلقائي: لما تنتهي البطولة، بدل ما الأدمن يروح لقسم "سجل البطولات" ويكتب
-  // اسم اللعبة واسم الفائز يدوياً، هذا الزر يسوي كل شي لحاله — ياخذ اسم اللعبة/البطولة
-  // واسم البطل من حالة البطولة الحالية، ويولّد صورة البراكيت، ويحفظهم كخانة جديدة
-  // (أو يحدّث خانة موجودة بنفس الاسم) — بدون ما يحتاج يكتب أي شي.
-  const [autoCardBusy, setAutoCardBusy] = useState(false);
-  const [autoCardStatus, setAutoCardStatus] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  async function autoCreateWinnerCard() {
-    setAutoCardStatus(null);
-    const champion = (st.champion || "").trim();
-    if (!champion) return;
-    // 🐛 قبل: كان يفضّل st.gameType/lastGameType على اسم البطولة الحقيقي.
-    // gameType ما عنده أي حقل بالواجهة يخليك تعدّله، فيضل يحمل قيمة قديمة
-    // عالقة من بطولة قديمة (مثلاً "Rocket League") حتى لو دابا سميت البطولة
-    // "ستمبل" — فيطلع الكرت باسم لعبة غلط. اسم البطولة (st.name) اللي أنت
-    // كاتبه فعلاً بخانة "اسم البطولة" هو المصدر الصحيح والأولوية له دايماً.
-    const game = (st.name || st.gameType || st.lastGameType || "بطولة عامة").trim();
-    setAutoCardBusy(true);
-    try {
-      const rounds = st.rounds || [];
-      const bracketChampion = rounds.length ? (rounds[rounds.length - 1][0]?.winner || "") : "";
-      const realChampion = (bracketChampion && bracketChampion !== BYE) ? bracketChampion : champion;
-      const image = generateBracketImage(realChampion) || "";
-      await putRecord({ tournamentName: game, winnerName: realChampion, image }, token);
-      refreshRecords();
-      setAutoCardStatus({ ok: true, msg: `✅ تم إنشاء الكرت "${game}" بالفائز "${realChampion}" — شوفه بقسم "سجل البطولات"` });
-    } catch (e: any) {
-      setAutoCardStatus({ ok: false, msg: e?.message || "⚠️ تعذّر إنشاء الكرت تلقائياً" });
-    } finally {
-      setAutoCardBusy(false);
-    }
-  }
-
-  function resetTournament() {
-    if (!confirm("تبدأ بطولة جديدة؟ بيتمسح كل شي")) return;
-    const champion = st.champion || st.lastWinner;
-    const wasFinished = champion && st.rounds.length;
-    const finishState = (archiveId?: number) => {
-      // 🏆 نسجّل الفائز بسجل winnerHistory (نفس المصفوفة التي تغذّي كروت
-      // الثيمات/التخصيص بشريط الفائزين) — قبل كذا كانت تُبنى بس ما حد يعبّيها.
-      const newWinnerEntry = wasFinished
-        ? [{
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            name: champion,
-            // 🐛 نفس المشكلة: st.gameType يضل عالق بقيمة قديمة (مثلاً "Rocket
-            // League") لأنه ما عنده خانة بالواجهة يتعدّل منها، فكان يطلع دايماً
-            // بدل اسم البطولة الحقيقي إللي الأدمن كاتبه فعلاً بخانة "اسم البطولة".
-            gameType: st.name || st.gameType || st.lastGameType || "بطولة عامة",
-            tournamentName: st.name || st.lastTournamentName || "IK3MO",
-            date: new Date().toISOString(),
-            archiveId,
-          }]
-        : [];
-      const newSt = {
-        ...defaultState(),
-        lastWinner: champion || st.lastWinner,
-        // 🐛 قبل: `gameType: st.gameType` كان يحمّل القيمة القديمة العالقة
-        // للبطولة الجاية بعدها كمان، فتضل تتكرر للأبد بكل بطولة جديدة حتى لو
-        // غيّرت الاسم. دابا نصفّرها ونخلي lastGameType يحفظ اسم آخر بطولة
-        // (المبني على الاسم الحقيقي) بس ما نمررهاش كـ gameType نشطة.
-        lastGameType: st.name || st.gameType || st.lastGameType,
-        lastTournamentName: st.name || st.lastTournamentName,
-        gameType: "",
-        name: st.name,
-        pickedMatchId: null,
-        winnerHistory: [...newWinnerEntry, ...st.winnerHistory],
-      };
-      update(newSt);
-      setSlotA("—"); setSlotB("—");
-      setSlotStateA("idle"); setSlotStateB("idle");
-    };
-    if (wasFinished) {
-      postArchive({
-        name: st.name || st.lastTournamentName || "IK3MO",
-        gameType: st.name || st.gameType || st.lastGameType || "بطولة عامة",
-        champion,
-        isTeams: st.isTeams,
-        teamSize: st.teamSize,
-        players: st.players,
-        rounds: st.rounds,
-        finishedAt: new Date().toISOString(),
-      }, token).then((archive) => finishState(archive?.id));
-    } else {
-      finishState();
-    }
-  }
-
-  function handleWin(rIdx: number, mIdx: number, side: "a" | "b") {
-    const wasPicked = st.pickedMatchId === `${rIdx}-${mIdx}`;
-    if (wasPicked) { setSlotA("—"); setSlotB("—"); setSlotStateA("idle"); setSlotStateB("idle"); }
-
-    // 🏆 نقطة توب الفائزين: كل ماتش حقيقي تكسبه = نقطة، بأي جولة وأي بطولة.
-    // نتجاهل الماتشات اللي خصمها "باي" لأن اللاعب عدّى بدون ما يلعب.
-    // 🚫 وبوضع الفرق ما نحسب نقاط أصلاً: الخانة تحتوي فريق كامل مو لاعب
-    //    واحد ("سعود N فهد")، فتسجيلها بقائمة الأكثر انتصاراً يخرّب القائمة
-    //    بأسماء فرق بدل أسماء لاعبين.
-    const m = st.rounds[rIdx]?.[mIdx];
-    const matchWinner = side === "a" ? m?.a : m?.b;
-    const matchLoser = side === "a" ? m?.b : m?.a;
-    if (!st.isTeams && matchWinner && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
-      addMatchWin(matchWinner, 1, token);
-    }
-
-    let newSt = doWin(st, rIdx, mIdx, side);
-    if (wasPicked) newSt = { ...newSt, pickedMatchId: null };
-    const lastRound = newSt.rounds[newSt.rounds.length - 1];
-    const isChampion = lastRound?.length === 1 && !!lastRound[0].winner && lastRound[0].winner !== BYE;
-    if (isChampion) playChampion(); else playWin();
-    const { winHistory: _drop, ...snapshot } = st;
-    newSt.winHistory = [...(st.winHistory || []), snapshot as HistorySnapshot].slice(-15);
-    update(newSt);
-    // 🏆 اللفل يزيد تلقائيًا لحظة تتويج البطل — ما نحتاج الأدمن يزيد النقاط يدوياً
-    if (isChampion) {
-      autoAddWinForChampion(lastRound[0].winner!, st.name || st.gameType || st.lastGameType || "بطولة عامة");
-    }
-  }
-
-  // ⬆️ يجلب فوزات البطل الحالية بهذي اللعبة ويزيدها بواحد تلقائياً (بدل التعديل
-  // اليدوي +1/-1 اللي كان الأدمن يسويه بنفسه من "إحصائيات اللاعبين").
-  async function autoAddWinForChampion(champion: string, game: string) {
-    try {
-      const data = await getPlayerStats(champion);
-      const current = data?.wins?.[game] ?? 0;
-      await setPlayerWins(champion, game, current + 1, token);
-      // لو الأدمن فاتح صفحة إحصائيات نفس اللاعب، نحدّثها لحظياً
-      if (statsSearched && normalizeUsername(statsSearched) === normalizeUsername(champion)) {
-        setStatsData(prev => prev ? { ...prev, wins: { ...prev.wins, [game]: current + 1 } } : prev);
-      }
-    } catch {
-      // فشل صامت — ما نوقف تتويج البطل بسبب خطأ بتحديث الإحصائيات
-    }
-  }
-
-  // يقارن شجرتين ويرجّع اسم الفائز بالماتش اللي انحسم بينهما (أو null لو
-  // ما فيه فرق أو كان ماتش باي). يستعمله التراجع عشان يعرف مين يسحب نقطته.
-  function findUndoneMatchWinner(cur: TournamentState, prev: TournamentState): string | null {
-    const rounds = cur.rounds || [];
-    const prevRounds = prev.rounds || [];
-    for (let r = 0; r < rounds.length; r++) {
-      for (let i = 0; i < rounds[r].length; i++) {
-        const now = rounds[r][i];
-        const before = prevRounds[r]?.[i];
-        if (now?.winner && !before?.winner) {
-          const loser = now.winner === now.a ? now.b : now.a;
-          if (now.winner === BYE || !loser || loser === BYE || now.isBye) return null;
-          return now.winner;
-        }
-      }
-    }
-    return null;
-  }
-
-  function undoLastWin() {
-    if (!st.winHistory || !st.winHistory.length) return;
-    if (!confirm("تراجع عن آخر نتيجة فوز؟")) return;
-    const remaining = [...st.winHistory];
-    const prevSnapshot = remaining.pop()!;
-
-    // 🔙 نسحب نقطة الماتش اللي تراجعنا عنه: نقارن الشجرة الحالية بالسابقة
-    // ونلقى الماتش اللي كان محسوم وصار غير محسوم.
-    const undoneWinner = findUndoneMatchWinner(st, prevSnapshot as TournamentState);
-    // بوضع الفرق ما سجّلنا نقطة أصلاً، فما فيه شي نسحبه
-    if (undoneWinner && !st.isTeams) addMatchWin(undoneWinner, -1, token);
-
-    const restored: TournamentState = { ...prevSnapshot, winHistory: remaining, pickedMatchId: null };
-    setSlotA("—"); setSlotB("—");
-    setSlotStateA("idle"); setSlotStateB("idle");
-    update(restored);
-  }
-
-  // 🎲 اختيار ماتش عشوائي — بدون أي تنقلات ولا سلوت: ضغطة وحدة تختار
-  // المتنافسين فوراً، تشغّل صوت بدء الماتش، وتحط ستروك أحمر حول الخانة
-  // بالشجرة عشان الكل يعرف مين ضد مين الحين.
-  // 🤖 إضافة بوتات للتجربة — يعبّي خانات بأسماء وهمية عشان تجرّب الشجرة
-  // وتختبر الشكل بدون ما تنتظر ناس ينضمون من الشات. بوضع الفرق يضيف فريق
-  // كامل بعدد اللاعبين المحدد. زر "🧹 تفريغ" يشيلهم كلهم.
-  function addBots(count: number) {
-    const slots = [...st.players];
-    const taken = new Set(st.players.filter(Boolean).flatMap(p => p.split(" N ")));
-    let n = 1;
-    const nextName = () => {
-      let nm = `بوت ${n++}`;
-      while (taken.has(nm)) nm = `بوت ${n++}`;
-      taken.add(nm);
-      return nm;
-    };
-    for (let i = 0; i < count; i++) {
-      slots.push(
-        st.isTeams
-          ? Array.from({ length: Math.max(1, st.teamSize) }, nextName).join(" N ")
-          : nextName()
-      );
-    }
-    // نحدّث نفس الحقول اللي يحدّثها الانضمام من الشات عشان الحالة تضل متسقة
-    const size = slots.length;
-    const bSize = p2(size);
-    update({ ...st, players: slots, size, bSize, byeN: bSize - size });
-  }
-
-  function pickRandomMatch() {
-    if (pickRunning) return;
-    const open = getOpenMatches(st);
-    if (!open.length) { setSlotA("لا يوجد ماتشات"); setSlotB("—"); return; }
-    setPickRunning(true);
-    const chosen = open[Math.floor(Math.random() * open.length)];
-    setSlotA(chosen.m.a!);
-    setSlotB(chosen.m.b!);
-    setSlotStateA("locked");
-    setSlotStateB("locked");
-    playMatchStart();
-    update({ ...st, pickedMatchId: `${st.cur}-${chosen.i}` });
-    setPickRunning(false);
-  }
-
-  const titleText = "iK3MO";
-  const label = st.isTeams ? "فريق" : "لاعب";
-  const slotClassA = `pick-slot${slotStateA === "rolling" ? " rolling" : slotStateA === "locked" ? " locked-in" : ""}`;
-  const slotClassB = `pick-slot${slotStateB === "rolling" ? " rolling" : slotStateB === "locked" ? " locked-in" : ""}`;
+  // ── زر مشاهدة البطولة ──
+  // معرّف مرة وحدة ويتعرض بمكانين: داخل الهيدر (ديسكتوب) وفوق الكروت (جوال).
+  // اللي مخفي منهم بـ display:none ما يدخل شجرة الوصولية أصلاً، فما فيه تكرار فعلي.
+  const watchBtn = isTournamentLive ? (
+    <a className="lp-watch-btn" href="/live" aria-label="مشاهدة البطولة">
+      <span
+        className={`lp-watch-dot dot-${watchDotStatus}`}
+        title={watchDotStatus === "green" ? "باب الانضمام مفتوح الآن" : "البطولة جارية الآن"}
+      />
+      مشاهدة البطولة
+    </a>
+  ) : (
+    <span
+      className="lp-watch-btn is-off"
+      role="link"
+      aria-disabled="true"
+      title="لا توجد بطولة جارية حالياً"
+    >
+      <span className="lp-watch-dot dot-red" />
+      لا توجد بطولة حالياً
+    </span>
+  );
 
   return (
     <>
       <style>{`
-        /* ── تجاوب عام مع الجوال ── */
-        .shell {
-          display: flex;
-          width: 100%;
-          min-height: 100vh;
+        @keyframes rgbShift {
+          0%{color:#ff0040;text-shadow:0 0 8px rgba(255,0,64,.7)}
+          16%{color:#ff8c00;text-shadow:0 0 8px rgba(255,140,0,.7)}
+          33%{color:#ffd700;text-shadow:0 0 8px rgba(255,215,0,.7)}
+          50%{color:#00e676;text-shadow:0 0 8px rgba(0,230,118,.7)}
+          66%{color:#00b0ff;text-shadow:0 0 8px rgba(0,176,255,.7)}
+          83%{color:#7c4dff;text-shadow:0 0 8px rgba(124,77,255,.7)}
+          100%{color:#ff0040;text-shadow:0 0 8px rgba(255,0,64,.7)}
         }
-        .main {
-          flex: 1;
-          min-width: 0;
-          padding: 16px;
-          box-sizing: border-box;
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        @keyframes enterDown{
+          from{opacity:0;transform:translateY(-18px)}
+          to{opacity:1;transform:translateY(0)}
         }
-        @media (max-width: 900px) {
-          .shell {
-            flex-direction: column;
-          }
-          .main {
-            padding: 10px;
-          }
+        @keyframes enterUp{
+          from{opacity:0;transform:translateY(28px)}
+          to{opacity:1;transform:translateY(0)}
         }
-        .card {
-          padding: 16px;
-          box-sizing: border-box;
+        @keyframes enterScale{
+          0%{opacity:0;transform:scale(.55) rotate(-8deg)}
+          60%{opacity:1;transform:scale(1.08) rotate(2deg)}
+          100%{opacity:1;transform:scale(1) rotate(0)}
         }
-        @media (max-width: 640px) {
-          .card {
-            padding: 12px;
-            border-radius: 12px;
+        @keyframes enterCard{
+          from{opacity:0;transform:translateY(36px) scale(.92)}
+          to{opacity:1;transform:translateY(0) scale(1)}
+        }
+        @keyframes sheenSweep{
+          0%{transform:translateX(-120%) skewX(-20deg)}
+          100%{transform:translateX(220%) skewX(-20deg)}
+        }
+        @keyframes mascotGlow{
+          0%,100%{filter:drop-shadow(0 0 18px rgba(41,182,246,.55))}
+          50%{filter:drop-shadow(0 0 30px rgba(41,182,246,.85))}
+        }
+        @keyframes bgReveal{
+          0%{opacity:0;filter:blur(28px) brightness(1.5);transform:scale(1.1)}
+          55%{opacity:1;filter:blur(8px) brightness(1.25);transform:scale(1.04)}
+          100%{opacity:1;filter:blur(0) brightness(1);transform:scale(1)}
+        }
+        @keyframes bgFlash{
+          0%{opacity:.6}
+          100%{opacity:0}
+        }
+
+        *{box-sizing:border-box}
+        .lp-page{
+          min-height:100vh;width:100%;
+          color:#fff;font-family:Cairo, sans-serif;
+          padding:clamp(14px,4vw,28px) clamp(12px,4vw,20px) clamp(30px,8vw,60px);
+          position:relative;overflow-x:hidden;
+        }
+        .lp-bg{
+          position:fixed;inset:0;z-index:0;
+          background:url(${bgImg}) center/cover no-repeat fixed;
+          transform-origin:center center;
+          animation:bgReveal 1.9s cubic-bezier(.22,1,.36,1) both;
+        }
+        .lp-bg::after{
+          content:"";position:absolute;inset:0;
+          background:radial-gradient(ellipse 65% 45% at 50% 32%, rgba(255,255,255,.95), transparent 62%);
+          animation:bgFlash 1.5s ease-out both;
+          pointer-events:none;
+        }
+
+        /* ===== الهيدر ===== */
+        /* direction:ltr على الحاوية فقط — يضمن إن أول عنصر يطلع يسار وآخر عنصر
+           يمين مهما كان اتجاه الصفحة. المجموعات جوّاها ترجع rtl عشان ترتيب
+           العناصر والنصوص العربية يظل طبيعي زي ما كان. */
+        .lp-nav{
+          width:100%;margin:0 0 8px;
+          display:flex;align-items:center;justify-content:space-between;
+          gap:clamp(10px,2.5vw,18px);
+          direction:ltr;
+          position:relative;z-index:2;
+          animation:enterDown .7s cubic-bezier(.22,1,.36,1) both;
+        }
+        /* ⬅️ زاوية اليسار: تسجيل الدخول / شريحة اللاعب */
+        .lp-nav-left{
+          direction:rtl;
+          display:flex;align-items:center;flex-shrink:0;min-width:0;
+        }
+        /* ➡️ زاوية اليمين: الأيقونات + زر البطولة (ديسكتوب) */
+        .lp-nav-right{
+          direction:rtl;
+          display:flex;align-items:center;
+          gap:clamp(9px,2.2vw,15px);flex-wrap:wrap;row-gap:10px;
+        }
+        .lp-nav-icon{
+          width:clamp(28px,7vw,34px);height:clamp(28px,7vw,34px);border-radius:50%;display:flex;align-items:center;justify-content:center;
+          color:#e6f3ff;opacity:.85;transition:opacity .2s ease, transform .2s ease;flex-shrink:0;
+        }
+        .lp-nav-icon:hover{opacity:1;transform:translateY(-2px)}
+        .lp-nav-icon svg{width:clamp(16px,4.5vw,20px);height:clamp(16px,4.5vw,20px)}
+        .lp-ikemo-btn{
+          display:flex;align-items:center;gap:8px;padding:8px 18px;border-radius:999px;
+          border:1px solid rgba(41,182,246,.45);background:rgba(41,182,246,.1);
+          font-weight:800;font-size:.85rem;color:#eaf6ff;letter-spacing:.5px;text-decoration:none;
+          box-shadow:0 0 18px rgba(41,182,246,.25);
+        }
+        .lp-nav-sep{width:1px;height:26px;background:rgba(255,255,255,.18);margin:0 2px}
+
+        /* ===== 💚 أيقونة الدعم (جنب كيك) ===== */
+        .lp-support-btn{
+          color:#4ade80;opacity:1;
+          animation:supportGlow 2.2s ease-in-out infinite;
+        }
+        .lp-support-btn:hover{transform:translateY(-2px) scale(1.08)}
+        @keyframes supportGlow{
+          0%,100%{filter:drop-shadow(0 0 5px rgba(74,222,128,.45))}
+          50%{filter:drop-shadow(0 0 14px rgba(74,222,128,.9))}
+        }
+        @media (prefers-reduced-motion: reduce){
+          .lp-support-btn{animation:none;filter:drop-shadow(0 0 8px rgba(74,222,128,.6))}
+        }
+
+        /* ===== 🏆 زر الأكثر انتصاراً (جوال فقط) ===== */
+        /* قبل: أيقونة رمادية باهتة بنفس شكل بقية الأيقونات فما كانت تبان إنها زر.
+           الحين: زر دائري بلمسة ذهبية + كأس واضح + حلقة توهّج خفيفة. */
+        .lp-board-toggle{
+          display:none;align-items:center;justify-content:center;
+          position:relative;flex-shrink:0;padding:0;cursor:pointer;
+          width:38px;height:38px;border-radius:50%;
+          color:#ffd76a;
+          background:linear-gradient(180deg,rgba(255,196,0,.24),rgba(255,150,0,.07));
+          border:1px solid rgba(255,196,0,.5);
+          box-shadow:0 4px 14px rgba(0,0,0,.35), 0 0 16px rgba(255,196,0,.18), inset 0 1px 0 rgba(255,255,255,.2);
+          transition:transform .18s ease, filter .18s ease, box-shadow .18s ease;
+        }
+        .lp-board-toggle svg{
+          width:21px;height:21px;
+          filter:drop-shadow(0 1px 2px rgba(0,0,0,.55));
+        }
+        .lp-board-toggle:hover{filter:brightness(1.1)}
+        .lp-board-toggle:active{transform:scale(.92)}
+        .lp-board-toggle:focus-visible{outline:2px solid #ffd54a;outline-offset:3px}
+        /* حلقة نبض خفيفة تلفت الانتباه بدون إزعاج */
+        .lp-board-toggle::after{
+          content:"";position:absolute;inset:-2px;border-radius:50%;
+          border:1.5px solid rgba(255,196,0,.6);pointer-events:none;
+          animation:boardPing 2.6s ease-out infinite;
+        }
+        @keyframes boardPing{
+          0%{transform:scale(.94);opacity:.7}
+          60%,100%{transform:scale(1.35);opacity:0}
+        }
+        @media (prefers-reduced-motion: reduce){
+          .lp-board-toggle::after{animation:none;opacity:0}
+        }
+
+        /* ===== 🏆 لوحة الترتيب ===== */
+        /* .lp-board = حاوية التموضع فقط | .lp-board-inner = الكرت نفسه.
+           الفصل هذا هو اللي يخلّي النسخة الجوال تتوسّط بـ flex بدل
+           translate(-50%,-50%) — الطريقة القديمة كانت تعطي تموضع غلط
+           وضبابية بالنص مع بعض المتصفحات. */
+        .lp-board{
+          position:absolute;z-index:6;
+          top:clamp(78px,11vh,104px);
+          right:clamp(12px,4vw,20px);
+          width:min(252px, calc(100vw - 28px));
+          animation:enterDown .8s cubic-bezier(.22,1,.36,1) .3s both;
+        }
+        .lp-board-inner{
+          position:relative;
+          background:linear-gradient(180deg,rgba(16,32,60,.93),rgba(6,13,26,.95));
+          border:1px solid rgba(255,196,0,.28);border-radius:16px;
+          box-shadow:0 18px 44px rgba(0,0,0,.55),0 0 26px rgba(255,196,0,.1);
+          backdrop-filter:blur(6px);
+          padding:12px 12px 11px;
+        }
+        .lp-board-title{
+          display:flex;align-items:center;justify-content:center;gap:6px;
+          font-weight:900;font-size:.92rem;color:#ffd54a;
+          text-shadow:0 0 10px rgba(255,196,0,.35);
+        }
+        .lp-board-note{
+          text-align:center;font-size:.63rem;font-weight:700;color:rgba(255,255,255,.4);
+          margin:3px 0 10px;line-height:1.5;
+        }
+        .lp-board-empty{text-align:center;font-size:.78rem;color:rgba(255,255,255,.5);font-weight:700;padding:10px 0}
+        .lp-board-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+        .lp-board-row{
+          display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:10px;
+          background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);
+          transition:transform .18s ease, border-color .18s ease;
+        }
+        .lp-board-row:hover{transform:translateX(-3px)}
+        .lp-board-row.rank-1{background:linear-gradient(90deg,rgba(255,196,0,.18),rgba(255,196,0,.04));border-color:rgba(255,196,0,.38)}
+        .lp-board-row.rank-2{background:linear-gradient(90deg,rgba(203,213,225,.15),rgba(203,213,225,.03));border-color:rgba(203,213,225,.3)}
+        .lp-board-row.rank-3{background:linear-gradient(90deg,rgba(205,127,50,.17),rgba(205,127,50,.03));border-color:rgba(205,127,50,.34)}
+        /* 🔵 سطرك أنت — يتضيّى عشان تلقاه بسرعة */
+        .lp-board-row.is-me{
+          border-color:rgba(41,182,246,.7);
+          box-shadow:0 0 0 1px rgba(41,182,246,.35), inset 0 0 16px rgba(41,182,246,.22);
+        }
+        .lp-board-rank{
+          flex-shrink:0;width:24px;text-align:center;font-weight:900;font-size:.95rem;line-height:1;color:#eaf6ff;
+        }
+        .lp-board-name{
+          flex:1;font-weight:800;font-size:.82rem;color:#eaf6ff;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+        }
+        .lp-board-pts{
+          flex-shrink:0;font-weight:900;font-size:.7rem;color:#ffd54a;
+          background:rgba(255,196,0,.1);border-radius:999px;padding:2px 8px;
+        }
+        .lp-board-row.is-me .lp-board-pts{color:#7fd4ff;background:rgba(41,182,246,.14)}
+        /* فاصل قبل سطر "مركزك" لما تكون تحت أول 5 */
+        .lp-board-gap{
+          text-align:center;color:rgba(255,255,255,.28);font-weight:900;
+          letter-spacing:3px;font-size:.7rem;line-height:1;margin:5px 0 3px;
+        }
+        .lp-board-mine{margin-top:5px}
+        .lp-board-hint{
+          margin-top:9px;text-align:center;font-size:.63rem;font-weight:700;
+          color:rgba(255,255,255,.38);line-height:1.6;
+        }
+        .lp-board-hint b{color:#7fd4ff;font-weight:900}
+
+        /* زر إغلاق اللوحة + الطبقة السوداء خلفها: للجوال فقط */
+        .lp-board-close{display:none}
+        .lp-board-backdrop{display:none}
+
+        /* ===== 📱 الجوال: اللوحة تصير نافذة بنص الشاشة =====
+           التوسيط صار بـ flex على حاوية fixed inset:0 — أدق طريقة وما تتأثر
+           بارتفاع المحتوى ولا بشريط المتصفح المتغيّر. */
+        @media (max-width:640px){
+          .lp-board-toggle{display:flex}
+
+          .lp-board-backdrop{
+            display:block;position:fixed;inset:0;z-index:1090;
+            background:rgba(2,6,14,.62);
+            backdrop-filter:blur(10px);
+            -webkit-backdrop-filter:blur(10px);
+            animation:fadeIn .22s ease-out;
           }
-          h1 {
-            font-size: 1.5rem !important;
+          .lp-board{
+            position:fixed;inset:0;width:auto;z-index:1100;margin:0;animation:none;
+            display:flex;align-items:center;justify-content:center;
+            padding:20px 16px;
+            opacity:0;pointer-events:none;
+            transition:opacity .22s ease;
           }
-          .site-header p {
-            font-size: 0.82rem;
+          .lp-board.is-open{opacity:1;pointer-events:auto}
+
+          .lp-board-inner{
+            width:100%;max-width:330px;
+            max-height:calc(100vh - 110px);
+            max-height:calc(100dvh - 110px);
+            overflow-y:auto;overscroll-behavior:contain;
+            -webkit-overflow-scrolling:touch;
+            padding:18px 14px 15px;border-radius:20px;
+            transform:scale(.92);opacity:0;
+            transition:transform .28s cubic-bezier(.22,1,.36,1), opacity .22s ease;
+          }
+          .lp-board.is-open .lp-board-inner{transform:scale(1);opacity:1}
+
+          .lp-board-close{
+            display:flex;align-items:center;justify-content:center;
+            position:absolute;top:10px;left:10px;
+            width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;
+            background:rgba(255,255,255,.1);color:#fff;font-size:14px;line-height:1;
+          }
+          .lp-board-title{font-size:1rem}
+          .lp-board-row{padding:9px 10px;gap:9px}
+          .lp-board-name{font-size:.82rem}
+        }
+
+        /* ===== الكروت ===== */
+        .lp-grid{
+          position:absolute;top:56.5%;left:0;right:0;
+          max-width:1400px;margin:0 auto;display:flex;flex-wrap:wrap;
+          justify-content:center;align-items:stretch;z-index:2;
+          gap:clamp(10px,2.5vw,16px);
+          padding:0 clamp(8px,3vw,20px);
+        }
+        .lp-card-wrap{
+          position:relative;
+          flex:0 1 220px;
+          max-width:220px;
+          opacity:0;
+          animation:enterCard .7s cubic-bezier(.22,1,.36,1) forwards;
+          animation-delay:calc(.8s + var(--card-i, 0) * .09s);
+        }
+        @media (max-width: 900px){
+          .lp-card-wrap{flex-basis:calc(33.333% - 11px);max-width:calc(33.333% - 11px)}
+        }
+        /* ===== 📱 الجوال: تخطيط انسيابي بدل المطلق =====
+           الخلل الأصلي: .lp-grid كان position:absolute عند top:64%. العناصر
+           المطلقة ما تضيف أي طول للصفحة، فالكروت كانت تطلع تحت حدود الشاشة
+           بدون إمكانية تمرير — تنقص كلياً على الجوال. هنا نرجّعه لسير الصفحة
+           الطبيعي فيصير كل شي مرتب وقابل للتمرير. */
+        @media (max-width: 640px){
+          .lp-page{
+            min-height:100vh;min-height:100dvh;
+            background:#040914;
+            padding-bottom:34px;
+          }
+          /* الخلفية تصير منطقة "هيرو" أعلى الصفحة فقط.
+             background-attachment:fixed متقطّعة/متعطّلة على iOS Safari.
+             top هنا ينزّلها تحت الهيدر: كذا أزرار تسجيل الدخول والأيقونات
+             تقعد على خلفية داكنة صافية بدل ما تكون فوق الصورة. */
+          .lp-bg{
+            position:absolute;
+            inset:0 0 auto 0;
+            top:clamp(56px,8.5vh,80px);
+            height:min(48vh,400px);
+            background-attachment:scroll;
+            background-position:center 20%;
+          }
+          /* تدرّجان: واحد يذوّب حافة الصورة العليا مع الهيدر،
+             والثاني ينهيها بنعومة من تحت بدل قطع حاد */
+          .lp-bg::before{
+            content:"";position:absolute;inset:0;
+            background:
+              linear-gradient(180deg,#040914,transparent 15%),
+              linear-gradient(180deg,transparent 56%,#040914 100%);
+            pointer-events:none;
+          }
+
+          /* الهيدر: تسجيل الدخول يسار، الأيقونات يمين — بصف واحد ثابت */
+          .lp-nav{margin-bottom:0;gap:8px}
+          .lp-nav-right{gap:7px;row-gap:7px;flex-wrap:nowrap}
+          .lp-nav-sep{display:none}
+          .lp-nav-icon{width:34px;height:34px}
+          .lp-nav-icon svg{width:18px;height:18px}
+
+          /* زر البطولة ينزل من الهيدر ويستقر فوق الكروت مباشرة */
+          .lp-watch-desktop{display:none}
+          /* موضع الزر = الأكبر بين قيمتين:
+             1) تحت صورة الهيرو بمسافة ثابتة (min(48vh,400px) هو نفس ارتفاعها)
+             2) 74vh من أسفل الهيدر
+             فيضمن إنه ينزل لأسفل الشاشة تقريباً على أي جهاز، وما يطلع فوق
+             الصورة أبداً. الكروت تجي تحته فتحتاج تمرير عشان تشوفها. */
+          .lp-watch-row{
+            display:flex;justify-content:center;
+            position:relative;z-index:3;
+            margin-top:max(calc(min(48vh,400px) + clamp(24px,6vw,48px)), 56vh);
+          }
+          .lp-watch-btn{padding:10px 20px;font-size:.82rem;gap:8px}
+
+          /* الكروت تنزل تحت زر البطولة */
+          .lp-grid{
+            position:static;top:auto;
+            margin-top:clamp(44px,12vw,72px);
+            padding:0;
+            gap:9px;
+          }
+
+          /* تسجيل الدخول: أيقونة دائرية فقط، بدون نص */
+          .lp-login-btn{
+            width:38px;height:38px;padding:0;border-radius:50%;
+            justify-content:center;gap:0;
+          }
+          .lp-login-text{display:none}
+          .lp-login-btn svg{width:18px;height:18px;opacity:1}
+          /* 👤 بالجوال: أيقونة الخروج وحدها — بدون صورة البروفايل وبدون الاسم */
+          .lp-user-avatar{display:none}
+          .lp-user-chip{padding:0;gap:0;border:none;background:none;box-shadow:none}
+          .lp-logout-btn{width:34px;height:34px;background:rgba(255,255,255,.1)}
+          .lp-logout-btn svg{width:17px;height:17px}
+
+          /* اسم اللعبة كان يتقصّ على كرت بعرض ~160px */
+          .lp-card-head{font-size:clamp(.88rem,3.6vw,1.12rem);max-width:96%}
+          .lp-card{min-height:178px}
+          .lp-card-spotlight{padding:26px 9px 14px;gap:8px}
+          .lp-card-winner{font-size:.92rem}
+          .lp-trophy{font-size:1.25rem}
+          .lp-card-level{padding:7px 9px 9px}
+          .lp-level-badge{font-size:.74rem}
+          .lp-level-next{font-size:.6rem}
+        }
+        @media (max-width: 520px){
+          .lp-card-wrap{flex-basis:calc(50% - 8px);max-width:calc(50% - 8px)}
+        }
+        /* قبل: 100% (كرت واحد بالصف) = كرت ضخم وتمرير طويل بلا داعي.
+           كرتين بالصف أفضل حتى على أصغر شاشة. */
+        @media (max-width: 360px){
+          .lp-card-wrap{flex-basis:calc(50% - 5px);max-width:calc(50% - 5px)}
+        }
+        .lp-card-wrap.is-empty{opacity:.55}
+
+        /* ===== 🟡 علامة "صورة جديدة" بالزاوية اليمين فوق ===== */
+        /* داخل .lp-card عشان ترتفع وتكبر مع الكرت بحركة الهوفر */
+        .lp-new-badge{
+          position:absolute;top:4px;right:4px;z-index:7;
+          width:30px;height:30px;border-radius:50%;cursor:pointer;padding:0;
+          border:2.5px solid rgba(255,255,255,.95);
+          background:radial-gradient(circle at 32% 28%,#fff2a8,#ffc400 55%,#ff8f00);
+          display:flex;align-items:center;justify-content:center;
+          color:#4a2600;font-weight:900;font-size:1.05rem;line-height:1;font-family:Cairo,sans-serif;
+          animation:newBob 1.4s ease-in-out infinite;
+          transition:filter .18s ease;
+        }
+        /* حلقة تتوسّع وتختفي — تلفت النظر من بعيد */
+        .lp-new-badge::after{
+          content:"";position:absolute;inset:-3px;border-radius:50%;
+          border:2px solid rgba(255,196,0,.9);pointer-events:none;
+          animation:newPing 1.4s ease-out infinite;
+        }
+        /* الهوفر يسرّع النطّ بدل ما يوقفه (transform محجوز للأنيميشن) */
+        .lp-new-badge:hover{filter:brightness(1.12);animation-duration:.6s}
+        .lp-new-badge:focus-visible{outline:2px solid #fff;outline-offset:3px}
+        @keyframes newBob{
+          0%,100%{transform:translateY(0) scale(1) rotate(0deg);box-shadow:0 0 12px rgba(255,196,0,.7),0 3px 10px rgba(0,0,0,.55)}
+          25%{transform:translateY(-5px) scale(1.1) rotate(-9deg)}
+          50%{transform:translateY(0) scale(1) rotate(0deg);box-shadow:0 0 26px rgba(255,196,0,1),0 3px 10px rgba(0,0,0,.55)}
+          75%{transform:translateY(-3px) scale(1.06) rotate(9deg)}
+        }
+        @keyframes newPing{
+          0%{transform:scale(.9);opacity:.9}
+          70%,100%{transform:scale(1.5);opacity:0}
+        }
+        @media (prefers-reduced-motion: reduce){
+          .lp-new-badge{animation:none;transform:none;box-shadow:0 0 16px rgba(255,196,0,.9),0 3px 10px rgba(0,0,0,.55)}
+          .lp-new-badge::after{animation:none;opacity:0}
+        }
+
+        .lp-card{
+          background:linear-gradient(180deg, rgba(15,30,58,.9), rgba(6,13,26,.92));
+          background-size:cover;background-position:center;
+          border:1px solid rgba(41,182,246,.22);
+          border-radius:18px;overflow:hidden;
+          box-shadow:0 14px 34px rgba(0,0,0,.4);
+          transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease;
+          display:flex;flex-direction:column;min-height:clamp(190px,32vw,270px);
+          width:100%;
+          position:relative;
+        }
+        .lp-card::before{
+          content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+          background:linear-gradient(180deg, rgba(6,10,22,.35) 0%, rgba(5,9,20,.55) 45%, rgba(4,7,16,.92) 100%);
+        }
+        .lp-card::after{
+          content:"";position:absolute;inset:0;pointer-events:none;z-index:1;
+          background:linear-gradient(100deg,transparent 40%,rgba(255,255,255,.16) 50%,transparent 60%);
+          transform:translateX(-120%) skewX(-20deg);
+          animation:sheenSweep 1.1s ease-out forwards;
+          animation-delay:calc(1.05s + var(--card-i, 0) * .09s);
+        }
+        /* حاوية تلفّ اسم اللعبة + الكرت مع بعض.
+           الحركة صارت عليها بدل الكرت وحده، عشان الاسم يرتفع ويكبر معه.
+           ما نقدر نحط الاسم جوّا .lp-card لأن overflow:hidden يقص نصفه العلوي،
+           وما نقدر نحط الحركة على .lp-card-wrap لأن أنيميشن الدخول
+           (enterCard + forwards) يثبّت transform ويتغلّب على أي قيمة هوفر. */
+        .lp-card-inner{
+          position:relative;width:100%;
+          transition:transform .2s ease;
+        }
+        @media (hover:hover){
+          .lp-card-wrap:hover{z-index:5}
+          .lp-card-wrap:hover .lp-card-inner{transform:translateY(-4px) scale(1.1)}
+          .lp-card-wrap:hover .lp-card{box-shadow:0 20px 44px rgba(41,182,246,.18);border-color:rgba(255,255,255,.75)}
+        }
+
+        .lp-card-head{
+          position:absolute;top:0;left:50%;transform:translate(-50%,-50%);
+          z-index:3;white-space:nowrap;max-width:92%;overflow:hidden;text-overflow:ellipsis;
+          text-align:center;font-weight:900;
+          font-size:clamp(1.05rem,2.6vw,1.5rem);color:#fff;letter-spacing:.3px;
+          text-shadow:0 2px 10px rgba(0,0,0,.9), 0 0 18px rgba(0,0,0,.7);
+        }
+
+        .lp-card-spotlight{
+          position:relative;z-index:2;
+          flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+          gap:12px;padding:32px 14px 20px;
+        }
+        .lp-card-winner-group{display:flex;flex-direction:column;align-items:center;gap:2px}
+
+        .image-modal{position:fixed;inset:0;background:rgba(0,0,0,.95);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);animation:fadeIn .3s ease-out}
+        .image-modal-content{position:relative;max-width:90vw;max-height:90vh;display:flex;align-items:center;justify-content:center}
+        .image-modal-img{width:100%;height:100%;object-fit:contain;border-radius:12px;box-shadow:0 25px 50px rgba(0,0,0,.8)}
+        .image-modal-close{position:absolute;top:20px;right:20px;background:rgba(255,255,255,.1);border:none;color:#fff;width:44px;height:44px;border-radius:50%;font-size:28px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s ease;z-index:1001}
+        .image-modal-close:hover{background:rgba(255,255,255,.2);transform:scale(1.1)}
+
+        .lp-card-winner{
+          text-align:center;font-weight:900;
+          font-size:clamp(.95rem,2.1vw,1.25rem);
+          display:flex;align-items:center;justify-content:center;
+        }
+        .lp-card-winner.is-empty{color:rgba(255,255,255,.35);font-weight:700;font-size:.75rem}
+        .lp-trophy{
+          font-size:1.5rem;line-height:1;
+          animation:trophyFloat 2.6s ease-in-out infinite;
+        }
+        @keyframes trophyFloat{
+          0%,100%{transform:translateY(0) rotate(-2deg)}
+          50%{transform:translateY(-5px) rotate(2deg)}
+        }
+        .rgb-name{
+          font-weight:900;color:#7fd4ff;
+          text-shadow:0 0 12px rgba(41,182,246,.75), 0 0 2px rgba(41,182,246,.5);
+          letter-spacing:.2px;
+          display:inline-block;
+          transition:transform .3s cubic-bezier(.22,1,.36,1);
+        }
+
+        /* ===== 🎉 أجواء احتفالية عند التأشير على الكرت =====
+           ملاحظة: @keyframes rgbShift كان معرّفاً بأعلى الملف ومهجوراً بلا استخدام
+           — يمرّ على 6 ألوان مع توهّج مطابق، فهو بالضبط اللي نحتاجه هنا. */
+        .lp-card-winner-group{position:relative}
+        /* شرارتان تطلعان من جانبي الاسم */
+        .lp-card-winner-group::before,
+        .lp-card-winner-group::after{
+          content:"✦";
+          position:absolute;top:38%;
+          font-size:.85rem;color:#ffd54a;
+          opacity:0;pointer-events:none;
+          text-shadow:0 0 10px rgba(255,196,0,.95);
+        }
+        .lp-card-winner-group::before{left:-4px}
+        .lp-card-winner-group::after{right:-4px}
+
+        @media (hover:hover){
+          /* الاسم يتلوّن ويكبر */
+          .lp-card-wrap:hover .rgb-name{
+            animation:rgbShift 2.4s linear infinite;
+            transform:scale(1.08);
+          }
+          /* الكأس ينطّ أسرع */
+          .lp-card-wrap:hover .lp-trophy{animation-duration:.85s}
+          /* الشرارات تتطاير */
+          .lp-card-wrap:hover .lp-card-winner-group::before{animation:sparkLeft 1.15s ease-out infinite}
+          .lp-card-wrap:hover .lp-card-winner-group::after{animation:sparkRight 1.15s ease-out infinite .3s}
+          /* لمعة ذهبية خفيفة تمر على الكرت */
+          .lp-card-wrap:hover .lp-card::after{animation:sheenSweep 1.4s ease-out infinite .1s}
+        }
+
+        @keyframes sparkLeft{
+          0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0deg)}
+          30%{opacity:1}
+          100%{opacity:0;transform:translate(-15px,-20px) scale(1.25) rotate(120deg)}
+        }
+        @keyframes sparkRight{
+          0%{opacity:0;transform:translate(0,0) scale(.4) rotate(0deg)}
+          30%{opacity:1}
+          100%{opacity:0;transform:translate(15px,-20px) scale(1.25) rotate(-120deg)}
+        }
+
+        /* من يفضّل حركة أقل: نبقي التكبير فقط ونلغي التلوين والشرارات */
+        @media (prefers-reduced-motion: reduce){
+          .lp-card-wrap:hover .rgb-name{animation:none}
+          .lp-card-wrap:hover .lp-card-winner-group::before,
+          .lp-card-wrap:hover .lp-card-winner-group::after{animation:none;opacity:0}
+          .lp-card-wrap:hover .lp-card::after{animation:none}
+        }
+
+        .lp-card-main{flex:1}
+
+        /* ===== زر مشاهدة البطولة ===== */
+        /* يتعرض بمكانين حسب المقاس: داخل الهيدر (ديسكتوب) أو فوق الكروت (جوال) */
+        .lp-watch-desktop{display:flex;align-items:center;direction:rtl}
+        .lp-watch-row{display:none;direction:rtl}
+        .lp-watch-btn{
+          display:flex;align-items:center;gap:9px;padding:clamp(8px,2vw,10px) clamp(16px,4vw,24px);border-radius:999px;
+          background:linear-gradient(135deg,#39c4ff 0%,#1976e6 55%,#0d4fb0 100%);
+          color:#fff;font-weight:800;font-size:clamp(.78rem,2vw,.88rem);letter-spacing:.2px;
+          text-decoration:none;white-space:nowrap;
+          border:1px solid rgba(255,255,255,.22);
+          box-shadow:0 6px 18px rgba(25,118,230,.4), inset 0 1px 0 rgba(255,255,255,.25);
+          transition:transform .2s ease, box-shadow .2s ease, filter .2s ease;
+        }
+        .lp-watch-btn:hover{transform:translateY(-2px);box-shadow:0 10px 26px rgba(25,118,230,.55), inset 0 1px 0 rgba(255,255,255,.3);filter:brightness(1.06)}
+        .lp-watch-btn:active{transform:translateY(0)}
+        /* 🚫 ما فيه بطولة جارية: الزر مطفي وما ينضغط */
+        .lp-watch-btn.is-off{
+          background:linear-gradient(135deg,rgba(90,102,120,.55),rgba(52,62,78,.6));
+          border-color:rgba(255,255,255,.1);
+          color:rgba(255,255,255,.5);
+          box-shadow:none;
+          cursor:not-allowed;
+          user-select:none;
+        }
+        .lp-watch-btn.is-off:hover,
+        .lp-watch-btn.is-off:active{transform:none;filter:none;box-shadow:none}
+        .lp-watch-btn.is-off .lp-watch-dot{animation:none;opacity:.85}
+        .lp-watch-dot{width:8px;height:8px;border-radius:50%;background:#fff;box-shadow:0 0 8px #fff,0 0 2px #fff;
+          animation:fadeIn 1.2s ease-in-out infinite alternate;flex-shrink:0}
+        /* 🔴 ما فيه بطولة جارية الآن */
+        .lp-watch-dot.dot-red{background:#ff4444;box-shadow:0 0 8px #ff4444,0 0 2px #ff4444}
+        /* 🟢 الأدمن فتح باب الانضمام الآن */
+        .lp-watch-dot.dot-green{background:#22c55e;box-shadow:0 0 8px #22c55e,0 0 2px #22c55e}
+        /* ⚪ البطولة جارية فعلاً (الوضع الافتراضي) */
+        .lp-watch-dot.dot-white{background:#fff;box-shadow:0 0 8px #fff,0 0 2px #fff}
+
+        /* ===== زر تسجيل الدخول + شريحة اللاعب (زاوية اليسار) ===== */
+        /* ستايل زجاجي هادي — عشان الأزرق المصمت يظل حصري لزر مشاهدة البطولة */
+        .lp-login-btn{
+          display:inline-flex;align-items:center;gap:8px;
+          padding:clamp(7px,2vw,9px) clamp(15px,4vw,19px);border-radius:999px;cursor:pointer;
+          font-family:Cairo,sans-serif;font-weight:900;
+          font-size:clamp(.76rem,2vw,.85rem);letter-spacing:.2px;color:#eaf6ff;
+          background:linear-gradient(180deg,rgba(41,182,246,.16),rgba(41,182,246,.05));
+          border:1px solid rgba(120,212,255,.42);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.14), 0 4px 14px rgba(0,0,0,.3);
+          transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease, background .2s ease;
+        }
+        .lp-login-btn svg{opacity:.85;flex-shrink:0}
+        .lp-login-btn:hover{
+          transform:translateY(-2px);border-color:#7fd4ff;
+          background:linear-gradient(180deg,rgba(41,182,246,.28),rgba(41,182,246,.1));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.2), 0 0 20px rgba(41,182,246,.32);
+        }
+        .lp-user-chip{
+          display:inline-flex;align-items:center;gap:9px;padding:5px 7px;border-radius:999px;
+          border:1px solid rgba(120,212,255,.4);
+          background:linear-gradient(180deg,rgba(41,182,246,.16),rgba(41,182,246,.05));
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.12), 0 4px 14px rgba(0,0,0,.3);
+          font-weight:800;font-size:clamp(.76rem,2vw,.84rem);color:#eaf6ff;max-width:min(58vw,300px);
+        }
+        .lp-user-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+        .lp-user-avatar{
+          width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+          background:linear-gradient(135deg,#39c4ff,#0d4fb0);color:#fff;font-weight:900;font-size:.82rem;flex-shrink:0;
+          overflow:hidden;box-shadow:0 0 0 2px rgba(41,182,246,.3);
+        }
+        .lp-user-avatar img{width:100%;height:100%;border-radius:50%;object-fit:cover;display:block}
+        .lp-logout-btn{
+          width:26px;height:26px;border-radius:50%;border:none;cursor:pointer;flex-shrink:0;
+          background:rgba(255,255,255,.08);color:#ffb4b4;line-height:1;
+          display:flex;align-items:center;justify-content:center;transition:background .2s ease, color .2s ease;
+        }
+        .lp-logout-btn svg{width:14px;height:14px}
+        .lp-logout-btn:hover{background:rgba(255,80,80,.25);color:#fff}
+
+
+        /* ===== لفل + شريط التقدّم تحت كل كرت (للمسجّلين فقط) ===== */
+        .lp-card-level{
+          position:relative;z-index:2;margin-top:auto;
+          padding:9px 12px 11px;
+          background:linear-gradient(180deg,rgba(4,10,22,.35),rgba(4,10,22,.75));
+          border-top:1px solid rgba(41,182,246,.25);
+        }
+        .lp-level-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+        .lp-level-badge{
+          display:inline-flex;align-items:center;gap:5px;font-weight:900;font-size:.82rem;color:#7fd4ff;
+          text-shadow:0 0 8px rgba(41,182,246,.45);
+        }
+        .lp-level-wins{font-size:.68rem;font-weight:700;color:rgba(255,255,255,.55)}
+        .lp-level-track{
+          position:relative;height:8px;border-radius:999px;overflow:hidden;
+          background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.1);
+        }
+        .lp-level-fill{
+          position:absolute;inset:0 auto 0 0;border-radius:999px;
+          background:linear-gradient(90deg,#1976e6,#39c4ff);
+          box-shadow:0 0 10px rgba(41,182,246,.6);
+          transition:width .5s cubic-bezier(.22,1,.36,1);
+        }
+        .lp-level-next{margin-top:5px;font-size:.64rem;font-weight:700;color:rgba(255,255,255,.5);text-align:center}
+
+        /* ===== نافذة تسجيل الدخول ===== */
+        .lp-modal{position:fixed;inset:0;background:rgba(0,0,0,.82);display:flex;align-items:center;justify-content:center;z-index:1200;backdrop-filter:blur(6px);animation:fadeIn .25s ease-out;padding:clamp(12px,4vw,20px);overflow-y:auto}
+        .lp-modal-card{
+          width:100%;max-width:440px;overflow-y:auto;border-radius:22px;position:relative;
+          max-height:calc(100vh - 40px);max-height:calc(100dvh - 40px);
+          background:linear-gradient(180deg,rgba(16,32,60,.98),rgba(6,13,26,.99));
+          border:1px solid rgba(41,182,246,.32);
+          box-shadow:0 30px 70px rgba(0,0,0,.7),0 0 40px rgba(41,182,246,.14);
+          padding:clamp(20px,5vw,26px) clamp(16px,5vw,24px) clamp(16px,5vw,24px);
+          animation:enterCard .45s cubic-bezier(.22,1,.36,1) both;
+        }
+        .lp-modal-close{position:absolute;top:14px;right:14px;background:rgba(255,255,255,.08);border:none;color:#fff;width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .2s ease}
+        .lp-modal-close:hover{background:rgba(255,255,255,.18)}
+        /* أيقونة دائرية فوق العنوان */
+        .lp-modal-icon{
+          width:54px;height:54px;border-radius:50%;margin:2px auto 13px;
+          display:flex;align-items:center;justify-content:center;font-size:1.5rem;
+          background:radial-gradient(circle at 32% 28%,rgba(120,212,255,.32),rgba(41,182,246,.1));
+          border:1px solid rgba(120,212,255,.4);
+          box-shadow:0 0 26px rgba(41,182,246,.25), inset 0 1px 0 rgba(255,255,255,.16);
+        }
+        /* شعار كيك كبير بدون أي دائرة خلفه */
+        .lp-modal-logo{
+          display:flex;align-items:center;justify-content:center;
+          margin:0 auto 14px;color:#53fc18;
+        }
+        .lp-modal-logo svg{
+          width:clamp(52px,14vw,64px);height:clamp(52px,14vw,64px);
+          filter:drop-shadow(0 0 20px rgba(83,252,24,.45));
+        }
+        .lp-modal-title{font-weight:900;font-size:clamp(1.15rem,4vw,1.35rem);color:#fff;text-align:center;margin-bottom:6px}
+        /* لما ما فيه سطر وصف تحت العنوان نحتاج مسافة أكبر */
+        .lp-modal-title.solo{margin-bottom:18px}
+        .lp-modal-sub{font-size:.82rem;color:rgba(255,255,255,.62);text-align:center;margin-bottom:20px;line-height:1.8}
+        .lp-modal-sub b{color:#7fd4ff;font-weight:900}
+        .lp-modal-label{font-size:.8rem;font-weight:800;color:#7fd4ff;margin-bottom:8px;display:block}
+
+        /* حقل الاسم — واضح ومرتفع مع خانة أيقونة مفصولة */
+        .lp-input-wrap{
+          /* direction:ltr ضروري: الصفحة كلها rtl، فبدونها خانة الـ @
+             (أول عنصر) تطلع على اليمين بدل اليسار. */
+          direction:ltr;
+          display:flex;align-items:center;border-radius:16px;overflow:hidden;
+          background:rgba(255,255,255,.09);
+          border:1.5px solid rgba(120,212,255,.4);
+          box-shadow:inset 0 2px 10px rgba(0,0,0,.35);
+          transition:border-color .18s ease, box-shadow .18s ease, background .18s ease;
+        }
+        .lp-input-wrap:focus-within{
+          border-color:#39c4ff;background:rgba(255,255,255,.13);
+          box-shadow:0 0 0 4px rgba(41,182,246,.18), inset 0 2px 10px rgba(0,0,0,.28);
+        }
+        .lp-input-at{
+          display:flex;align-items:center;justify-content:center;flex-shrink:0;
+          width:48px;height:54px;
+          color:#7fd4ff;font-weight:900;font-size:1.2rem;line-height:1;
+          background:rgba(41,182,246,.16);
+          border-right:1px solid rgba(120,212,255,.3);
+        }
+        .lp-modal-input{
+          flex:1;min-width:0;height:54px;padding:0 14px;border:none;background:none;outline:none;
+          font-size:1.05rem;font-weight:800;color:#fff;font-family:Cairo,sans-serif;
+          direction:ltr;text-align:left;
+        }
+        .lp-modal-input::placeholder{color:rgba(255,255,255,.3);font-weight:700}
+
+        .lp-modal-btn{
+          display:block;width:100%;margin-top:16px;padding:13px;border-radius:14px;border:none;cursor:pointer;
+          background:linear-gradient(135deg,#39c4ff,#1976e6);color:#fff;font-weight:900;font-size:.95rem;
+          text-align:center;text-decoration:none;
+          box-shadow:0 8px 22px rgba(25,118,230,.35), inset 0 1px 0 rgba(255,255,255,.25);
+          font-family:Cairo,sans-serif;transition:filter .2s ease,transform .2s ease,box-shadow .2s ease;
+        }
+        .lp-modal-btn:hover{filter:brightness(1.07);transform:translateY(-2px);box-shadow:0 12px 28px rgba(25,118,230,.5), inset 0 1px 0 rgba(255,255,255,.3)}
+        .lp-modal-btn:disabled{opacity:.45;cursor:default;transform:none;filter:none;box-shadow:none}
+        /* زر ثانوي شفاف */
+        .lp-modal-btn.ghost{
+          background:transparent;border:1px solid rgba(120,212,255,.42);color:#bde8ff;box-shadow:none;
+        }
+        .lp-modal-btn.ghost:hover{background:rgba(41,182,246,.12);box-shadow:none}
+
+        /* صندوق أمر الربط — أهم عنصر بالنافذة */
+        .lp-cmd-label{
+          display:flex;align-items:center;gap:8px;
+          font-size:.82rem;font-weight:900;color:#fff;margin-bottom:9px;
+        }
+        .lp-cmd-label span{
+          width:23px;height:23px;border-radius:50%;flex-shrink:0;
+          background:linear-gradient(135deg,rgba(41,182,246,.4),rgba(41,182,246,.14));
+          border:1px solid rgba(120,212,255,.5);color:#bde8ff;font-size:.74rem;
+          display:flex;align-items:center;justify-content:center;
+        }
+        /* بدون إطار ولا خلفية — خانات الأحرف وزر النسخ يكفون بذاتهم */
+        .lp-cmd-card{padding:2px 0 0}
+        .lp-cmd-row{
+          display:flex;align-items:center;justify-content:center;gap:9px;flex-wrap:wrap;
+          /* rtl هنا يخلي !ربط يجي يمين (طبيعي للعربي) والكود يساره */
+          direction:rtl;margin-bottom:14px;
+        }
+        .lp-cmd-word{
+          font-family:Cairo,sans-serif;font-weight:900;
+          font-size:clamp(1.3rem,6vw,1.65rem);color:#fff;
+          text-shadow:0 2px 10px rgba(0,0,0,.55);
+        }
+        /* ltr داخل الخانات عشان أحرف الكود تبقى بترتيبها الصحيح */
+        .lp-cmd-chars{display:flex;gap:6px;direction:ltr}
+        /* كل حرف بخانة مستقلة — أوضح بكثير للقراءة والكتابة اليدوية */
+        .lp-cmd-char{
+          width:clamp(34px,9vw,42px);height:clamp(43px,11vw,51px);border-radius:11px;
+          display:flex;align-items:center;justify-content:center;
+          font-family:'Courier New',monospace;font-weight:900;
+          font-size:clamp(1.25rem,6vw,1.55rem);color:#ffd54a;
+          background:linear-gradient(180deg,rgba(255,196,0,.2),rgba(255,196,0,.05));
+          border:1.5px solid rgba(255,196,0,.45);
+          box-shadow:0 0 16px rgba(255,196,0,.16), inset 0 1px 0 rgba(255,255,255,.16);
+          text-shadow:0 0 12px rgba(255,196,0,.55);
+        }
+        .lp-cmd-copy{
+          display:flex;align-items:center;justify-content:center;gap:8px;
+          width:100%;padding:13px;border-radius:13px;cursor:pointer;border:none;
+          font-family:Cairo,sans-serif;font-weight:900;font-size:.92rem;
+          color:#062a45;background:linear-gradient(135deg,#8fe8ff,#39c4ff);
+          box-shadow:0 6px 18px rgba(41,182,246,.35), inset 0 1px 0 rgba(255,255,255,.4);
+          transition:transform .18s ease, filter .18s ease, box-shadow .18s ease;
+        }
+        .lp-cmd-copy:hover{transform:translateY(-2px);filter:brightness(1.05)}
+        .lp-cmd-copy.is-done{
+          background:linear-gradient(135deg,#a7f3c0,#22c55e);color:#052e16;
+          box-shadow:0 6px 18px rgba(34,197,94,.35), inset 0 1px 0 rgba(255,255,255,.4);
+        }
+
+        /* زر فتح قناة كيك — بلون كيك الأخضر عشان يبان ويرتبط بالمنصة */
+        .lp-kick-btn{
+          display:flex;align-items:center;justify-content:center;gap:9px;
+          width:100%;padding:14px;border-radius:14px;text-decoration:none;
+          font-family:Cairo,sans-serif;font-weight:900;font-size:.95rem;color:#0a1a06;
+          background:linear-gradient(135deg,#84ff5c,#53fc18);
+          border:1px solid rgba(255,255,255,.25);
+          box-shadow:0 8px 24px rgba(83,252,24,.28), inset 0 1px 0 rgba(255,255,255,.4);
+          transition:transform .2s ease, box-shadow .2s ease, filter .2s ease;
+        }
+        .lp-kick-btn:hover{
+          transform:translateY(-2px);filter:brightness(1.05);
+          box-shadow:0 12px 30px rgba(83,252,24,.45), inset 0 1px 0 rgba(255,255,255,.45);
+        }
+        .lp-kick-btn svg{width:18px;height:18px;flex-shrink:0}
+
+        /* شريط الانتظار + العداد التنازلي */
+        .lp-wait{
+          display:flex;align-items:center;justify-content:center;gap:9px;
+          margin-top:16px;
+          font-size:.8rem;font-weight:800;color:#9fddff;
+        }
+        .lp-wait-timer{
+          font-family:'Courier New',monospace;font-weight:900;font-size:.76rem;direction:ltr;
+          color:#ffd54a;background:rgba(255,196,0,.1);border-radius:999px;padding:2px 9px;
+        }
+
+        /* زر الرجوع بزاوية فوق يسار — مقابل الاكس على اليمين */
+        .lp-modal-back{
+          position:absolute;top:14px;left:14px;z-index:2;
+          display:flex;align-items:center;gap:3px;
+          padding:7px 11px;border-radius:999px;cursor:pointer;
+          background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);
+          color:rgba(255,255,255,.6);font-size:.72rem;font-weight:800;font-family:Cairo,sans-serif;
+          transition:background .18s ease, color .18s ease;
+        }
+        .lp-modal-back:hover{background:rgba(255,255,255,.16);color:#fff}
+        .lp-modal-note{
+          margin-top:14px;text-align:center;font-size:.72rem;font-weight:700;
+          color:rgba(255,255,255,.38);line-height:1.7;
+        }
+        .lp-modal-note b{color:#7fd4ff;font-weight:900}
+        .lp-modal-err{margin-top:12px;font-size:.82rem;color:#ffb4b4;text-align:center;font-weight:800}
+
+        /* ═══════════ 📱 تصحيحات الجوال — لازم تبقى بآخر الملف ═══════════
+           السبب: قواعد مثل .lp-watch-row و .lp-user-avatar و .lp-user-chip
+           معرّفة بأسفل الملف (أسطر 930+) بعد بلوك الجوال (سطر 670).
+           الـ media query ما تزيد الأولوية (specificity) — فعند التساوي تفوز
+           القاعدة الأخيرة بالملف. يعني كل إعدادات الجوال فوق كانت تنلغي!
+           هذا اللي خلّى صورة الحساب تظل ظاهرة، وزر البطولة يختفي (display:none)
+           فتطلع الكروت ملتصقة بالهيدر. حطّ التصحيحات هنا يضمن تطبيقها. */
+        @media (max-width:640px){
+          /* 👤 بعد تسجيل الدخول: أيقونة الخروج فقط — بدون صورة ولا اسم */
+          .lp-user-avatar{display:none}
+          .lp-user-name{display:none}
+          .lp-user-chip{
+            padding:0;gap:0;max-width:none;
+            border:none;background:none;box-shadow:none;
+          }
+          .lp-logout-btn{width:34px;height:34px;background:rgba(255,255,255,.12)}
+          .lp-logout-btn svg{width:17px;height:17px}
+
+          /* قبل تسجيل الدخول: أيقونة دائرية بدون كلمة */
+          .lp-login-btn{
+            width:38px;height:38px;padding:0;border-radius:50%;
+            justify-content:center;gap:0;
+          }
+          .lp-login-text{display:none}
+          .lp-login-btn svg{width:18px;height:18px;opacity:1}
+
+          /* زر البطولة يطلع من الهيدر وينزل لأسفل الشاشة، والكروت تحته.
+             74vh هو الرقم الوحيد اللي يتحكم بالمسافة — كبّره تنزل أكثر. */
+          .lp-watch-desktop{display:none}
+          .lp-watch-row{
+            display:flex;justify-content:center;
+            position:relative;z-index:3;
+            margin-top:max(calc(min(48vh,400px) + clamp(24px,6vw,48px)), 56vh);
+          }
+          .lp-grid{
+            position:static;top:auto;
+            margin-top:clamp(20px,5vw,32px);
+            padding:0;gap:9px;
           }
         }
 
-        /* ── كارت انتظار انضمام اللاعبين ── */
-        @keyframes ik3mo-pulse {
-          0%, 100% { opacity: 0.5; transform: scale(1); }
-          50% { opacity: 1; transform: scale(1.1); }
-        }
-        @media (max-width: 480px) {
-        }
-
-        /* ── شبكة اللاعبين/الفرق ── */
-        .ik3mo-names-grid {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-        }
-        .ik3mo-team-slot {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-        .ik3mo-members {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-        .ik3mo-chip-wrap {
-          display: inline-flex;
-          align-items: center;
-        }
-        .ik3mo-chip {
-          display: inline-flex;
-          align-items: center;
-          padding: 7px 12px;
-          border-radius: 10px;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid var(--border, rgba(255,255,255,0.14));
-          font-size: 0.85rem;
-          font-weight: 700;
-          color: #fff;
-          transition: border-color .15s ease, background .15s ease;
-        }
-        .ik3mo-chip-wrap:hover .ik3mo-chip,
-        .ik3mo-chip-wrap:focus-within .ik3mo-chip {
-          border-color: rgba(248,113,113,0.55);
-          background: rgba(248,113,113,0.1);
-        }
-        .ik3mo-chip-text {
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 160px;
-        }
-        .ik3mo-chip-x {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 0;
-          height: 16px;
-          opacity: 0;
-          overflow: hidden;
-          margin-inline-start: 0;
-          border: none;
-          background: transparent;
-          color: #f87171;
-          font-size: 0.72rem;
-          font-weight: 900;
-          cursor: pointer;
-          padding: 0;
-          flex-shrink: 0;
-          transition: width .15s ease, opacity .15s ease, margin .15s ease;
-        }
-        .ik3mo-chip-wrap:hover .ik3mo-chip-x,
-        .ik3mo-chip-wrap:focus-within .ik3mo-chip-x {
-          width: 16px;
-          opacity: 1;
-          margin-inline-start: 6px;
-        }
-        /* على الجوال ما فيه hover — نخلي الـ X ظاهر دايماً بشفافية خفيفة عشان يقدر يطرد بالنقر */
-        @media (hover: none) {
-          .ik3mo-chip-x {
-            width: 16px !important;
-            opacity: 0.65 !important;
-            margin-inline-start: 6px !important;
-          }
-        }
-        .ik3mo-amp {
-          font-weight: 900;
-          color: var(--blue, #29b6f6);
-          font-size: 0.9rem;
-          flex-shrink: 0;
-        }
-        @media (max-width: 640px) {
-          .ik3mo-chip-text {
-            max-width: 50vw;
-          }
-        }
-
-        /* ── الشريط الجانبي على الجوال ── */
-        @media (max-width: 900px) {
-        }
       `}</style>
-      <div id="bg" style={{ backgroundImage: `url(${bgImg})` }} />
-      <div id="bg-grad" />
 
-      <div className="shell">
-        <div className="main">
-          <div style={{ width: "100%", margin: "0 auto" }}>
-            <header className="site-header" style={{ position: "relative" }}>
-              {/* 🎛️ أزرار اللوحة — كانت متفرقة بالسايدبار، جمعناها هنا برأس
-                  الصفحة عشان تكون واضحة وبمتناول اليد دايماً. */}
-              <div className="admin-actions">
-                <button className="admin-act" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}>
-                  {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
-                </button>
-                <button
-                  className={`admin-act${chatStatus === "live" ? " on" : ""}`}
-                  onClick={() => kickCheck(true)}
-                  title="يعيد التحقق من بث Kick ويحدّث اتصال الشات"
-                >
-                  🔄 تحقق الآن
-                  <span className={`act-dot${chatStatus === "live" ? " live" : ""}`} />
-                </button>
-                <button className="admin-act danger" onClick={onLogout} title="تسجيل الخروج من لوحة الأدمن">
-                  🚪 خروج
-                </button>
-              </div>
-              <div className="tag">IK3MO</div>
-              <h1>{titleText}</h1>
-              <p>اختر عدد اللاعبين، اكتب أسمائهم، وكل جولة اضغط على الفائز ليتأهل</p>
-            </header>
+      <div className="lp-page">
+        <div className="lp-bg" />
 
-            {syncError && (
-              <div style={{ textAlign: "center", color: "#ff4444", marginBottom: "12px", fontSize: "0.85rem" }}>
-                ⚠️ {syncError}
-              </div>
-            )}
-
-            {/* 📊 شريط حالة مساحات التخزين (قاعدة البيانات + Cloudinary) */}
-            {storageStatus && (
-              <div style={{
-                display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "10px",
-                marginBottom: "12px", fontSize: "0.78rem",
-              }}>
-                {([
-                  { label: "قاعدة البيانات", s: storageStatus.database },
-                  { label: "الصور (Cloudinary)", s: storageStatus.cloudinary },
-                ] as const).map(({ label, s }) => (
-                  <div key={label} style={{
-                    display: "flex", alignItems: "center", gap: "6px", padding: "4px 10px",
-                    borderRadius: "999px", background: "rgba(255,255,255,0.06)",
-                    border: `1px solid ${s.ok ? "rgba(80,220,120,0.35)" : "rgba(255,68,68,0.4)"}`,
-                  }}>
-                    <span>{s.ok ? "🟢" : "🔴"}</span>
-                    <span style={{ color: "var(--muted)" }}>{label}:</span>
-                    <span style={{ fontWeight: 700 }}>
-                      {s.ok
-                        ? (s.usedPercent !== null ? `${s.usedPercent}% مستخدم` : "شغالة")
-                        : (s.configured === false ? "غير مفعّلة" : "متوقفة")}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {role === "admin" && (
-              <div style={{ textAlign: "center", marginBottom: "12px" }}>
-                <button
-                  className="btn btn-ghost"
-                  style={{ fontSize: "0.75rem", padding: "5px 12px" }}
-                  disabled={migrating}
-                  onClick={handleMigrateImages}
-                  title="ينقل أي صور قديمة مخزّنة Base64 بقاعدة البيانات إلى Cloudinary"
-                >
-                  {migrating ? "⏳ جاري نقل الصور القديمة..." : "🔁 نقل الصور القديمة لـ Cloudinary"}
-                </button>
-                {migrateResult && (
-                  <div style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "6px" }}>{migrateResult}</div>
-                )}
-              </div>
-            )}
-
-            {/* ── إدارة المساعدين (الأدمن الرئيسي فقط) ── */}
-            {role === "admin" && (
-              <div className="card">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                  <span style={{ fontSize: "1.15rem" }}>🙋</span>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>إدارة المساعدين</h3>
-                  <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>— أنشئ حساب مساعد وحدد له بالضبط وش يقدر يسوي</span>
-                </div>
-
-                {/* إنشاء مساعد جديد */}
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", padding: "12px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
-                  <input
-                    type="text"
-                    className="n-input"
-                    style={{ flex: 1, minWidth: "160px" }}
-                    placeholder="اسم المساعد (مثلاً: أخوي / مشرف الشات)"
-                    value={helperName}
-                    onChange={(e) => setHelperName(e.target.value)}
-                    disabled={creatingHelper}
-                  />
-                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.82rem", cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!newHelperPerms.tournament} onChange={(e) => setNewHelperPerms((p) => ({ ...p, tournament: e.target.checked }))} />
-                    🏆 إدارة البطولة
-                  </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.82rem", cursor: "pointer" }}>
-                    <input type="checkbox" checked={!!newHelperPerms.records} onChange={(e) => setNewHelperPerms((p) => ({ ...p, records: e.target.checked }))} />
-                    🗂️ سجل البطولات
-                  </label>
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                    disabled={creatingHelper || !helperName.trim()}
-                    onClick={handleCreateHelper}
-                  >
-                    {creatingHelper ? "..." : "➕ إنشاء مساعد"}
-                  </button>
-                </div>
-                {helperError && <div style={{ color: "#ff4444", fontSize: "0.82rem", marginTop: "8px" }}>⚠️ {helperError}</div>}
-
-                {/* الكود يظهر مرة وحدة بعد الإنشاء عشان الأدمن يرسله للمساعد */}
-                {revealedCode && (
-                  <div style={{ marginTop: "10px", padding: "12px", borderRadius: "12px", background: "rgba(83,252,24,0.08)", border: "1px solid rgba(83,252,24,0.3)", display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
-                    <span style={{ fontSize: "0.85rem" }}>✅ تم إنشاء <b>{revealedCode.name}</b> — كود الدخول:</span>
-                    <code style={{ fontWeight: 900, fontSize: "1.05rem", letterSpacing: "2px", color: "var(--kick,#53fc18)" }}>{revealedCode.code}</code>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: "0.75rem", padding: "5px 10px" }}
-                      onClick={() => { navigator.clipboard?.writeText(revealedCode.code); }}
-                    >📋 نسخ</button>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: "0.75rem", padding: "5px 10px" }}
-                      onClick={() => setRevealedCode(null)}
-                    >✕ إخفاء</button>
-                  </div>
-                )}
-
-                {/* قائمة المساعدين الحاليين */}
-                <div style={{ marginTop: "16px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {helpers.length === 0 && (
-                    <div style={{ fontSize: "0.85rem", color: "var(--muted)", textAlign: "center", padding: "10px 0" }}>
-                      ما فيه مساعدين لسا.
-                    </div>
+        {/* ===== الهيدر: تسجيل الدخول (زاوية اليسار) + الأيقونات وزر البطولة (زاوية اليمين) ===== */}
+        <nav className="lp-nav">
+          {/* ⬅️ يسار */}
+          <div className="lp-nav-left">
+            {session ? (
+              <div className="lp-user-chip">
+                <span className="lp-user-avatar">
+                  {kickAvatar ? (
+                    <img
+                      src={kickAvatar}
+                      alt={session.username}
+                      referrerPolicy="no-referrer"
+                      // لو صورة كيك ما تحمّلت، نرجع لأول حرف من الاسم
+                      onError={() => setKickAvatar("")}
+                    />
+                  ) : (
+                    session.username.charAt(0).toUpperCase()
                   )}
-                  {helpers.map((h) => (
-                    <div
-                      key={h.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "14px",
-                        flexWrap: "wrap",
-                        padding: "10px 14px",
-                        borderRadius: "12px",
-                        background: "rgba(255,255,255,0.03)",
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: "140px" }}>
-                        <div style={{ width: "34px", height: "34px", borderRadius: "50%", background: "linear-gradient(135deg,#14b8a6,#0f172a)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>
-                          {h.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <div style={{ fontWeight: 800, fontSize: "0.9rem" }}>{h.name}</div>
-                          <div style={{ fontSize: "0.72rem", color: "var(--muted)", letterSpacing: "1px" }}>{h.code}</div>
-                        </div>
-                      </div>
-
-                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginRight: "auto" }}>
-                        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem", cursor: "pointer" }}>
-                          <input type="checkbox" style={{ width: "16px", height: "16px" }} checked={!!h.permissions?.tournament} onChange={() => handleToggleHelperPerm(h, "tournament")} />
-                          🏆 البطولة
-                        </label>
-                        <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.78rem", cursor: "pointer" }}>
-                          <input type="checkbox" style={{ width: "16px", height: "16px" }} checked={!!h.permissions?.records} onChange={() => handleToggleHelperPerm(h, "records")} />
-                          🗂️ السجل
-                        </label>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ fontSize: "0.78rem", padding: "6px 10px", color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
-                        onClick={() => handleDeleteHelper(h)}
-                        title="حذف المساعد نهائياً"
-                      >🗑️ حذف</button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ── سجل البطولات: تعديل صورة كل لعبة (كروت ديناميكية يضيف/يحذف منها الأدمن) ── */}
-            {!canRecords ? (
-              <div className="card" style={{ textAlign: "center", padding: "28px 16px", opacity: 0.85 }}>
-                <div style={{ fontSize: "1.6rem", marginBottom: "8px" }}>🔒</div>
-                <div style={{ fontWeight: 800, marginBottom: "4px" }}>ما عندك صلاحية "سجل البطولات"</div>
-                <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>اطلب من الأدمن الرئيسي يفعّلها لك من "إدارة المساعدين"</div>
+                </span>
+                <span className="lp-user-name">{session.username}</span>
+                <button className="lp-logout-btn" onClick={logout} title="تسجيل الخروج" aria-label="تسجيل الخروج">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" x2="9" y1="12" y2="12" />
+                  </svg>
+                </button>
               </div>
             ) : (
-            <div className="card">
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                <span style={{ fontSize: "1.15rem" }}>🏆</span>
-                <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>سجل البطولات</h3>
-                <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>— عدّل اسم الفائز والصورة لكل لعبة، تظهر مباشرة للمشاهدين</span>
-              </div>
-              {recError && <div style={{ color: "#ff4444", fontSize: "0.82rem", margin: "8px 0" }}>⚠️ {recError}</div>}
-
-              {/* إضافة كرت جديد */}
-              <div style={{ display: "flex", gap: "8px", margin: "10px 0 4px", flexWrap: "wrap" }}>
-                <input
-                  type="text"
-                  className="n-input"
-                  style={{ flex: 1, minWidth: "180px", padding: "9px 12px" }}
-                  placeholder="✏️ اسم اللعبة/الكرت الجديد"
-                  value={newGameName}
-                  disabled={savingGame !== null}
-                  onChange={(e) => setNewGameName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleAddGame(); }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap", opacity: savingGame !== null ? 0.55 : 1, cursor: savingGame !== null ? "not-allowed" : "pointer" }}
-                  disabled={savingGame !== null}
-                  onClick={handleAddGame}
-                >➕ إضافة كرت</button>
-              </div>
-
-              <div style={{ display: "grid", gap: "14px", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", marginTop: "12px" }}>
-                {records.length === 0 && (
-                  <div style={{ fontSize: "0.85rem", color: "var(--muted)", gridColumn: "1 / -1", textAlign: "center", padding: "18px 0" }}>
-                    ماكاين حتى كرت دابا — زيد اسم اللعبة فوق واضغط "➕ إضافة كرت".
-                  </div>
-                )}
-                {records.map((rec) => {
-                  const game = rec.tournamentName;
-                  const busy = savingGame === game;
-                  return (
-                    <div key={rec.id} style={{ borderRadius: "16px", overflow: "hidden", background: "linear-gradient(160deg,rgba(41,182,246,0.12),rgba(0,20,45,0.55))", border: rec?.isHidden ? "1px dashed rgba(255,255,255,0.25)" : "1px solid var(--border)", display: "flex", flexDirection: "column", opacity: rec?.isHidden ? 0.55 : 1, position: "relative", transition: "opacity 0.2s ease" }}>
-                      {rec?.isHidden && (
-                        <div style={{ position: "absolute", top: "8px", left: "8px", zIndex: 2, background: "rgba(0,0,0,0.65)", color: "#fbbf24", fontSize: "0.7rem", fontWeight: 900, padding: "3px 9px", borderRadius: "999px", border: "1px solid rgba(251,191,36,0.4)" }}>
-                        🙈 مخفي عن الزوار
-                        </div>
-                      )}
-                      {/* اسم اللعبة فوق - قابل للتعديل */}
-                      <input
-                        type="text"
-                        className="n-input"
-                        style={{ padding: "11px 12px", textAlign: "center", fontWeight: 900, fontSize: "1rem", color: "#fff", background: "linear-gradient(135deg,rgba(41,182,246,0.22),rgba(41,182,246,0.06))", borderBottom: "1px solid var(--border)", border: "none" }}
-                        value={gameNames[game] ?? (rec?.displayName || game)}
-                        onChange={e => setGameNames(prev => ({ ...prev, [game]: e.target.value }))}
-                        onBlur={() => handleGameNameBlur(game, gameNames[game] ?? (rec?.displayName || game), rec?.winnerName || "", rec?.image || "")}
-                        placeholder={game}
-                        disabled={busy}
-                      />
-                      {/* اسم الفائز */}
-                      <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)", background: "rgba(0,0,0,0.2)" }}>
-                        <input
-                          type="text"
-                          className="n-input"
-                          style={{ width: "100%", paddingRight: "10px", textAlign: "center", fontSize: "0.85rem" }}
-                          placeholder="👑 اسم الفائز"
-                          value={winnerDrafts[game] ?? (rec?.winnerName || "")}
-                          disabled={busy}
-                          onChange={e => setWinnerDrafts(prev => ({ ...prev, [game]: e.target.value }))}
-                          onBlur={() => handleWinnerBlur(game, rec?.image || "", rec?.winnerName || "")}
-                        />
-                      </div>
-                      {/* الصورة الإضافية (image2) — تظهر بالمربع الأصفر في الصفحة العامة */}
-                      <div style={{ padding: "8px 10px 0", fontSize: "0.72rem", fontWeight: 700, color: "#ffd27d", textAlign: "center" }}>🖼️ الصورة الإضافية</div>
-                      <div style={{ width: "100%", aspectRatio: "16/7", background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative", margin: "4px 0" }}>
-                        {rec?.image2 ? <img src={rec.image2} alt={`${game} إضافية`} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "1.8rem", opacity: 0.4 }}>➕</span>}
-                        {busy && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>...جارِ الحفظ</div>}
-                      </div>
-                      <div style={{ display: "flex", gap: "8px", padding: "0 12px 6px" }}>
-                        <label className="btn btn-primary" style={{ flex: 1, textAlign: "center", cursor: busy ? "default" : "pointer", fontSize: "0.75rem", padding: "6px 8px", opacity: busy ? 0.6 : 1 }}>
-                          {rec?.image2 ? "✏️ تغيير الإضافية" : "🖼️ إضافة إضافية"}
-                          <input type="file" accept="image/*" disabled={busy} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleGameImage2(game, f, winnerDrafts[game] ?? (rec?.winnerName || ""), rec?.image || ""); e.currentTarget.value = ""; }} />
-                        </label>
-                        {rec?.image2 && (
-                          <button className="btn btn-ghost" style={{ fontSize: "0.8rem", padding: "6px 10px" }} disabled={busy} onClick={() => handleClearGameImage2(game, winnerDrafts[game] ?? (rec?.winnerName || ""), rec?.image || "")} title="حذف الصورة الإضافية">🗑️</button>
-                        )}
-                      </div>
-
-                      {/* صورة البطولة (image) — تظهر بالمربع الأخضر في الصفحة العامة */}
-                      <div style={{ padding: "4px 10px 0", fontSize: "0.72rem", fontWeight: 700, color: "#8ef0a0", textAlign: "center" }}>🏆 صورة البطولة</div>
-                      <div style={{ width: "100%", aspectRatio: "4/3", background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative", marginTop: "4px" }}>
-                        {rec?.image ? <img src={rec.image} alt={game} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "2.6rem", opacity: 0.4 }}>🏆</span>}
-                        {busy && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "0.85rem", fontWeight: 700 }}>...جارِ الحفظ</div>}
-                      </div>
-                      {/* أزرار التعديل */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px 12px" }}>
-                        <div style={{ display: "flex", gap: "8px" }}>
-                          <label className="btn btn-primary" style={{ flex: 1, textAlign: "center", cursor: busy ? "default" : "pointer", fontSize: "0.8rem", padding: "7px 8px", opacity: busy ? 0.6 : 1 }}>
-                            {rec?.image ? "✏️ تغيير الصورة" : "🖼️ إضافة صورة"}
-                            <input type="file" accept="image/*" disabled={busy} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleGameImage(game, f, winnerDrafts[game] ?? (rec?.winnerName || "")); e.currentTarget.value = ""; }} />
-                          </label>
-                          {rec && (rec.image || rec.image2 || rec.winnerName) && (
-                            <button className="btn btn-ghost" style={{ fontSize: "0.8rem", padding: "7px 10px" }} disabled={busy} onClick={() => handleClearGame(rec)} title="تفريغ اللعبة (يبقى الكرت)">🧹</button>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ fontSize: "0.78rem", padding: "7px 8px", fontWeight: 800, color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
-                          disabled={busy}
-                          onClick={() => handleDeleteGameCard(rec)}
-                          title="حذف الكرت نهائيًا من الأدمن والزوار"
-                        >❌ حذف الكرت نهائيًا</button>
-                        {rec && (rec.image || rec.winnerName) && (
-                          <button
-                            type="button"
-                            className="btn btn-ghost"
-                            style={{
-                              fontSize: "0.78rem",
-                              padding: "7px 8px",
-                              fontWeight: 800,
-                              color: rec.isHidden ? "#4ade80" : "#fbbf24",
-                              borderColor: rec.isHidden ? "rgba(74,222,128,0.35)" : "rgba(251,191,36,0.35)",
-                            }}
-                            disabled={busy}
-                            onClick={() => toggleGameVisibility(rec)}
-                            title={rec.isHidden ? "إظهار الكرت للزوار مرة ثانية" : "إخفاء الكرت عن الزوار (بدون حذف)"}
-                          >
-                            {rec.isHidden ? "👁️ إظهار الكرت" : "🙈 إخفاء الكرت"}
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          className="btn btn-ghost"
-                          style={{ fontSize: "0.75rem", padding: "6px 8px", whiteSpace: "nowrap" }}
-                          disabled={busy}
-                          onClick={() => handleGenerateGameImage(game)}
-                          title="يولّد صورة تلقائية من البراكيت الحالي + الفائز ويحفظها لهذي اللعبة"
-                        >🎨 صورة البطولة الحالية</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+              <button className="lp-login-btn" onClick={openLogin}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/></svg>
+                <span className="lp-login-text">تسجيل دخول</span>
+              </button>
             )}
+          </div>
 
-            {/* ── إحصائيات اللاعبين: اكتب اسم الحساب وشوف فوزاته ولفله في كل لعبة ── */}
-            {canRecords && (
-              <div className="card">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                  <span style={{ fontSize: "1.15rem" }}>📊</span>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>إحصائيات اللاعبين</h3>
-                  <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>— اكتب اسم الحساب وشوف فوزاته ولفله في كل لعبة</span>
-                </div>
+          {/* ➡️ يمين */}
+          <div className="lp-nav-right">
+            {/* 🏆 الأكثر انتصاراً — يظهر بالجوال فقط ويفتح اللوحة بنص الشاشة */}
+            <button
+              className="lp-board-toggle"
+              onClick={() => setBoardOpen(true)}
+              aria-label="الأكثر انتصاراً"
+              aria-haspopup="dialog"
+              aria-expanded={boardOpen}
+              title="الأكثر انتصاراً"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M7 3.5h10V9a5 5 0 0 1-10 0V3.5Z" />
+                <path d="M7 5.5H4.6a.6.6 0 0 0-.6.6v.8A3.6 3.6 0 0 0 7.6 10.5" />
+                <path d="M17 5.5h2.4a.6.6 0 0 1 .6.6v.8a3.6 3.6 0 0 1-3.6 3.6" />
+                <path d="M12 14v3" />
+                <path d="M9.6 17h4.8l.8 3.5H8.8l.8-3.5Z" />
+              </svg>
+            </button>
 
-                <div style={{ display: "flex", gap: "8px", margin: "10px 0 4px", flexWrap: "wrap" }}>
-                  <input
-                    type="text"
-                    className="n-input"
-                    style={{ flex: 1, minWidth: "180px", padding: "9px 12px" }}
-                    placeholder="🔍 اسم حساب اللاعب (كيك)"
-                    value={statsQuery}
-                    onChange={(e) => setStatsQuery(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") loadPlayerStats(); }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                    disabled={statsLoading || !statsQuery.trim()}
-                    onClick={loadPlayerStats}
-                  >{statsLoading ? "..." : "🔍 بحث"}</button>
-                </div>
-                {statsError && <div style={{ color: "#ff4444", fontSize: "0.82rem", margin: "8px 0" }}>⚠️ {statsError}</div>}
+            <a className="lp-nav-icon" href="https://discord.gg/ArYbJ9McA" target="_blank" rel="noopener noreferrer" aria-label="ديسكورد">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M20.3 4.4A19.8 19.8 0 0 0 15.4 3l-.24.5a14.6 14.6 0 0 1 4.3 1.7 16.5 16.5 0 0 0-14.9 0 14 14 0 0 1 4.3-1.7L8.6 3a19.8 19.8 0 0 0-4.9 1.4C1 9 .3 13.6.6 18a20 20 0 0 0 6 3l1-1.6a12.7 12.7 0 0 1-1.9-.9l.5-.4a14.2 14.2 0 0 0 12 0l.5.4a12.7 12.7 0 0 1-1.9.9l1 1.6a20 20 0 0 0 6-3c.4-5-.7-9.6-3.5-13.6ZM8.7 15.2c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Zm6.6 0c-.9 0-1.6-.8-1.6-1.8s.7-1.8 1.6-1.8 1.6.8 1.6 1.8-.7 1.8-1.6 1.8Z"/></svg>
+            </a>
+            <a className="lp-nav-icon" href="https://kick.com/ik3mo" target="_blank" rel="noopener noreferrer" aria-label="كيك">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2 2h5v6.3L12 2h6l-6.6 8L18.5 22h-6.2l-4-6-1.3 1.5V22H2V2Z"/></svg>
+            </a>
 
-                {statsData && (
-                  <div style={{ marginTop: "12px" }}>
-                    <div style={{ fontSize: "0.9rem", fontWeight: 800, marginBottom: "10px" }}>
-                      👤 <span style={{ color: "#7fd4ff" }}>{statsData.username}</span>
-                      <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginRight: "8px" }}>
-                        · إجمالي الفوزات: {Object.values(statsData.wins || {}).reduce((a, b) => a + b, 0)}
-                      </span>
-                    </div>
-                    <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
-                      {records.length === 0 && (
-                        <div style={{ fontSize: "0.82rem", color: "var(--muted)", gridColumn: "1 / -1" }}>ماكاين ألعاب مضافة.</div>
-                      )}
-                      {records.map((rec) => {
-                        const game = rec.tournamentName;
-                        const wins = statsData.wins?.[game] ?? 0;
-                        const level = levelFromWins(wins);
-                        const inLevel = progressWithinLevel(wins);
-                        const pct = (inLevel / WINS_PER_LEVEL) * 100;
-                        return (
-                          <div key={rec.id} style={{ borderRadius: "12px", padding: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "6px" }}>
-                              <span style={{ fontWeight: 800, fontSize: "0.88rem" }}>{rec.displayName || game}</span>
-                              <span style={{ fontSize: "0.78rem", fontWeight: 900, color: "#7fd4ff" }}>⭐ لفل {level}</span>
-                            </div>
-                            <div style={{ position: "relative", height: "7px", borderRadius: "999px", background: "rgba(255,255,255,0.1)", overflow: "hidden", marginBottom: "8px" }}>
-                              <div style={{ position: "absolute", inset: "0 auto 0 0", width: `${pct}%`, borderRadius: "999px", background: "linear-gradient(90deg,#1976e6,#39c4ff)", transition: "width .4s ease" }} />
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                              <div style={{ display: "flex", gap: "6px" }}>
-                                <button type="button" className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: "0.9rem", lineHeight: 1 }} onClick={() => adjustPlayerWin(game, -1)} disabled={wins <= 0} title="نقص فوز">−</button>
-                                <button type="button" className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: "0.9rem", lineHeight: 1 }} onClick={() => adjustPlayerWin(game, 1)} title="زيادة فوز">＋</button>
-                              </div>
-                              <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{wins} فوز · باقي {WINS_PER_LEVEL - inLevel} للفل {level + 1}</span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* 💚 زر الدعم — جنب أيقونة كيك مباشرة */}
+            <a
+              className="lp-nav-icon lp-support-btn"
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="ادعم القناة"
+              title="ادعم القناة 💚"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9.5" />
+                <path d="M15.5 8.5H10.6a2.1 2.1 0 0 0 0 4.2h2.8a2.1 2.1 0 0 1 0 4.2H8.5" />
+                <path d="M12 6.2v1.6M12 16.9v1.6" />
+              </svg>
+            </a>
 
-            {/* ── 🏆 نقاط الأكثر انتصاراً: تحكم يدوي كامل (تعديل/تصفير) ── */}
-            {canRecords && (
-              <div className="card">
-                <div className="lb-head">
-                  <span style={{ fontSize: "1.15rem" }}>🏆</span>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نقاط الأكثر انتصاراً</h3>
-                  <span className="lb-sub">— عدّل نقاط أي لاعب أو صفّرها يدوياً</span>
-                  <div className="lb-tools">
-                    <select
-                      className="lb-select"
-                      value={lbLimit}
-                      onChange={e => { const n = Number(e.target.value); setLbLimit(n); loadLeaderboard(n); }}
-                      title="كم لاعب يظهر بالقائمة"
-                    >
-                      <option value={5}>أعلى 5</option>
-                      <option value={10}>أعلى 10</option>
-                      <option value={20}>أعلى 20</option>
-                      <option value={50}>أعلى 50</option>
-                    </select>
-                    <button className="lb-btn" onClick={() => loadLeaderboard()} disabled={lbBusy}>🔄 تحديث</button>
-                    <button className="lb-btn danger" onClick={resetAllPoints} disabled={lbBusy}>🧹 تصفير الكل</button>
-                  </div>
-                </div>
+            <span className="lp-nav-sep" />
 
-                {lbMsg && (
-                  <div className={`lb-msg${lbMsg.ok ? " ok" : " err"}`}>{lbMsg.ok ? "✅" : "⚠️"} {lbMsg.text}</div>
-                )}
+            {/* زر البطولة — بالهيدر على الديسكتوب فقط */}
+            <div className="lp-watch-desktop">{watchBtn}</div>
+          </div>
+        </nav>
 
-                {/* ➕ إضافة/تعيين نقاط لاسم مو موجود بالقائمة */}
-                <div className="lb-add">
-                  <input
-                    type="text"
-                    className="lb-name-input"
-                    placeholder="اسم اللاعب..."
-                    value={lbNewName}
-                    onChange={e => setLbNewName(e.target.value)}
-                  />
-                  <input
-                    type="number"
-                    className="lb-pts-input"
-                    min={0}
-                    value={lbNewPts}
-                    onChange={e => setLbNewPts(Math.max(0, parseInt(e.target.value) || 0))}
-                  />
-                  <span className="lb-unit">نقطة</span>
-                  <button
-                    className="lb-btn primary"
-                    disabled={lbBusy || !lbNewName.trim()}
-                    onClick={() => { applyPoints(lbNewName.trim(), lbNewPts); setLbNewName(""); }}
-                  >✍️ تعيين</button>
-                </div>
+        {/* ===== 🏆 لوحة الترتيب ===== */}
+        {/* ديسكتوب: ظاهرة دائماً بزاوية اليمين تحت الهيدر.
+            جوال: نافذة بنص الشاشة تنفتح من أيقونة الكأس.
+            أول 5 مراكز للجميع، واللي تحتهم ما يبانون — إلا لو حسابك مربوط
+            فيطلع لك سطر مستقل فيه رقم مركزك الحقيقي (7 مثلاً). */}
+        {boardOpen && <div className="lp-board-backdrop" onClick={() => setBoardOpen(false)} />}
 
-                <div className="lb-list">
-                  {lb.length === 0 && !lbBusy && (
-                    <div className="lb-empty">ما فيه نقاط مسجّلة بعد</div>
-                  )}
-                  {lb.map((row, i) => {
-                    const draft = lbDraft[row.username];
-                    const shown = draft !== undefined ? draft : String(row.wins);
-                    const changed = draft !== undefined && Number(draft) !== row.wins;
+        <aside
+          className={`lp-board${boardOpen ? " is-open" : ""}`}
+          aria-label="ترتيب الفائزين"
+          onClick={() => setBoardOpen(false)}
+        >
+          {/* stopPropagation عشان الضغط جوّا الكرت ما يقفل النافذة */}
+          <div className="lp-board-inner" onClick={(e) => e.stopPropagation()}>
+            <button className="lp-board-close" onClick={() => setBoardOpen(false)} aria-label="إغلاق">✕</button>
+            <div className="lp-board-title">الاكثر انتصار 🥇</div>
+            <div className="lp-board-note">تحسب نقاط الفوز عند الانتصار في اي قيم داخل البطولة</div>
+
+            {fullBoard.length === 0 ? (
+              <div className="lp-board-empty">لا يوجد فائزون بعد</div>
+            ) : (
+              <>
+                <ol className="lp-board-list">
+                  {topBoard.map((entry, i) => {
+                    const isMe = !!myStanding && myStanding.inTop && myStanding.rank === i + 1;
                     return (
-                      <div key={row.username} className="lb-row">
-                        <span className={`lb-rank r${i + 1}`}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
-                        <span className="lb-name" title={row.username}>{row.username}</span>
-                        <div className="lb-ctrl">
-                          <button className="lb-step" disabled={lbBusy || row.wins <= 0} onClick={() => applyPoints(row.username, row.wins - 1)} title="نقص نقطة">−</button>
-                          <input
-                            type="number"
-                            className="lb-pts-input"
-                            min={0}
-                            value={shown}
-                            onChange={e => setLbDraft(d => ({ ...d, [row.username]: e.target.value }))}
-                          />
-                          <button className="lb-step" disabled={lbBusy} onClick={() => applyPoints(row.username, row.wins + 1)} title="زد نقطة">+</button>
-                          {changed && (
-                            <button className="lb-btn primary sm" disabled={lbBusy} onClick={() => applyPoints(row.username, Number(draft) || 0)}>حفظ</button>
-                          )}
-                          <button className="lb-btn danger sm" disabled={lbBusy || row.wins === 0} onClick={() => applyPoints(row.username, 0)} title="تصفير هذا اللاعب">↺ صفّر</button>
-                        </div>
-                      </div>
+                      <li key={entry.username + i} className={`lp-board-row rank-${i + 1}${isMe ? " is-me" : ""}`}>
+                        <span className="lp-board-rank">{rankIcon(i)}</span>
+                        <span className="lp-board-name">{entry.username}{isMe ? " (أنت)" : ""}</span>
+                        <span className="lp-board-pts">{entry.wins} نقطة</span>
+                      </li>
                     );
                   })}
-                </div>
-              </div>
-            )}
+                </ol>
 
-            {!canTournament && (
-              <div className="card" style={{ textAlign: "center", padding: "28px 16px", opacity: 0.85 }}>
-                <div style={{ fontSize: "1.6rem", marginBottom: "8px" }}>🔒</div>
-                <div style={{ fontWeight: 800, marginBottom: "4px" }}>ما عندك صلاحية إدارة البطولة</div>
-                <div style={{ fontSize: "0.8rem", color: "var(--muted)" }}>اطلب من الأدمن الرئيسي يفعّلها لك من "إدارة المساعدين"</div>
-              </div>
-            )}
-
-            {/* SETUP SCREEN */}
-            {canTournament && st.phase === "setup" && (
-              <div className="card">
-                {/* 🎛️ لوحة إعداد البطولة: اسم البطولة ومهلة الانضمام بصف واحد
-                    مرتّب بدل ما يكونون متفرقين بسطور. */}
-                <div className="setup-bar">
-                  <div className="setup-field setup-name">
-                    <label htmlFor="t-name">🏆 اسم البطولة</label>
-                    <input
-                      id="t-name"
-                      type="text"
-                      className="n-input"
-                      placeholder="اكتب اسم البطولة..."
-                      value={st.name}
-                      onChange={e => setSt(prev => ({ ...prev, name: e.target.value }))}
-                      onBlur={() => sync(st)}
-                    />
-                  </div>
-
-                  <div className="setup-sep" />
-
-                  <div className="setup-field setup-join">
-                    <label>⏱️ مهلة الانضمام</label>
-                    {st.joinDeadline ? (
-                      <div className="join-row">
-                        <span className={`join-clock${getJoinSecondsLeft() <= 10 ? " hot" : ""}`}>
-                          {getJoinSecondsLeft() > 0
-                            ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
-                            : "⛔ انتهى"}
-                        </span>
-                        <span className="join-hint">
-                          {getJoinSecondsLeft() > 0 ? "الباب مفتوح" : "الباب مقفل"}
-                        </span>
-                        <button className="join-btn ghost" onClick={cancelJoinWindow}>✕ إلغاء</button>
-                      </div>
-                    ) : (
-                      <div className="join-row">
-                        <input
-                          type="number"
-                          className="join-mins"
-                          min={1}
-                          max={60}
-                          value={joinDurationInput}
-                          onChange={e => setJoinDurationInput(Math.max(1, parseInt(e.target.value) || 1))}
-                        />
-                        <span className="join-unit">دقيقة</span>
-                        <button className="join-btn" onClick={() => openJoinWindow(joinDurationInput)}>🕐 افتح الباب</button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="toggle-row">
-                  <label style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--muted)" }}>نظام الفرق (Teams):</label>
-                  <label className="switch">
-                    <input type="checkbox" checked={st.isTeams} onChange={e => toggleTeams(e.target.checked)} />
-                    <span className="slider" />
-                  </label>
-                  <div className={`team-size-control${st.isTeams ? " show" : ""}`}>
-                    <label>عدد اللاعبين/فريق:</label>
-                    <input type="number" className="team-size-input" value={st.teamSize} min="1" max="10" onChange={e => update({ ...st, teamSize: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })} />
-                  </div>
-                  {st.isTeams && (
-                    <button className="btn btn-ghost" onClick={shuffleTeams} title="يفرّط اللاعبين ويرتبهم بفرق عشوائية جديدة">
-                      🎲 ترتيب عشوائي للفرق
-                    </button>
-                  )}
-                </div>
-
-                {/* عرض اللاعبين — في وضع "غير محدود" ما نعرض إلا خانات اللاعبين اللي انضموا فعلاً
-                    (تُنشأ تلقائياً بمجرد ما حد يكتب أمر الانضمام بالشات). الأسماء غير قابلة
-                    للتعديل اليدوي (تُقرأ من الشات مباشرة)، وكل عضو بالفريق له إطار مستقل
-                    مفصول بعلامة & عن باقي أعضاء نفس الفريق. */}
-                <div className="reg-head">
-                  <span className="reg-title">👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
-                  <span className="reg-count">{st.players.filter(p => p).length}</span>
-                  <span className="reg-hint">
-                    {st.joinDeadline && getJoinSecondsLeft() > 0
-                      ? "الباب مفتوح الآن — أي !دخول بالشات ينضاف مباشرة"
-                      : <>الانضمام تلقائي بكتابة <b>!دخول</b> بالشات</>}
-                  </span>
-                  {/* 🤖 تنضاف بأي وقت — قبل فتح الباب أو وهو مفتوح — عشان تقدر
-                      تجرّب شكل الشجرة فوراً بدون ما تنتظر أحد ينضم. */}
-                  <div className="bots-group" title="لاعبين وهميين لتجربة الشجرة — تنضاف حتى والباب مفتوح">
-                    <span className="bots-label">🤖 بوتات</span>
-                    <button className="bots-btn" onClick={() => addBots(2)}>+2</button>
-                    <button className="bots-btn" onClick={() => addBots(4)}>+4</button>
-                    <button className="bots-btn" onClick={() => addBots(8)}>+8</button>
-                  </div>
-                </div>
-
-                <div className="ik3mo-names-grid">
-                  {st.players
-                    .map((p, i) => ({ i, p }))
-                    .filter((x) => x.p)
-                    .map(({ i, p }) => {
-                      const members = p.split(" N ").filter(Boolean);
-                      return (
-                        <div key={i} className="ik3mo-team-slot">
-                          {members.map((m, mi) => (
-                            <span key={mi} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                              <span className="ik3mo-chip-wrap">
-                                <span className="ik3mo-chip" title={m}>
-                                  <span className="ik3mo-chip-text">{m}</span>
-                                  <button
-                                    type="button"
-                                    className="ik3mo-chip-x"
-                                    title="طرد اللاعب"
-                                    onClick={() => removeMemberFromSlot(i, mi)}
-                                  >✕</button>
-                                </span>
-                              </span>
-                              {mi < members.length - 1 && <span className="ik3mo-amp">&</span>}
-                            </span>
-                          ))}
-                        </div>
-                      );
-                    })}
-                </div>
-
-                <div className="action-row">
-                  <button className="btn btn-ghost" onClick={() => { update({ ...st, players: [], entryLog: [] }); }}>🧹 تفريغ</button>
-                  <button
-                    className={`btn btn-primary${getStartBlockReason() ? " btn-disabled" : ""}`}
-                    onClick={startTournament}
-                    title={getStartBlockReason() || ""}
-                  >
-                    🚀 ابدأ البطولة
-                  </button>
-                </div>
-
-              </div>
-            )}
-
-            {/* TOURNAMENT SCREEN */}
-            {canTournament && st.phase === "tournament" && (
-              <div>
-                <div className="toolbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", gap: "20px", flexWrap: "wrap" }}>
-                  <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    <button className="btn btn-ghost" onClick={resetTournament} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>↺ بطولة جديدة</button>
-                    <button className="btn btn-ghost" onClick={undoLastWin} disabled={!st.winHistory?.length} title={st.winHistory?.length ? "تراجع عن آخر نتيجة فوز" : "ما فيه نتيجة نتراجع عنها"} style={{ padding: "6px 14px", fontSize: "0.85rem", opacity: st.winHistory?.length ? 1 : 0.4, cursor: st.winHistory?.length ? "pointer" : "not-allowed" }}>↩️ تراجع</button>
-                    <button
-                      className="btn btn-ghost"
-                      title="يفتح نافذة منفصلة فيها شجرة البطولة فقط بخلفية خضراء (Chroma Key) — مناسبة للستريمر بدل ما يفتح صفحة الأدمن كاملة"
-                      style={{ padding: "6px 14px", fontSize: "0.85rem" }}
-                      onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
-                    >
-                      🟢 نافذة الشجرة (خلفية خضراء)
-                    </button>
-                  </div>
-                  <div className="toolbar-info" style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}>
-                    <span style={{ color: "var(--gold)", fontWeight: 900, fontSize: "1.4rem", whiteSpace: "nowrap", textShadow: "0 0 12px rgba(255,215,0,0.6)" }}>
-                      {st.name ? `🏆 ${st.name}` : ""}
-                    </span>
-                  </div>
-                  <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span>{st.isTeams ? "الفرق:" : "اللاعبون:"}</span> <b>{st.players.length}</b>
-                    {st.byeN > 0 && <span style={{ color: "var(--blue)" }}>(بايب: {st.byeN})</span>}
-                    <span style={{ opacity: 0.5 }}>·</span>
-                    <span>الجولة الحالية:</span> <b>{st.cur + 1}</b>
-                  </div>
-                </div>
-
-                <div className="pick-bar">
-                  <span className="pick-bar-label">🎲 ماتش عشوائي:</span>
-                  <div className="pick-result">
-                    <div className={slotClassA}>{slotA}</div>
-                    <div className="pick-vs">VS</div>
-                    <div className={slotClassB}>{slotB}</div>
-                  </div>
-                  <button className="btn-pick" onClick={pickRandomMatch} disabled={pickRunning}>🎰 اختر!</button>
-                </div>
-
-                <BracketDisplay st={st} isAdmin={true} pickedMatchId={st.pickedMatchId ?? null} onWin={handleWin} />
-
-                {/* ✅ لما تنتهي البطولة (يتحدد البطل) يظهر زر واضح يرجع لصفحة الأدمن الرئيسية (شاشة الإعداد) */}
-                {st.champion && (
-                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px", marginTop: "24px" }}>
-                    <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: "10px" }}>
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: "12px 28px", fontSize: "0.95rem", opacity: autoCardBusy ? 0.6 : 1, cursor: autoCardBusy ? "not-allowed" : "pointer" }}
-                        disabled={autoCardBusy}
-                        onClick={autoCreateWinnerCard}
-                        title="يضيف كرت جديد بسجل البطولات، اسم اللعبة واسم الفائز تلقائياً بدون كتابة"
-                      >
-                        {autoCardBusy ? "⏳ جارِ الإنشاء..." : "🪄 إنشاء كرت تلقائي"}
-                      </button>
-                      <button
-                        className="btn btn-primary"
-                        style={{ padding: "12px 28px", fontSize: "0.95rem" }}
-                        onClick={resetTournament}
-                      >
-                        🏠 رجوع للوحة الرئيسية
-                      </button>
+                {/* 📍 سطر مركزك — يطلع فقط لو حسابك مربوط وأنت خارج أول 5 */}
+                {myStanding && !myStanding.inTop && (
+                  <>
+                    <div className="lp-board-gap">•••</div>
+                    <div className="lp-board-row is-me lp-board-mine">
+                      <span className="lp-board-rank">{myStanding.rank > 0 ? myStanding.rank : "—"}</span>
+                      <span className="lp-board-name">{myStanding.username} (أنت)</span>
+                      <span className="lp-board-pts">{myStanding.wins} نقطة</span>
                     </div>
-                    {autoCardStatus && (
-                      <div style={{ fontSize: "0.85rem", fontWeight: 700, color: autoCardStatus.ok ? "#4ade80" : "#f87171", textAlign: "center" }}>
-                        {autoCardStatus.msg}
-                      </div>
-                    )}
-                  </div>
+                  </>
                 )}
+              </>
+            )}
+
+            {/* تلميح لغير المربوطين: الربط يخليك تشوف مركزك بالضبط */}
+            {!session && fullBoard.length > 0 && (
+              <div className="lp-board-hint">
+                عشان يظهر المركز الخاص بك يلزم <b>تسجيل دخول</b>
               </div>
             )}
           </div>
+        </aside>
+
+        {/* ===== زر البطولة — فوق الكروت بالجوال ===== */}
+        <div className="lp-watch-row">{watchBtn}</div>
+
+        {/* ===== كروت الأبطال ===== */}
+        <div className="lp-grid">
+          {slots.map((slot, i) => (
+            <div key={i} className={`lp-card-wrap${slot.empty ? " is-empty" : ""}`} style={{ ["--card-i" as any]: i }}>
+              <div className="lp-card-inner">
+              {/* 🟡 علامة صفراء بالزاوية تطلع لما الأدمن ينزّل صورة جديدة — تختفي بالضغط عليها.
+                  موضوعة في .lp-card-inner مو جوّا .lp-card: الكرت عنده overflow:hidden
+                  اللي كان يقص حلقة النبض عند الزاوية. الحاوية هي اللي تتحرك بالهوفر
+                  فالعلامة تمشي وتكبر معها بالضبط زي ما كانت. */}
+              {slot.isNewImage && (
+                <button
+                  className="lp-new-badge"
+                  title="فيه صورة جديدة — اضغط للإخفاء"
+                  aria-label={`صورة جديدة في ${slot.name}`}
+                  onClick={(e) => { e.stopPropagation(); markImageSeen(slot.game, slot.sig); }}
+                >!</button>
+              )}
+
+              <div className="lp-card-head">{slot.name || "—"}</div>
+
+              <div
+                className="lp-card"
+                style={{
+                  cursor: slot.image ? "pointer" : "default",
+                  ...(slot.image2 ? { backgroundImage: `url(${slot.image2})` } : {}),
+                }}
+                onClick={() => {
+                  // فتح الصورة يعتبر مشاهدة كمان — تختفي العلامة تلقائياً
+                  if (slot.isNewImage) markImageSeen(slot.game, slot.sig);
+                  if (slot.image) setSelectedImage(slot.image);
+                }}
+              >
+                <div className="lp-card-spotlight">
+                  <div className="lp-card-winner-group">
+                    {slot.winner && <span className="lp-trophy">🏆</span>}
+                    <div className={`lp-card-winner${slot.winner ? "" : " is-empty"}`}>
+                      {slot.winner ? <span className="rgb-name">{slot.winner}</span> : slot.empty ? "" : "— لا يوجد فائز —"}
+                    </div>
+                  </div>
+                </div>
+
+                {/* لفل اللاعب المسجّل + شريط التقدّم — يظهر فقط بعد تسجيل الدخول */}
+                {session && (() => {
+                  const wins = stats?.wins?.[slot.game] ?? 0;
+                  const level = levelFromWins(wins);
+                  const inLevel = progressWithinLevel(wins);
+                  const pct = (inLevel / WINS_PER_LEVEL) * 100;
+                  const toNext = WINS_PER_LEVEL - inLevel;
+                  return (
+                    <div className="lp-card-level" onClick={(e) => e.stopPropagation()}>
+                      <div className="lp-level-row">
+                        <span className="lp-level-badge">⭐ المستوى {level}</span>
+                        <span className="lp-level-wins">{wins} فوز</span>
+                      </div>
+                      <div className="lp-level-track">
+                        <div className="lp-level-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="lp-level-next">
+                        {toNext === WINS_PER_LEVEL && inLevel === 0
+                          ? `تحتاج ${WINS_PER_LEVEL} فوزات للمستوى ${level + 1}`
+                          : `باقي ${toNext} للمستوى ${level + 1}`}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+              </div>
+            </div>
+          ))}
         </div>
 
       </div>
 
-      {/* 🎨 لوحة تخصيص ثيم/إيموجي/لقب الفائز — تظهر التغييرات فورًا بالصفحة العامة */}
-      {editingWinner && (
-        <div
-          onClick={() => setEditingWinner(null)}
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 200, display: "flex", alignItems: "center", justifyContent: "center", padding: "16px" }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{ background: "var(--panel, #12161f)", borderRadius: "18px", padding: "20px", width: "100%", maxWidth: "380px", border: "1px solid rgba(255,255,255,0.14)" }}
-          >
-            <div style={{ fontWeight: 900, fontSize: "1.05rem", marginBottom: "14px" }}>🎨 تخصيص الفائز: {editingWinner.name}</div>
-
-            <div style={{ marginBottom: "12px" }}>
-              <div style={{ fontSize: "0.85rem", marginBottom: "6px", color: "var(--muted)" }}>الثيم/اللون:</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-                {WINNER_THEMES.map(t => (
-                  <button
-                    key={t.key}
-                    title={t.label}
-                    onClick={() => saveWinnerCustomization({ color: t.key })}
-                    style={{
-                      width: "34px", height: "34px", borderRadius: "50%", background: t.gradient, cursor: "pointer",
-                      border: (editingWinner.color || "gold") === t.key ? "3px solid #fff" : "2px solid rgba(255,255,255,0.25)",
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "12px" }}>
-              <div style={{ fontSize: "0.85rem", marginBottom: "6px", color: "var(--muted)" }}>الإيموجي:</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                {WINNER_EMOJIS.map(em => (
-                  <button
-                    key={em}
-                    onClick={() => saveWinnerCustomization({ emoji: em })}
-                    style={{
-                      width: "34px", height: "34px", borderRadius: "10px", fontSize: "1.05rem", cursor: "pointer",
-                      background: editingWinner.emoji === em ? "rgba(255,255,255,0.25)" : "rgba(255,255,255,0.08)",
-                      border: "1px solid rgba(255,255,255,0.16)",
-                    }}
-                  >{em}</button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <div style={{ fontSize: "0.85rem", marginBottom: "6px", color: "var(--muted)" }}>لقب مخصص (اختياري):</div>
-              <input
-                type="text"
-                className="n-input"
-                style={{ width: "100%" }}
-                placeholder="مثال: بطل النسخة الأولى"
-                defaultValue={editingWinner.badgeText || ""}
-                onBlur={(e) => saveWinnerCustomization({ badgeText: e.target.value })}
-              />
-            </div>
-
-            <button className="btn btn-primary" style={{ width: "100%", padding: "10px" }} onClick={() => setEditingWinner(null)}>تم</button>
+      {selectedImage && (
+        <div className="image-modal" onClick={() => setSelectedImage(null)}>
+          <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+            <img className="image-modal-img" src={selectedImage} alt="Tournament" />
+            <button className="image-modal-close" onClick={() => setSelectedImage(null)} aria-label="Close image">✕</button>
           </div>
         </div>
       )}
 
+      {/* ===== نافذة تسجيل الدخول عبر شات كيك ===== */}
+      {loginOpen && (
+        <div className="lp-modal" onClick={closeLogin}>
+          <div className="lp-modal-card" onClick={(e) => e.stopPropagation()}>
+            <button className="lp-modal-close" onClick={closeLogin} aria-label="إغلاق">✕</button>
+
+            {loginStep === "enter" ? (
+              <>
+                <div className="lp-modal-logo">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 2h5v6.3L12 2h6l-6.6 8L18.5 22h-6.2l-4-6-1.3 1.5V22H2V2Z"/></svg>
+                </div>
+                <div className="lp-modal-title solo">تسجيل الدخول</div>
+
+                <label className="lp-modal-label">اسم حسابك في كيك</label>
+                <div className="lp-input-wrap">
+                  <span className="lp-input-at">@</span>
+                  <input
+                    className="lp-modal-input"
+                    type="text"
+                    placeholder="ik3mo"
+                    value={nameInput}
+                    onChange={(e) => setNameInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") startVerify(); }}
+                    autoFocus
+                  />
+                </div>
+
+                <button className="lp-modal-btn" disabled={!nameInput.trim()} onClick={startVerify}>
+                  التالي ⟵
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="lp-modal-back" onClick={backToEnter} aria-label="تغيير الاسم">
+                  ‹ تغيير الاسم
+                </button>
+
+                <div className="lp-modal-icon">🔗</div>
+                <div className="lp-modal-title">باقي خطوة وحدة</div>
+                <div className="lp-modal-sub">
+                  انسخ الكود وأرسله في شات <b>{KICK_CHANNEL}</b>
+                </div>
+
+                {/* الكود — أوضح وأكبر عنصر بالنافذة */}
+                <div className="lp-cmd-label"><span>1</span> انسخ الكود</div>
+                <div className="lp-cmd-card">
+                  <div className="lp-cmd-row">
+                    <span className="lp-cmd-word">!ربط</span>
+                    <span className="lp-cmd-chars">
+                      {linkCode.split("").map((ch, i) => (
+                        <span className="lp-cmd-char" key={i}>{ch}</span>
+                      ))}
+                    </span>
+                  </div>
+                  <button
+                    className={`lp-cmd-copy${copied ? " is-done" : ""}`}
+                    onClick={copyCmd}
+                    aria-label="انسخ الكود"
+                  >{copied ? "✓ تم النسخ" : "انسخ الكود"}</button>
+                </div>
+
+                <div className="lp-cmd-label" style={{ marginTop: 18 }}><span>2</span> ارسل الكود في الشات</div>
+                <a className="lp-kick-btn" href={`https://kick.com/${KICK_CHANNEL}`} target="_blank" rel="noopener noreferrer">
+                  <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2 2h5v6.3L12 2h6l-6.6 8L18.5 22h-6.2l-4-6-1.3 1.5V22H2V2Z"/></svg>
+                  فتح الشات داخل الكيك ↗
+                </a>
+
+                <div className="lp-wait">
+                  <span className="lp-wait-timer">{codeTimer}</span>
+                </div>
+
+                <div className="lp-modal-note">
+                  أرسله من حساب <b>@{nameInput.trim()}</b>
+                </div>
+
+                {verifyMsg && <div className="lp-modal-err">{verifyMsg}</div>}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
-}
-
-interface PusherClient {
-  subscribe(channel: string): PusherChannel;
-  unsubscribe(channel: string): void;
-  connection: { bind(event: string, fn: (...args: unknown[]) => void): void };
-}
-interface PusherChannel {
-  name: string;
-  bind(event: string, fn: (...args: unknown[]) => void): void;
-  bind_global?(fn: (event: string, data: unknown) => void): void;
-  unbind_all(): void;
 }
