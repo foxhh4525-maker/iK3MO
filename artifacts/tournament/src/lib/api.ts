@@ -445,6 +445,17 @@ export async function deleteRecord(id: number, token: string): Promise<void> {
 
 // ── إحصائيات اللاعبين (فوزات + لفل) ──
 // جلب فوزات لاعب معيّن لكل لعبة (عام، بدون توكن). يُستخدم للمسجّل بالصفحة العامة وللأدمن.
+// 📊 قائمة نظام المستويات: كل اللاعبين ومجموع فوزاتهم (من player_wins).
+export async function getPlayerLevels(limit = 500): Promise<LeaderboardEntry[]> {
+  try {
+    const res = await fetch(`${BASE}/player/levels?limit=${limit}`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function getPlayerStats(username: string): Promise<PlayerStats | null> {
   try {
     const res = await fetch(`${BASE}/player/stats?username=${encodeURIComponent(username)}`);
