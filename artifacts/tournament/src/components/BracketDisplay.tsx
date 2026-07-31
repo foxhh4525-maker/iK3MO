@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { defaultState, type TournamentState } from "@/lib/types";
-import { useSSE } from "@/lib/api";
+import { getState, useSSE } from "@/lib/api";
 import BracketDisplay from "@/components/BracketDisplay";
 
 // 🌳 صفحة "شجرة البطولة فقط" — بدون شات، بدون سايدبار، بدون أي أدوات تحكم:
@@ -30,6 +30,14 @@ const MODES: { id: Mode; label: string }[] = [
 
 export default function BracketOnlyPage() {
   const [st, setSt] = useState<TournamentState>(defaultState());
+  // 🔄 جلب الحالة مرة عند الفتح — SSE يبث عند الاتصال، لكن لو تأخر أو
+  // انقطع (Render cold start / إعادة تشغيل الخادم / إغلاق مصدر OBS وفتحه)
+  // تظل الصفحة على الحالة الافتراضية وتقول "البطولة لسا ما بدأت" وهي بادية.
+  // هذا الطلب المباشر يضمن الحالة الصحيحة فوراً.
+  useEffect(() => {
+    getState().then((s) => { if (s) setSt(s); }).catch(() => {});
+  }, []);
+
   useSSE((data) => setSt(data));
 
   // ⏱️ نبضة كل ثانية عشان عدّاد البوابة يتحدّث
