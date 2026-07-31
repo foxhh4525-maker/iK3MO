@@ -141,9 +141,9 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                     <div className="round-title">النهائي</div>
                     {champion && (
                       <div className="champ-slot">
-                        <div className="champ-label">بطل البطولة</div>
-                        <div className="champ-winner">{champion}</div>
-                        <div className="champ-conf" aria-hidden="true">✨ 🎉 ✨</div>
+                        <div className="champ-banner">
+                          <span className="champ-winner">{champion}</span>
+                        </div>
                       </div>
                     )}
                   </div>
