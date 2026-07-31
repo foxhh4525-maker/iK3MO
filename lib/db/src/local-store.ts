@@ -211,13 +211,6 @@ export const localStore = {
       .map((w) => ({ username: w.displayName || w.username, wins: w.wins || 0 }));
   },
   // ➕ زيادة/إنقاص فوزات الماتشات (delta = +1 عند كسب ماتش، -1 عند التراجع).
-  // 🧹 تصفير عدّاد الماتشات (مقابل resetMatchWins في مسار Postgres).
-  resetMatchWins() {
-    const s = load();
-    s.playerMatchWins = [];
-    save(s);
-    return true;
-  },
   incrementPlayerMatchWin(username: string, displayName: string, delta: number) {
     const s = load();
     if (!s.playerMatchWins) s.playerMatchWins = [];
@@ -232,6 +225,30 @@ export const localStore = {
     s.playerMatchWins.push(row);
     save(s);
     return row;
+  },
+  // ✍️ تعيين قيمة صريحة لنقاط التوب (تحكم يدوي من الأدمن).
+  setPlayerMatchWins(username: string, displayName: string, wins: number) {
+    const s = load();
+    if (!s.playerMatchWins) s.playerMatchWins = [];
+    const value = Math.max(0, Math.floor(wins));
+    const idx = s.playerMatchWins.findIndex((w) => w.username === username);
+    if (idx >= 0) {
+      s.playerMatchWins[idx] = { ...s.playerMatchWins[idx], wins: value, displayName: displayName || s.playerMatchWins[idx].displayName, updatedAt: nowISO() };
+      save(s);
+      return s.playerMatchWins[idx];
+    }
+    const row = { id: ++s.seq.playerMatchWins, username, displayName, wins: value, updatedAt: nowISO(), createdAt: nowISO() };
+    s.playerMatchWins.push(row);
+    save(s);
+    return row;
+  },
+  // 🧹 تصفير نقاط التوب لكل اللاعبين (تبدأ موسم جديد).
+  resetAllPlayerMatchWins() {
+    const s = load();
+    const count = (s.playerMatchWins || []).length;
+    s.playerMatchWins = [];
+    save(s);
+    return { cleared: count };
   },
   incrementPlayerWin(username: string, displayName: string, game: string, delta: number) {
     const s = load();
