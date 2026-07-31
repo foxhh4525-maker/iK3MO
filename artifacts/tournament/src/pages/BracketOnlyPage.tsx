@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { defaultState, type TournamentState } from "@/lib/types";
-import { useSSE } from "@/lib/api";
+import { getState, useSSE } from "@/lib/api";
 import BracketDisplay from "@/components/BracketDisplay";
 
 // 🌳 صفحة "شجرة البطولة فقط" — بدون شات، بدون سايدبار، بدون أي أدوات تحكم:
@@ -30,7 +30,33 @@ const MODES: { id: Mode; label: string }[] = [
 
 export default function BracketOnlyPage() {
   const [st, setSt] = useState<TournamentState>(defaultState());
+  // 🔄 جلب الحالة مرة عند الفتح — SSE يبث عند الاتصال، لكن لو تأخر أو
+  // انقطع (Render cold start / إعادة تشغيل الخادم / إغلاق مصدر OBS وفتحه)
+  // تظل الصفحة على الحالة الافتراضية وتقول "البطولة لسا ما بدأت" وهي بادية.
+  // هذا الطلب المباشر يضمن الحالة الصحيحة فوراً.
+  useEffect(() => {
+    getState().then((s) => { if (s) setSt(s); }).catch(() => {});
+  }, []);
+
   useSSE((data) => setSt(data));
+
+  // ⏱️ نبضة كل ثانية عشان عدّاد البوابة يتحدّث
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!st.joinDeadline) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [st.joinDeadline]);
+
+  // المدة الكلية للبوابة — تُلتقط أول ما تُفتح، لحساب نسبة الحلقة
+  const [joinTotal, setJoinTotal] = useState(0);
+  useEffect(() => {
+    if (!st.joinDeadline) { setJoinTotal(0); return; }
+    setJoinTotal(Math.max(1, Math.ceil((st.joinDeadline - Date.now()) / 1000)));
+  }, [st.joinDeadline]);
+
+  const secsLeft = st.joinDeadline ? Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000)) : 0;
+  const gateOpen = !!st.joinDeadline && secsLeft > 0;
 
   // الرابط له الأولوية على المحفوظ: لو فتحت ‎?green=1‎ يشتغل أخضر مباشرة.
   const urlMode = useMemo<Mode | null>(() => {
@@ -96,10 +122,67 @@ export default function BracketOnlyPage() {
       }}
     >
             {st.phase === "setup" ? (
-        mode === "dark" && (
-          <p style={{ opacity: 0.5, fontSize: "0.9rem", color: "var(--text)" }}>
-            ⏳ ما فيه شجرة بطولة الآن — البطولة لسا ما بدأت
-          </p>
+        // 🟢 قبل بدء البطولة: لو الأدمن فعّل "إظهار من بدري" نعرض بوابة
+        // الانضمام على الشاشة الخضراء — عدّاد + أمر !دخول + عدد المنضمين.
+        st.greenEarly ? (
+          <div className={`gate${st.entryLog.length > 0 ? " has-players" : ""}${!st.joinDeadline ? "" : !gateOpen ? " is-closed" : secsLeft <= 10 ? " is-hot" : ""}`}>
+            {st.name && <div className="gate-title">🏆 {st.name}</div>}
+
+            {st.joinDeadline ? (
+              <>
+                <div className="gate-ring" style={{ ["--p" as any]: joinTotal ? Math.max(0, secsLeft / joinTotal) : 0 }}>
+                  <svg viewBox="0 0 120 120" aria-hidden="true">
+                    <circle className="gate-track" cx="60" cy="60" r="52" />
+                    <circle className="gate-bar" cx="60" cy="60" r="52" />
+                  </svg>
+                  <div className="gate-face">
+                    <div className="gate-time">
+                      {gateOpen
+                        ? `${String(Math.floor(secsLeft / 60)).padStart(2, "0")}:${String(secsLeft % 60).padStart(2, "0")}`
+                        : "00:00"}
+                    </div>
+                    <div className="gate-unit">{gateOpen ? "متبقي" : "انتهى"}</div>
+                  </div>
+                </div>
+                <div className="gate-status">
+                  <span className="gate-dot" />
+                  {gateOpen ? "باب الانضمام مفتوح" : "باب الانضمام مقفل"}
+                </div>
+                {gateOpen && <div className="gate-hint">اكتب <b>!دخول</b> بالشات عشان تنضم</div>}
+              </>
+            ) : (
+              <>
+                <div className="gate-wait" aria-hidden="true"><i /><i /><i /></div>
+                <div className="gate-status"><span className="gate-dot" />في انتظار بدء البطولة</div>
+              </>
+            )}
+
+            {st.entryLog.length > 0 && (
+              <>
+                <div className="gate-count">👥 المنضمين <span>{st.entryLog.length}</span></div>
+                {/* 👥 المشاركين — نفس الشاشة تنتقل تلقائياً: انتظار ← بوابة
+                    مفتوحة مع المشاركين ← الشجرة، بمصدر جرين سكرين واحد. */}
+                <div className="gate-players">
+                  {st.entryLog.map((e, i) => (
+                    <div className="gate-player" key={i} style={{ animationDelay: `${Math.min(i, 20) * 0.035}s` }}>
+                      <span className="gate-avatar">
+                        {e.avatar
+                          ? <img src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
+                          : e.user.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="gate-pname">{e.user}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          mode === "dark" && (
+            <p style={{ opacity: 0.5, fontSize: "0.9rem", color: "var(--text)" }}>
+              ⏳ ما فيه شجرة بطولة الآن — البطولة لسا ما بدأت
+            </p>
+          )
         )
       ) : (
         <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
