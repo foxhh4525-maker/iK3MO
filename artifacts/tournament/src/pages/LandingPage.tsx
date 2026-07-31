@@ -910,11 +910,12 @@ export default function LandingPage() {
           0%,100%{transform:translateY(0) rotate(-2deg)}
           50%{transform:translateY(-5px) rotate(2deg)}
         }
+        /* 🌈 اسم الفائز ملوّن دائماً — الحركة صارت بالحالة الأساسية مو بالهوفر */
         .rgb-name{
-          font-weight:900;color:#7fd4ff;
-          text-shadow:0 0 12px rgba(41,182,246,.75), 0 0 2px rgba(41,182,246,.5);
+          font-weight:900;
           letter-spacing:.2px;
           display:inline-block;
+          animation:rgbShift 3.4s linear infinite;
           transition:transform .3s cubic-bezier(.22,1,.36,1);
         }
 
@@ -935,9 +936,9 @@ export default function LandingPage() {
         .lp-card-winner-group::after{right:-4px}
 
         @media (hover:hover){
-          /* الاسم يتلوّن ويكبر */
+          /* الهوفر يكبّر الاسم ويسرّع التلوين (التلوين شغّال أصلاً) */
           .lp-card-wrap:hover .rgb-name{
-            animation:rgbShift 2.4s linear infinite;
+            animation-duration:1.6s;
             transform:scale(1.08);
           }
           /* الكأس ينطّ أسرع */
@@ -962,7 +963,11 @@ export default function LandingPage() {
 
         /* من يفضّل حركة أقل: نبقي التكبير فقط ونلغي التلوين والشرارات */
         @media (prefers-reduced-motion: reduce){
-          .lp-card-wrap:hover .rgb-name{animation:none}
+          .rgb-name,
+          .lp-card-wrap:hover .rgb-name{
+            animation:none;color:#7fd4ff;
+            text-shadow:0 0 12px rgba(41,182,246,.75), 0 0 2px rgba(41,182,246,.5);
+          }
           .lp-card-wrap:hover .lp-card-winner-group::before,
           .lp-card-wrap:hover .lp-card-winner-group::after{animation:none;opacity:0}
           .lp-card-wrap:hover .lp-card::after{animation:none}
