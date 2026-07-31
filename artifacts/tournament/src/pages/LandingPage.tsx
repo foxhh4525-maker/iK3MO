@@ -712,7 +712,7 @@ export default function LandingPage() {
           .lp-watch-row{
             display:flex;justify-content:center;
             position:relative;z-index:3;
-            margin-top:max(calc(min(48vh,400px) + clamp(60px,15vw,110px)), 74vh);
+            margin-top:max(calc(min(48vh,400px) + clamp(24px,6vw,48px)), 56vh);
           }
           .lp-watch-btn{padding:10px 20px;font-size:.82rem;gap:8px}
 
@@ -1234,11 +1234,11 @@ export default function LandingPage() {
           .lp-watch-row{
             display:flex;justify-content:center;
             position:relative;z-index:3;
-            margin-top:max(calc(min(48vh,400px) + clamp(60px,15vw,110px)), 74vh);
+            margin-top:max(calc(min(48vh,400px) + clamp(24px,6vw,48px)), 56vh);
           }
           .lp-grid{
             position:static;top:auto;
-            margin-top:clamp(44px,12vw,72px);
+            margin-top:clamp(20px,5vw,32px);
             padding:0;gap:9px;
           }
         }
