@@ -765,39 +765,35 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 .final-head .round-title{margin-bottom:0}
 
-/* 🏆 البطل — بطاقة ذهبية بخط نيون نظيف (دمج الشكل ① مع ⑤).
-   موقعها بين اسم البطل وأسماء النهائي، وما تظهر إلا لما يتحدد فائز. */
+/* 🏆 البطل — شريط مائل بحواف ذهبية يحمل اسم الفائز بألوان متحركة.
+   الكأس 🏆 اللي فوق (.final-cup) هو نفسه ما تغيّر — الشريط يجي تحته
+   مباشرة، وموقعه بين الكأس وأسماء النهائي. */
 .champ-slot{
   width:100%;
-  margin-top:9px;margin-bottom:13px;
-  padding:12px 12px 11px;
-  border-radius:14px;
-  display:flex;flex-direction:column;align-items:center;gap:5px;
-  text-align:center;
-  background:linear-gradient(180deg,rgba(255,215,0,0.15),rgba(255,215,0,0.02));
-  border:1px solid rgba(255,215,0,0.45);
-  box-shadow:0 0 26px rgba(255,215,0,0.18), inset 0 1px 0 rgba(255,255,255,0.12);
-  animation:champIn .55s cubic-bezier(.22,1,.36,1) both;
+  margin:10px 0 13px;
+  display:flex;justify-content:center;
+}
+.champ-banner{
+  width:100%;
+  padding:10px 12px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  transform:skewX(-9deg);
+  background:linear-gradient(90deg,rgba(9,17,32,0.96),rgba(34,26,4,0.96) 50%,rgba(9,17,32,0.96));
+  border-top:2px solid var(--gold);
+  border-bottom:2px solid var(--gold);
+  box-shadow:0 6px 18px rgba(0,0,0,0.5), 0 0 22px rgba(255,215,0,0.22);
+  animation:champIn .5s cubic-bezier(.22,1,.36,1) both;
 }
 @keyframes champIn{
-  from{opacity:0;transform:translateY(-8px) scale(.96)}
-  to{opacity:1;transform:translateY(0) scale(1)}
+  from{opacity:0;transform:skewX(-9deg) translateY(-8px)}
+  to{opacity:1;transform:skewX(-9deg) translateY(0)}
 }
-/* "بطل البطولة" بحروف متباعدة وخطّين رفيعين على جانبيها */
-.champ-label{
-  display:flex;align-items:center;gap:9px;width:100%;
-  font-size:0.55rem;font-weight:800;letter-spacing:5px;
-  color:var(--gold);opacity:0.9;white-space:nowrap;
-}
-.champ-label::before,.champ-label::after{
-  content:"";flex:1;height:1px;
-  background:linear-gradient(90deg,transparent,rgba(255,215,0,0.55));
-}
-.champ-label::after{background:linear-gradient(90deg,rgba(255,215,0,0.55),transparent)}
-/* الاسم كبير ونظيف — كل الألوان ما عدا الأصفر والأخضر (آمنة مع الكروما كي) */
+/* الاسم يرجع مستقيم داخل الشريط المائل */
 .champ-winner{
+  display:inline-block;transform:skewX(9deg);
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:1.75rem;font-weight:900;line-height:1.3;
+  font-size:1.65rem;font-weight:900;line-height:1.3;letter-spacing:-0.2px;
+  /* كل الألوان ما عدا الأصفر والأخضر — آمنة مع الكروما كي */
   background:linear-gradient(90deg,#ffffff,#00e5ff,#2979ff,#7c4dff,#ff2d8a,#ff5252,#00e5ff,#ffffff);
   background-size:400% 100%;
   -webkit-background-clip:text;background-clip:text;
@@ -808,8 +804,6 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   0%{background-position:0% 50%}
   100%{background-position:400% 50%}
 }
-/* سطر الاحتفال مخفي (شكل ⑤ الأنظف) — شيل هذا السطر لو تبغاه يظهر */
-.champ-conf{display:none;font-size:0.9rem;letter-spacing:2px}
 
 /* ── 🟢 وضع الشاشة الخضراء (Chroma Key) ──
    خلفيات صلبة بدون شفافية ولا بلور، صفر توهّج وصفر أنيميشن (التوهّج يخلي
@@ -847,9 +841,9 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   border-color:#ff2d2d !important;background:#2a1113 !important;
   box-shadow:0 0 0 3px #ff2d2d !important;
 }
-.green-mode .champ-winner{font-size:2rem}
-.green-mode .champ-slot{
-  background:#2b2410;border-color:rgba(255,215,0,0.65);
+.green-mode .champ-winner{font-size:2.1rem}
+.green-mode .champ-banner{
+  background:#1d1704;
   box-shadow:none !important;animation:none !important;
 }
 .green-mode .final-cup{font-size:3.2rem}
