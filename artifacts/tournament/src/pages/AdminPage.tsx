@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
 import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
@@ -230,17 +230,17 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const LVL_PER_PAGE = 8;
   const [statsSearched, setStatsSearched] = useState("");
 
-  // 📋 قائمة نظام المستويات — المصدر: سجل الفائزين بالبطولات (getWinners).
-  // يعني كل من فاز بشجرة بطولة كاملة يتسجّل هنا بفوز، ويظهر بالقائمة من
-  // أول بطولة يكسبها — بدون شرط الوصول لمستوى معيّن.
-  // (قبل كذا كان المصدر قائمة التوب = ماتشات مكسوبة، وهذا شي ثاني تماماً.)
-  const [lvlWinners, setLvlWinners] = useState<Winner[]>([]);
-  const refreshLvlWinners = useCallback(() => {
-    getWinners().then(rows => setLvlWinners(rows || [])).catch(() => {});
+  // 📋 قائمة نظام المستويات — المصدر: جدول player_wins نفسه عبر
+  // getPlayerLevels. (قبل كذا كان المصدر سجل الفائزين getWinners، وهو جدول
+  // مختلف تماماً عن اللي يُبنى عليه المستوى — فيطلع تعارض: رقم بالقائمة
+  // ولفل مختلف بالكرت، والإضافة اليدوية ما تظهر.)
+  const [lvlPlayers, setLvlPlayers] = useState<LeaderboardEntry[]>([]);
+  const refreshLvlPlayers = useCallback(() => {
+    getPlayerLevels(500).then(rows => setLvlPlayers(rows || [])).catch(() => {});
   }, []);
-  useEffect(() => { refreshLvlWinners(); }, [refreshLvlWinners]);
-  const refreshLvlWinnersRef = useRef(refreshLvlWinners);
-  refreshLvlWinnersRef.current = refreshLvlWinners;
+  useEffect(() => { refreshLvlPlayers(); }, [refreshLvlPlayers]);
+  const refreshLvlWinnersRef = useRef(refreshLvlPlayers);
+  refreshLvlWinnersRef.current = refreshLvlPlayers;
 
   // ── ➕ إضافة لاعب يدوياً لنظام المستويات ──
   // كل "فوز" = سجل فائز واحد بسجل البطولات، فالإضافة تكتب N سجلات.
@@ -253,28 +253,20 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
   async function addManualWinner() {
     const name = addName.trim();
-    const n = Math.max(1, Math.min(50, Math.floor(addWins) || 1));
+    const game = addGame.trim();
+    const n = Math.max(1, Math.min(200, Math.floor(addWins) || 1));
     if (!name || addBusy) return;
+    if (!game) { setAddMsg({ ok: false, text: "⚠️ اختر اللعبة — المستويات تُحسب لكل لعبة على حدة" }); return; }
     setAddBusy(true);
     setAddMsg(null);
     try {
-      const stamp = Date.now();
-      for (let i = 0; i < n; i++) {
-        await postWinner({
-          id: `manual-${stamp}-${i}`,
-          name,
-          gameType: addGame || st.gameType || "",
-          tournamentName: addGame || "إضافة يدوية",
-          date: new Date().toISOString(),
-        } as Winner, token);
-      }
-      if (addGame) {
-        const cur = await getPlayerStats(name).catch(() => null);
-        const before = cur?.wins?.[addGame] ?? 0;
-        await setPlayerWins(name, addGame, before + n, token);
-      }
-      refreshLvlWinners();
-      setAddMsg({ ok: true, text: `✅ أُضيف ${n} فوز لـ ${name}${addGame ? ` في "${addGame}"` : ""}` });
+      // نقرأ فوزاته الحالية باللعبة ونضيف عليها (ما نمسح القديم)
+      const cur = await getPlayerStats(name).catch(() => null);
+      const before = cur?.wins?.[game] ?? 0;
+      await setPlayerWins(name, game, before + n, token);
+      refreshLvlPlayers();
+      if (statsSearched.toLowerCase() === name.toLowerCase()) loadPlayerStats(name);
+      setAddMsg({ ok: true, text: `✅ ${name} صار عنده ${before + n} فوز في "${game}" — المستوى ${levelFromWins(before + n)}` });
       setAddName("");
       setAddWins(1);
     } catch (e: any) {
@@ -285,20 +277,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   }
 
   const lvlFiltered = useMemo(() => {
-    // نجمّع عدد البطولات المكسوبة لكل اسم (بدون حساسية لحالة الأحرف)
-    const tally = new Map<string, { username: string; wins: number }>();
-    for (const w of lvlWinners) {
-      const name = (w.name || "").trim();
-      if (!name) continue;
-      const key = name.toLowerCase();
-      const cur = tally.get(key);
-      if (cur) cur.wins += 1;
-      else tally.set(key, { username: name, wins: 1 });
-    }
-    const list = [...tally.values()].sort((a, b) => b.wins - a.wins);
     const q = statsQuery.trim().toLowerCase();
-    return q ? list.filter(p => p.username.toLowerCase().includes(q)) : list;
-  }, [lvlWinners, statsQuery]);
+    return q ? lvlPlayers.filter(p => p.username.toLowerCase().includes(q)) : lvlPlayers;
+  }, [lvlPlayers, statsQuery]);
 
   async function loadPlayerStats(nameArg?: string) {
     const name = (nameArg ?? statsQuery).trim();
@@ -317,6 +298,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   }
 
   // تعديل يدوي (+1/-1) لفوزات لاعب في لعبة — تصحيح من الأدمن.
+  // (نحدّث قائمة المستويات بعده عشان الرقم بالقائمة يطابق التفاصيل فوراً)
   async function adjustPlayerWin(game: string, delta: number) {
     if (!statsSearched) return;
     const current = statsData?.wins?.[game] ?? 0;
@@ -331,6 +313,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       const data = await getPlayerStats(statsSearched);
       if (data) setStatsData(data);
     }
+    refreshLvlPlayers();
   }
 
   const [helpersOpen, setHelpersOpen] = useState(false);
@@ -2031,7 +2014,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 <div className="lb-head">
                   <span style={{ fontSize: "1.15rem" }}>🎚️</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نظام المستويات</h3>
-                  <span className="lb-sub">— كل من فاز ببطولة كاملة</span>
+                  <span className="lb-sub">— {WINS_PER_LEVEL} فوزات = مستوى واحد</span>
                 </div>
 
                 {/* ➕ إضافة لاعب يدوياً: اسم + عدد فوزات + لعبة اختيارية */}
@@ -2058,9 +2041,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     className="lb-select"
                     value={addGame}
                     onChange={e => setAddGame(e.target.value)}
-                    title="اختياري — لو حددت لعبة يتحدّث لفله بكرتها كمان"
+                    title="مطلوب — المستويات تُحسب لكل لعبة على حدة"
                   >
-                    <option value="">بدون لعبة</option>
+                    <option value="">اختر اللعبة...</option>
                     {records.map(r => (
                       <option key={r.id} value={r.tournamentName}>{r.displayName || r.tournamentName}</option>
                     ))}
@@ -2090,7 +2073,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     <div className="lb-empty">
                       {statsQuery.trim()
                         ? "ما فيه اسم يطابق الفلتر"
-                        : "ما فيه فائز ببطولة بعد — أول ما تخلص بطولة يتسجّل الفائز هنا"}
+                        : "ما فيه لاعب له فوزات بعد — أضف اسماً من فوق أو خلّص بطولة"}
                     </div>
                   )}
                   {lvlFiltered.slice(lvlPage * LVL_PER_PAGE, lvlPage * LVL_PER_PAGE + LVL_PER_PAGE).map((pl, i) => {
@@ -2107,7 +2090,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         <span className="lvl-rank">{rank}</span>
                         <span className="lvl-name">{pl.username}</span>
                         <span className="lvl-badge">⭐ {levelFromWins(pl.wins)}</span>
-                        <span className="lvl-wins" title={`${pl.wins} بطولة`}>{pl.wins}</span>
+                        <span className="lvl-wins" title={`${pl.wins} فوز · المستوى ${levelFromWins(pl.wins)}`}>{pl.wins}</span>
                         <span className="lvl-go">{isOpen ? "▾" : "←"}</span>
                       </button>
                     );
