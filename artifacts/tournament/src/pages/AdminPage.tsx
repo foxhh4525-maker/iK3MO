@@ -50,6 +50,12 @@ type SlotState = "idle" | "rolling" | "locked";
 const JOIN_CMD = /^\s*!?(?:دخول|join)(?=$|\s|[^\p{L}\p{N}])/iu;
 const LEAVE_CMD = /^\s*!?(?:خروج|leave)(?=$|\s|[^\p{L}\p{N}])/iu;
 
+// 🤖 بوتات التجربة تُسمّى "بوت 1"، "بوت 2"... — نستثنيها من كل السجلات
+// الدائمة (نظام المستويات ونقاط الأكثر انتصاراً) عشان ما تلوّث الإحصائيات.
+function isBotName(name: string): boolean {
+  return /^\s*بوت\s*\d+\s*$/.test(name || "");
+}
+
 export default function AdminPage({ token, role, permissions, onLogout }: Props) {
   const canTournament = role === "admin" || !!permissions?.tournament;
   const canRecords = role === "admin" || !!permissions?.records;
@@ -180,7 +186,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     setLbBusy(true);
     try {
       const rows = await getLeaderboard(limit);
-      setLb(rows);
+      // 🤖 نخفي بوتات التجربة من قائمة الأكثر انتصاراً
+      setLb((rows || []).filter(r => !isBotName(r.username)));
       setLbDraft({});
     } finally {
       setLbBusy(false);
@@ -277,8 +284,10 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   }
 
   const lvlFiltered = useMemo(() => {
+    // نستثني: من ما عنده ولا فوز، وبوتات التجربة
+    const clean = lvlPlayers.filter(p => (p.wins || 0) > 0 && !isBotName(p.username));
     const q = statsQuery.trim().toLowerCase();
-    return q ? lvlPlayers.filter(p => p.username.toLowerCase().includes(q)) : lvlPlayers;
+    return q ? clean.filter(p => p.username.toLowerCase().includes(q)) : clean;
   }, [lvlPlayers, statsQuery]);
 
   async function loadPlayerStats(nameArg?: string) {
@@ -1374,7 +1383,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     const m = st.rounds[rIdx]?.[mIdx];
     const matchWinner = side === "a" ? m?.a : m?.b;
     const matchLoser = side === "a" ? m?.b : m?.a;
-    if (!st.isTeams && matchWinner && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
+    if (!st.isTeams && matchWinner && !isBotName(matchWinner) && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
       addMatchWin(matchWinner, 1, token);
     }
 
@@ -1395,6 +1404,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   // ⬆️ يجلب فوزات البطل الحالية بهذي اللعبة ويزيدها بواحد تلقائياً (بدل التعديل
   // اليدوي +1/-1 اللي كان الأدمن يسويه بنفسه من "إحصائيات اللاعبين").
   async function autoAddWinForChampion(champion: string, game: string) {
+    if (isBotName(champion)) return;   // 🤖 بوت تجربة — ما ينحسب بالمستويات
     try {
       const data = await getPlayerStats(champion);
       const current = data?.wins?.[game] ?? 0;
@@ -1437,7 +1447,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     // ونلقى الماتش اللي كان محسوم وصار غير محسوم.
     const undoneWinner = findUndoneMatchWinner(st, prevSnapshot as TournamentState);
     // بوضع الفرق ما سجّلنا نقطة أصلاً، فما فيه شي نسحبه
-    if (undoneWinner && !st.isTeams) addMatchWin(undoneWinner, -1, token);
+    if (undoneWinner && !st.isTeams && !isBotName(undoneWinner)) addMatchWin(undoneWinner, -1, token);
 
     const restored: TournamentState = { ...prevSnapshot, winHistory: remaining, pickedMatchId: null };
     setSlotA("—"); setSlotB("—");
