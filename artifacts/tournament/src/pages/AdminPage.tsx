@@ -1183,6 +1183,35 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const [autoCardBusy, setAutoCardBusy] = useState(false);
   const [autoCardStatus, setAutoCardStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  // ── 🏆 اعتماد الفائز بكرت موجود ثم إقفال البطولة تلقائياً ──
+  const [cardPickOpen, setCardPickOpen] = useState(false);
+  const [cardPickBusy, setCardPickBusy] = useState(false);
+
+  async function assignWinnerToCard(rec: TournamentRecord) {
+    const champion = (st.champion || "").trim();
+    if (!champion || cardPickBusy) return;
+    setCardPickBusy(true);
+    setAutoCardStatus(null);
+    try {
+      // putRecord يحدّث الكرت الموجود بنفس الاسم — نحافظ على صوره واسم العرض
+      await putRecord({
+        tournamentName: rec.tournamentName,
+        displayName: rec.displayName || undefined,
+        winnerName: champion,
+        image: rec.image || "",
+        image2: rec.image2 || undefined,
+      }, token);
+      refreshRecords();
+      setCardPickOpen(false);
+      // 🔒 تُقفل البطولة تلقائياً بعد الاختيار (بدون سؤال تأكيد)
+      resetTournament(true);
+    } catch (e: any) {
+      setAutoCardStatus({ ok: false, msg: e?.message || "⚠️ تعذّر حفظ الفائز بالكرت" });
+    } finally {
+      setCardPickBusy(false);
+    }
+  }
+
   async function autoCreateWinnerCard() {
     setAutoCardStatus(null);
     const champion = (st.champion || "").trim();
@@ -1209,8 +1238,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     }
   }
 
-  function resetTournament() {
-    if (!confirm("تبدأ بطولة جديدة؟ بيتمسح كل شي")) return;
+  // skipConfirm: يُستخدم عند الإقفال التلقائي بعد اعتماد الفائز بكرت
+  function resetTournament(skipConfirm = false) {
+    if (!skipConfirm && !confirm("تبدأ بطولة جديدة؟ بيتمسح كل شي")) return;
     const champion = st.champion || st.lastWinner;
     const wasFinished = champion && st.rounds.length;
     const finishState = (archiveId?: number) => {
@@ -2217,7 +2247,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               <div>
                 <div className="toolbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", gap: "20px", flexWrap: "wrap" }}>
                   <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    <button className="btn btn-ghost" onClick={resetTournament} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>↺ بطولة جديدة</button>
+                    <button className="btn btn-ghost" onClick={() => resetTournament()} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>↺ بطولة جديدة</button>
                     <button className="btn btn-ghost" onClick={undoLastWin} disabled={!st.winHistory?.length} title={st.winHistory?.length ? "تراجع عن آخر نتيجة فوز" : "ما فيه نتيجة نتراجع عنها"} style={{ padding: "6px 14px", fontSize: "0.85rem", opacity: st.winHistory?.length ? 1 : 0.4, cursor: st.winHistory?.length ? "pointer" : "not-allowed" }}>↩️ تراجع</button>
                     <button
                       className="btn btn-ghost"
@@ -2227,6 +2257,15 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     >
                       🟢 نافذة الشجرة (خلفية خضراء)
                     </button>
+
+                    {/* 🎲 الماتش العشوائي — مدموج بنفس الشريط بدل ما يكون بصف مستقل */}
+                    <span className="tb-sep" />
+                    <button className="btn-pick" onClick={pickRandomMatch} disabled={pickRunning}>🎲 ماتش عشوائي</button>
+                    <div className="pick-inline">
+                      <span className={slotClassA}>{slotA}</span>
+                      <span className="pick-vs">VS</span>
+                      <span className={slotClassB}>{slotB}</span>
+                    </div>
                   </div>
                   <div className="toolbar-info" style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}>
                     <span style={{ color: "var(--gold)", fontWeight: 900, fontSize: "1.4rem", whiteSpace: "nowrap", textShadow: "0 0 12px rgba(255,215,0,0.6)" }}>
@@ -2239,16 +2278,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     <span style={{ opacity: 0.5 }}>·</span>
                     <span>الجولة الحالية:</span> <b>{st.cur + 1}</b>
                   </div>
-                </div>
-
-                <div className="pick-bar">
-                  <span className="pick-bar-label">🎲 ماتش عشوائي:</span>
-                  <div className="pick-result">
-                    <div className={slotClassA}>{slotA}</div>
-                    <div className="pick-vs">VS</div>
-                    <div className={slotClassB}>{slotB}</div>
-                  </div>
-                  <button className="btn-pick" onClick={pickRandomMatch} disabled={pickRunning}>🎰 اختر!</button>
                 </div>
 
                 <BracketDisplay st={st} isAdmin={true} pickedMatchId={st.pickedMatchId ?? null} onWin={handleWin} />
@@ -2269,9 +2298,10 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       <button
                         className="btn btn-primary"
                         style={{ padding: "12px 28px", fontSize: "0.95rem" }}
-                        onClick={resetTournament}
+                        onClick={() => setCardPickOpen(true)}
+                        title="تختار كرت موجود من سجل البطولات، ينحفظ فيه اسم الفائز، وتُقفل البطولة تلقائياً"
                       >
-                        🏠 رجوع للوحة الرئيسية
+                        🏆 اعتمد الفائز بكرت
                       </button>
                     </div>
                     {autoCardStatus && (
@@ -2287,6 +2317,44 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         </div>
 
       </div>
+
+      {/* 🏆 نافذة اختيار الكرت اللي يروح له اسم الفائز — بعد الاختيار
+          ينحفظ الفائز بالكرت وتُقفل البطولة تلقائياً. */}
+      {cardPickOpen && (
+        <div className="cardpick-overlay" onClick={() => !cardPickBusy && setCardPickOpen(false)}>
+          <div className="cardpick" onClick={e => e.stopPropagation()}>
+            <div className="cardpick-head">
+              <span>🏆 وين يروح الفائز؟</span>
+              <button className="cardpick-close" onClick={() => setCardPickOpen(false)} aria-label="إغلاق">✕</button>
+            </div>
+            <p className="cardpick-sub">
+              اختر الكرت اللي ينحفظ فيه <b>{st.champion || "الفائز"}</b> — وبعدها تُقفل البطولة تلقائياً.
+            </p>
+
+            {records.length === 0 ? (
+              <div className="cardpick-empty">ما فيه كروت بسجل البطولات — استخدم "🪄 إنشاء كرت تلقائي"</div>
+            ) : (
+              <div className="cardpick-list">
+                {records.map(rec => (
+                  <button
+                    key={rec.id}
+                    className="cardpick-item"
+                    disabled={cardPickBusy}
+                    onClick={() => assignWinnerToCard(rec)}
+                  >
+                    <span className="cardpick-name">{rec.displayName || rec.tournamentName}</span>
+                    <span className="cardpick-cur">
+                      {rec.winnerName ? `الحالي: ${rec.winnerName}` : "ما فيه فائز"}
+                    </span>
+                    <span className="cardpick-go">←</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {cardPickBusy && <div className="cardpick-busy">⏳ جارِ الحفظ وإقفال البطولة...</div>}
+          </div>
+        </div>
+      )}
 
       {/* 🎨 لوحة تخصيص ثيم/إيموجي/لقب الفائز — تظهر التغييرات فورًا بالصفحة العامة */}
       {editingWinner && (
