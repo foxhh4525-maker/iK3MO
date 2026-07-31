@@ -645,7 +645,7 @@ export default function LandingPage() {
 
         /* ===== الكروت ===== */
         .lp-grid{
-          position:absolute;top:62%;left:0;right:0;
+          position:absolute;top:56.5%;left:0;right:0;
           max-width:1400px;margin:0 auto;display:flex;flex-wrap:wrap;
           justify-content:center;align-items:stretch;z-index:2;
           gap:clamp(10px,2.5vw,16px);
@@ -986,10 +986,7 @@ export default function LandingPage() {
           box-shadow:inset 0 1px 0 rgba(255,255,255,.12), 0 4px 14px rgba(0,0,0,.3);
           font-weight:800;font-size:clamp(.76rem,2vw,.84rem);color:#eaf6ff;max-width:min(58vw,300px);
         }
-        /* 👤 بعد تسجيل الدخول: صورة البروفايل + أيقونة الخروج فقط، بدون الاسم.
-           ينطبق على الجوال والديسكتوب. */
-        .lp-user-name{display:none}
-        .lp-user-chip{gap:6px;padding:4px 5px;max-width:none}
+        .lp-user-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
         .lp-user-avatar{
           width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
           background:linear-gradient(135deg,#39c4ff,#0d4fb0);color:#fff;font-weight:900;font-size:.82rem;flex-shrink:0;
