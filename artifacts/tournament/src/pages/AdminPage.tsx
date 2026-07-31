@@ -236,8 +236,12 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     getLeaderboard(200).then(rows => setLvlPlayers(rows || [])).catch(() => {});
   }, []);
   const lvlFiltered = useMemo(() => {
+    // 🎚️ ما يدخل القائمة إلا من وصل المستوى 1 على الأقل.
+    // levelFromWins = floor(wins / WINS_PER_LEVEL) → يعني لفل 0 لمن عنده
+    // أقل من WINS_PER_LEVEL فوزات، وهذولا ما يظهرون.
+    const withLevel = lvlPlayers.filter(p => levelFromWins(p.wins) >= 1);
     const q = statsQuery.trim().toLowerCase();
-    return q ? lvlPlayers.filter(p => p.username.toLowerCase().includes(q)) : lvlPlayers;
+    return q ? withLevel.filter(p => p.username.toLowerCase().includes(q)) : withLevel;
   }, [lvlPlayers, statsQuery]);
 
   async function loadPlayerStats(nameArg?: string) {
@@ -273,6 +277,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     }
   }
 
+  const [helpersOpen, setHelpersOpen] = useState(false);
   // ── إدارة المساعدين (الأدمن الرئيسي فقط) ──
   const [helpers, setHelpers] = useState<AdminHelper[]>([]);
   const [helperName, setHelperName] = useState("");
@@ -1610,6 +1615,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   🔄 تحقق الآن
                   <span className={`act-dot${chatStatus === "live" ? " live" : ""}`} />
                 </button>
+                {role === "admin" && (
+                  <button className="admin-act" onClick={() => setHelpersOpen(true)} title="إنشاء مساعدين وتحديد صلاحياتهم">
+                    🙋 المساعدين
+                  </button>
+                )}
                 <button className="admin-act danger" onClick={onLogout} title="تسجيل الخروج من لوحة الأدمن">
                   🚪 خروج
                 </button>
@@ -1668,9 +1678,17 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               </div>
             )}
 
-            {/* ── إدارة المساعدين (الأدمن الرئيسي فقط) ── */}
-            {role === "admin" && (
-              <div className="card">
+            {/* 🙋 إدارة المساعدين — صارت نافذة تُفتح من زر بالشريط العلوي
+                بدل ما تاخذ بطاقة كاملة وتزحم الصفحة. */}
+            {role === "admin" && helpersOpen && (
+              <div className="cardpick-overlay" onClick={() => setHelpersOpen(false)}>
+                <div className="cardpick helpers-modal" onClick={e => e.stopPropagation()}>
+                  <div className="cardpick-head">
+                    <span>🙋 إدارة المساعدين</span>
+                    <button className="cardpick-close" onClick={() => setHelpersOpen(false)} aria-label="إغلاق">✕</button>
+                  </div>
+                  <p className="cardpick-sub">أنشئ حساب مساعد وحدد له بالضبط وش يقدر يسوي.</p>
+
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                   <span style={{ fontSize: "1.15rem" }}>🙋</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>إدارة المساعدين</h3>
@@ -1780,8 +1798,10 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     </div>
                   ))}
                 </div>
+                </div>
               </div>
             )}
+
 
             {/* ── سجل البطولات: تعديل صورة كل لعبة (كروت ديناميكية يضيف/يحذف منها الأدمن) ── */}
             {!canRecords ? (
@@ -1945,7 +1965,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 <div className="lb-head">
                   <span style={{ fontSize: "1.15rem" }}>🎚️</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نظام المستويات</h3>
-                  <span className="lb-sub">— لفل اللاعب بكل لعبة</span>
+                  <span className="lb-sub">— يظهر من وصل المستوى 1 ({WINS_PER_LEVEL} فوزات فأكثر)</span>
                 </div>
 
                 {/* 🔎 فلتر اختياري — القائمة تحت تظهر تلقائياً بدون بحث */}
@@ -1962,7 +1982,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 {/* 📋 أسماء اللاعبين — تظهر مباشرة، 8 بالصفحة */}
                 <div className="lvl-list">
                   {lvlFiltered.length === 0 && (
-                    <div className="lb-empty">{statsQuery.trim() ? "ما فيه اسم يطابق الفلتر" : "ما فيه لاعبين مسجّلين بعد"}</div>
+                    <div className="lb-empty">
+                      {statsQuery.trim()
+                        ? "ما فيه اسم يطابق الفلتر"
+                        : `ما فيه لاعب وصل المستوى 1 بعد — يحتاج ${WINS_PER_LEVEL} فوزات`}
+                    </div>
                   )}
                   {lvlFiltered.slice(lvlPage * LVL_PER_PAGE, lvlPage * LVL_PER_PAGE + LVL_PER_PAGE).map((pl, i) => {
                     const rank = lvlPage * LVL_PER_PAGE + i + 1;
@@ -2162,26 +2186,16 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       من بدري بدل ما تكون فاضية. */}
                   <div className="setup-field">
                     <label>🟢 الشاشة الخضراء</label>
-                    <div className="green-row">
-                      {/* ① يتحكم بمحتوى الصفحة: يخليها تعرض بوابة الانضمام
-                             والمشاركين قبل بدء البطولة بدل ما تكون فاضية.
-                             الإعداد مشترك ويُبث لكل المتصلين. */}
-                      <button
-                        className={`green-early-btn${st.greenEarly ? " on" : ""}`}
-                        onClick={() => update({ ...st, greenEarly: !st.greenEarly })}
-                        title="يخلي صفحة /bracket تعرض بوابة الانضمام والمشاركين قبل بدء البطولة"
-                      >
-                        {st.greenEarly ? "✓ العرض شغّال" : "شغّل العرض"}
-                      </button>
-                      {/* ② مجرد اختصار يفتح النافذة بجهازك — ما يأثر على أحد */}
-                      <button
-                        className="green-open-btn"
-                        title="يفتح نافذة /bracket?green=1 — اختصار بجهازك فقط، حطها كمصدر متصفح بـ OBS"
-                        onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
-                      >
-                        ↗ افتح النافذة
-                      </button>
-                    </div>
+                    {/* العرض شغّال دايماً — صفحة /bracket تعرض بوابة الانضمام
+                        والمشاركين تلقائياً قبل بدء البطولة، فما فيه شي تفعّله.
+                        هذا الزر مجرد اختصار يفتح النافذة بجهازك. */}
+                    <button
+                      className="green-open-btn"
+                      title="يفتح نافذة /bracket?green=1 — حطها كمصدر متصفح بـ OBS"
+                      onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
+                    >
+                      ↗ افتح النافذة
+                    </button>
                   </div>
 
                   <div className="setup-sep" />
@@ -2215,23 +2229,52 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       </div>
                     )}
                   </div>
-                </div>
+                  <div className="setup-sep" />
 
-                <div className="toggle-row">
-                  <label style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--muted)" }}>نظام الفرق (Teams):</label>
-                  <label className="switch">
-                    <input type="checkbox" checked={st.isTeams} onChange={e => toggleTeams(e.target.checked)} />
-                    <span className="slider" />
-                  </label>
-                  <div className={`team-size-control${st.isTeams ? " show" : ""}`}>
-                    <label>عدد اللاعبين/فريق:</label>
-                    <input type="number" className="team-size-input" value={st.teamSize} min="1" max="10" onChange={e => update({ ...st, teamSize: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })} />
+                  {/* 👥 نظام الفرق — انتقل من صف مستقل لداخل لوحة الإعداد */}
+                  <div className="setup-field">
+                    <label>👥 نظام الفرق</label>
+                    <div className="teams-row">
+                      <label className="switch">
+                        <input type="checkbox" checked={st.isTeams} onChange={e => toggleTeams(e.target.checked)} />
+                        <span className="slider" />
+                      </label>
+                      {st.isTeams && (
+                        <>
+                          <input
+                            type="number"
+                            className="join-mins"
+                            value={st.teamSize}
+                            min={1}
+                            max={10}
+                            title="عدد اللاعبين بكل فريق"
+                            onChange={e => update({ ...st, teamSize: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
+                          />
+                          <span className="join-unit">لكل فريق</span>
+                          <button className="join-btn ghost" onClick={shuffleTeams} title="يفرّط اللاعبين ويرتبهم بفرق عشوائية جديدة">
+                            🎲 ترتيب عشوائي
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
-                  {st.isTeams && (
-                    <button className="btn btn-ghost" onClick={shuffleTeams} title="يفرّط اللاعبين ويرتبهم بفرق عشوائية جديدة">
-                      🎲 ترتيب عشوائي للفرق
-                    </button>
-                  )}
+
+                  <div className="setup-sep" />
+
+                  {/* ⚡ إجراءات البطولة — تفريغ + بدء */}
+                  <div className="setup-field">
+                    <label>⚡ الإجراءات</label>
+                    <div className="teams-row">
+                      <button className="join-btn ghost" onClick={() => { update({ ...st, players: [], entryLog: [] }); }}>🧹 تفريغ</button>
+                      <button
+                        className={`join-btn${getStartBlockReason() ? " is-off" : ""}`}
+                        onClick={startTournament}
+                        title={getStartBlockReason() || "ابدأ البطولة"}
+                      >
+                        🚀 ابدأ البطولة
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* عرض اللاعبين — في وضع "غير محدود" ما نعرض إلا خانات اللاعبين اللي انضموا فعلاً
@@ -2283,17 +2326,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         </div>
                       );
                     })}
-                </div>
-
-                <div className="action-row">
-                  <button className="btn btn-ghost" onClick={() => { update({ ...st, players: [], entryLog: [] }); }}>🧹 تفريغ</button>
-                  <button
-                    className={`btn btn-primary${getStartBlockReason() ? " btn-disabled" : ""}`}
-                    onClick={startTournament}
-                    title={getStartBlockReason() || ""}
-                  >
-                    🚀 ابدأ البطولة
-                  </button>
                 </div>
 
               </div>
