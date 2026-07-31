@@ -1202,6 +1202,46 @@ export default function LandingPage() {
         .lp-modal-note b{color:#7fd4ff;font-weight:900}
         .lp-modal-err{margin-top:12px;font-size:.82rem;color:#ffb4b4;text-align:center;font-weight:800}
 
+
+        /* ═══════════ 🎨 شكل زر حالة البطولة (نسخة محسّنة) ═══════════
+           موضوع بعد القواعد الأساسية عشان يفوز عليها بترتيب الملف. */
+
+        /* 🔴 ما فيه بطولة — أحمر واضح بدل الرمادي الباهت */
+        .lp-watch-btn.is-off{
+          background:linear-gradient(135deg,rgba(239,68,68,.26),rgba(96,16,16,.42));
+          border:1px solid rgba(255,99,99,.55);
+          color:#ffc4c4;
+          box-shadow:0 5px 18px rgba(239,68,68,.22), inset 0 1px 0 rgba(255,255,255,.14);
+          cursor:not-allowed;user-select:none;
+        }
+        .lp-watch-btn.is-off:hover,
+        .lp-watch-btn.is-off:active{transform:none;filter:none}
+        .lp-watch-btn.is-off .lp-watch-dot{
+          background:#ff4d4d;box-shadow:0 0 9px #ff4d4d,0 0 2px #ff4d4d;
+          animation:offBlink 2.4s ease-in-out infinite;opacity:1;
+        }
+        @keyframes offBlink{
+          0%,100%{opacity:.4;transform:scale(.85)}
+          50%{opacity:1;transform:scale(1)}
+        }
+
+        /* 🟢 فيه بطولة — نفس الأزرق بس بلمعة تمر عليه فيبان إنه حيّ وينضغط */
+        .lp-watch-btn:not(.is-off){position:relative;overflow:hidden}
+        .lp-watch-btn:not(.is-off)::after{
+          content:"";position:absolute;inset:0;pointer-events:none;
+          background:linear-gradient(100deg,transparent 38%,rgba(255,255,255,.28) 50%,transparent 62%);
+          transform:translateX(-130%) skewX(-18deg);
+          animation:watchSheen 2.8s ease-in-out infinite;
+        }
+        @keyframes watchSheen{
+          0%{transform:translateX(-130%) skewX(-18deg)}
+          55%,100%{transform:translateX(230%) skewX(-18deg)}
+        }
+        @media (prefers-reduced-motion: reduce){
+          .lp-watch-btn:not(.is-off)::after{animation:none;opacity:0}
+          .lp-watch-btn.is-off .lp-watch-dot{animation:none;opacity:1}
+        }
+
         /* ═══════════ 📱 تصحيحات الجوال — لازم تبقى بآخر الملف ═══════════
            السبب: قواعد مثل .lp-watch-row و .lp-user-avatar و .lp-user-chip
            معرّفة بأسفل الملف (أسطر 930+) بعد بلوك الجوال (سطر 670).
@@ -1236,8 +1276,8 @@ export default function LandingPage() {
           .lp-nav-right{display:contents}
           .lp-nav-left{order:1}
           .lp-watch-desktop{display:flex;order:2;margin-inline-end:auto}
-          .lp-board-toggle{order:3}
-          .lp-nav-icon{order:4}
+          .lp-nav-icon{order:3}
+          .lp-board-toggle{order:4}   /* 🏆 بأقصى اليمين */
           .lp-nav-sep{display:none}
           /* الزر مضغوط عشان يقعد بصف واحد مع باقي الأيقونات */
           .lp-watch-btn{
@@ -1253,7 +1293,7 @@ export default function LandingPage() {
              58vh هو الرقم الوحيد اللي يتحكم بارتفاعها — كبّره تنزل أكثر. */
           .lp-grid{
             position:static;top:auto;padding:0;gap:9px;
-            margin-top:max(calc(min(48vh,400px) + clamp(30px,8vw,58px)), 58vh);
+            margin-top:max(calc(min(48vh,400px) + clamp(10px,3vw,24px)), 52vh);
           }
         }
 
