@@ -2075,13 +2075,26 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       من بدري بدل ما تكون فاضية. */}
                   <div className="setup-field">
                     <label>🟢 الشاشة الخضراء</label>
-                    <button
-                      className={`green-early-btn${st.greenEarly ? " on" : ""}`}
-                      onClick={() => update({ ...st, greenEarly: !st.greenEarly })}
-                      title="إظهار بوابة الانضمام بصفحة /bracket قبل بدء البطولة"
-                    >
-                      {st.greenEarly ? "✓ ظاهرة من بدري" : "إظهار من بدري"}
-                    </button>
+                    <div className="green-row">
+                      {/* ① يتحكم بمحتوى الصفحة: يخليها تعرض بوابة الانضمام
+                             والمشاركين قبل بدء البطولة بدل ما تكون فاضية.
+                             الإعداد مشترك ويُبث لكل المتصلين. */}
+                      <button
+                        className={`green-early-btn${st.greenEarly ? " on" : ""}`}
+                        onClick={() => update({ ...st, greenEarly: !st.greenEarly })}
+                        title="يخلي صفحة /bracket تعرض بوابة الانضمام والمشاركين قبل بدء البطولة"
+                      >
+                        {st.greenEarly ? "✓ العرض شغّال" : "شغّل العرض"}
+                      </button>
+                      {/* ② مجرد اختصار يفتح النافذة بجهازك — ما يأثر على أحد */}
+                      <button
+                        className="green-open-btn"
+                        title="يفتح نافذة /bracket?green=1 — اختصار بجهازك فقط، حطها كمصدر متصفح بـ OBS"
+                        onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
+                      >
+                        ↗ افتح النافذة
+                      </button>
+                    </div>
                   </div>
 
                   <div className="setup-sep" />
