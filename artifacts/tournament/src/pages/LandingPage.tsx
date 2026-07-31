@@ -1314,7 +1314,11 @@ export default function LandingPage() {
             flex-wrap:wrap;row-gap:8px;gap:7px;margin-bottom:0;
             justify-content:space-between;
           }
+          /* ⚠️ .lp-nav-left عليها direction:rtl بالقاعدة الأساسية — وهذا كان
+             يقلب الترتيب فيطلع زر البطولة على يسار تسجيل الدخول ويزيح الدخول
+             عن مكانه. نرجّعها ltr هنا فيبقى: [تسجيل الدخول] [زر البطولة]. */
           .lp-nav-left{
+            direction:ltr;
             display:flex;align-items:center;gap:8px;
             flex:1 1 auto;min-width:0;
           }
@@ -1374,7 +1378,9 @@ export default function LandingPage() {
           .lp-nav-icon[aria-label="كيك"]{order:4}
           .lp-nav-icon[aria-label="ديسكورد"]{order:5}
           /* اللوحة ترتفع لزاوية اليمين العليا بدل ما تكون تحت صف الهيدر */
-          .lp-board{top:clamp(24px,2.6vh,32px)}
+          /* اللوحة على حافة اليمين تماماً — متناظرة مع الأزرار اللي على
+             حافة اليسار. الرقم 0px هو المسافة من الحافة. */
+          .lp-board{top:clamp(24px,2.6vh,32px);right:0}
         }
 
       `}</style>
