@@ -467,6 +467,35 @@ export async function addMatchWin(username: string, delta: number, token: string
   } catch { /* تجاهل */ }
 }
 
+// ✍️ تعيين نقاط التوب للاعب بقيمة صريحة (تحكم يدوي من لوحة الأدمن).
+export async function setMatchWins(username: string, wins: number, token: string): Promise<void> {
+  const res = await fetch(`${BASE}/player/match-wins`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ username, wins }),
+  });
+  if (!res.ok) {
+    let msg = "فشل تعديل النقاط";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+}
+
+// 🧹 تصفير نقاط التوب لكل اللاعبين.
+export async function resetAllMatchWins(token: string): Promise<number> {
+  const res = await fetch(`${BASE}/player/match-wins/reset`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let msg = "فشل تصفير النقاط";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  const data = await res.json().catch(() => ({}));
+  return Number(data?.cleared) || 0;
+}
+
 // تعديل يدوي (تصحيح من الأدمن) لعدد فوزات لاعب في لعبة معيّنة.
 export async function setPlayerWins(username: string, game: string, wins: number, token: string): Promise<void> {
   const res = await fetch(`${BASE}/player/wins`, {
