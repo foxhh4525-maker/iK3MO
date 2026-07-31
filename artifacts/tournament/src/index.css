@@ -48,8 +48,11 @@ body{
   display:flex;
   height:100dvh;
   overflow:hidden;
-  flex-direction:row-reverse; /* sidebar on right (RTL) */
+  flex-direction:row-reverse;
 }
+/* السايدبار (الشات) انحذف من لوحة الأدمن — المحتوى صار يملأ العرض كامل،
+   مع سقف عرض عشان ما تتمدد الكروت بشكل غريب على الشاشات العريضة جداً. */
+.main > div{max-width:1600px;margin-inline:auto}
 .main{
   flex:1;
   overflow-y:auto;
@@ -304,6 +307,73 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 .toolbar-info{color:var(--muted);font-size:0.85rem}
 .toolbar-info b{color:var(--blue)}
+
+/* ── 🏆 لوحة نقاط الأكثر انتصاراً ── */
+.lb-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.lb-sub{font-size:0.75rem;color:var(--muted)}
+.lb-tools{margin-inline-start:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.lb-select{
+  padding:7px 12px;border-radius:9px;font-family:inherit;font-size:0.8rem;font-weight:700;
+  background:rgba(0,0,0,0.3);color:var(--text);border:1px solid var(--border);cursor:pointer;
+}
+.lb-btn{
+  padding:7px 14px;border-radius:9px;cursor:pointer;white-space:nowrap;
+  font-family:inherit;font-size:0.8rem;font-weight:800;
+  color:var(--text);background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  transition:all .18s;
+}
+.lb-btn:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.lb-btn:disabled{opacity:0.4;cursor:not-allowed}
+.lb-btn.primary{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#04121f;border:none}
+.lb-btn.danger{color:#ff8b8b;border-color:rgba(239,68,68,0.35)}
+.lb-btn.danger:hover:not(:disabled){background:rgba(239,68,68,0.14);border-color:#ef4444;color:#ff8b8b}
+.lb-btn.sm{padding:5px 10px;font-size:0.74rem}
+.lb-msg{
+  padding:9px 13px;border-radius:9px;margin-bottom:10px;
+  font-size:0.82rem;font-weight:700;
+}
+.lb-msg.ok{background:rgba(74,222,128,0.10);border:1px solid rgba(74,222,128,0.3);color:#4ade80}
+.lb-msg.err{background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ff8b8b}
+.lb-add{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 12px;margin-bottom:12px;border-radius:11px;
+  background:rgba(255,255,255,0.03);border:1px dashed var(--border2);
+}
+.lb-name-input{
+  flex:1;min-width:150px;padding:8px 12px;border-radius:9px;
+  font-family:inherit;font-size:0.88rem;font-weight:700;
+  background:rgba(0,0,0,0.3);color:var(--text);border:1px solid var(--border);
+}
+.lb-pts-input{
+  width:74px;padding:8px 6px;border-radius:9px;text-align:center;
+  font-family:inherit;font-size:0.9rem;font-weight:900;
+  background:rgba(0,0,0,0.3);color:var(--blue);border:1px solid var(--border);
+}
+.lb-unit{font-size:0.78rem;color:var(--muted);font-weight:700}
+.lb-list{display:flex;flex-direction:column;gap:7px}
+.lb-empty{text-align:center;padding:18px;color:var(--muted);font-size:0.85rem}
+.lb-row{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:9px 12px;border-radius:11px;
+  background:rgba(255,255,255,0.035);border:1px solid var(--border);
+}
+.lb-rank{
+  min-width:30px;text-align:center;font-weight:900;font-size:0.95rem;color:var(--muted);flex-shrink:0;
+}
+.lb-rank.r1,.lb-rank.r2,.lb-rank.r3{font-size:1.15rem}
+.lb-name{
+  flex:1;min-width:90px;font-weight:800;font-size:0.98rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lb-ctrl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.lb-step{
+  width:32px;height:32px;border-radius:8px;cursor:pointer;flex-shrink:0;
+  font-family:inherit;font-size:1.05rem;font-weight:900;line-height:1;
+  color:var(--blue);background:rgba(41,182,246,0.10);border:1px solid var(--border);
+  transition:all .16s;
+}
+.lb-step:hover:not(:disabled){background:var(--blue);color:#04121f}
+.lb-step:disabled{opacity:0.35;cursor:not-allowed}
 
 /* ── 🎛️ أزرار رأس لوحة الأدمن (الصوت / تحقق / خروج) ── */
 .admin-actions{
