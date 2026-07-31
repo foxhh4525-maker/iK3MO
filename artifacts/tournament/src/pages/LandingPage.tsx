@@ -704,17 +704,20 @@ export default function LandingPage() {
 
           /* زر البطولة ينزل من الهيدر ويستقر فوق الكروت مباشرة */
           .lp-watch-desktop{display:none}
+          /* الحساب مربوط بارتفاع صورة الهيرو نفسها (min(48vh,400px))، فالزر
+             ينزل تحت الصورة بمسافة ثابتة مهما كان طول شاشة الجوال — بدل رقم
+             تخميني كان يطلع فوق على بعض الأجهزة. */
           .lp-watch-row{
             display:flex;justify-content:center;
             position:relative;z-index:3;
-            margin-top:clamp(260px,52vh,430px);
+            margin-top:calc(min(48vh,400px) + clamp(60px,15vw,110px));
           }
           .lp-watch-btn{padding:10px 20px;font-size:.82rem;gap:8px}
 
           /* الكروت تنزل تحت زر البطولة */
           .lp-grid{
             position:static;top:auto;
-            margin-top:clamp(40px,11vw,68px);
+            margin-top:clamp(34px,9vw,54px);
             padding:0;
             gap:9px;
           }
@@ -726,8 +729,6 @@ export default function LandingPage() {
           }
           .lp-login-text{display:none}
           .lp-login-btn svg{width:18px;height:18px;opacity:1}
-          .lp-user-chip{max-width:min(44vw,164px);padding:4px 6px;gap:7px}
-          .lp-user-name{font-size:.74rem}
           .lp-user-avatar{width:26px;height:26px}
 
           /* اسم اللعبة كان يتقصّ على كرت بعرض ~160px */
@@ -979,7 +980,10 @@ export default function LandingPage() {
           box-shadow:inset 0 1px 0 rgba(255,255,255,.12), 0 4px 14px rgba(0,0,0,.3);
           font-weight:800;font-size:clamp(.76rem,2vw,.84rem);color:#eaf6ff;max-width:min(58vw,300px);
         }
-        .lp-user-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+        /* 👤 بعد تسجيل الدخول: صورة البروفايل + أيقونة الخروج فقط، بدون الاسم.
+           ينطبق على الجوال والديسكتوب. */
+        .lp-user-name{display:none}
+        .lp-user-chip{gap:6px;padding:4px 5px;max-width:none}
         .lp-user-avatar{
           width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;
           background:linear-gradient(135deg,#39c4ff,#0d4fb0);color:#fff;font-weight:900;font-size:.82rem;flex-shrink:0;
@@ -994,12 +998,6 @@ export default function LandingPage() {
         .lp-logout-btn svg{width:14px;height:14px}
         .lp-logout-btn:hover{background:rgba(255,80,80,.25);color:#fff}
 
-        /* 💻 الديسكتوب: بعد تسجيل الدخول تطلع الصورة + أيقونة الخروج فقط،
-           بدون الاسم. الجوال ما يتأثر — يبقى زي ما هو. */
-        @media (min-width:641px){
-          .lp-user-chip .lp-user-name{display:none}
-          .lp-user-chip{gap:6px;padding:4px 5px;max-width:none}
-        }
 
         /* ===== لفل + شريط التقدّم تحت كل كرت (للمسجّلين فقط) ===== */
         .lp-card-level{
