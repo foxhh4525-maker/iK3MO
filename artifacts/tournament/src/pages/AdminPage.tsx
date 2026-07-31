@@ -1539,11 +1539,13 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           border-color: rgba(248,113,113,0.55);
           background: rgba(248,113,113,0.1);
         }
+        /* 🔤 الاسم يظهر كامل — يلتف على أكثر من سطر بدل ما يتقصّ بنقاط */
         .ik3mo-chip-text {
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 160px;
+          white-space: normal;
+          overflow-wrap: anywhere;
+          word-break: break-word;
+          max-width: 260px;
+          line-height: 1.35;
         }
         .ik3mo-chip-x {
           display: inline-flex;
