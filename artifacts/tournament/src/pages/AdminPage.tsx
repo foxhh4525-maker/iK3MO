@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getLeaderboard, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
 import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
@@ -229,20 +229,75 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const LVL_PER_PAGE = 8;
   const [statsSearched, setStatsSearched] = useState("");
 
-  // 📋 أسماء اللاعبين تُجلب تلقائياً — ما تحتاج بحث. نفس مصدر قائمة التوب
-  // (كل من فاز بماتش يدخل القائمة) مع فلتر كتابي اختياري.
-  const [lvlPlayers, setLvlPlayers] = useState<LeaderboardEntry[]>([]);
-  useEffect(() => {
-    getLeaderboard(200).then(rows => setLvlPlayers(rows || [])).catch(() => {});
+  // 📋 قائمة نظام المستويات — المصدر: سجل الفائزين بالبطولات (getWinners).
+  // يعني كل من فاز بشجرة بطولة كاملة يتسجّل هنا بفوز، ويظهر بالقائمة من
+  // أول بطولة يكسبها — بدون شرط الوصول لمستوى معيّن.
+  // (قبل كذا كان المصدر قائمة التوب = ماتشات مكسوبة، وهذا شي ثاني تماماً.)
+  const [lvlWinners, setLvlWinners] = useState<Winner[]>([]);
+  const refreshLvlWinners = useCallback(() => {
+    getWinners().then(rows => setLvlWinners(rows || [])).catch(() => {});
   }, []);
+  useEffect(() => { refreshLvlWinners(); }, [refreshLvlWinners]);
+  const refreshLvlWinnersRef = useRef(refreshLvlWinners);
+  refreshLvlWinnersRef.current = refreshLvlWinners;
+
+  // ── ➕ إضافة لاعب يدوياً لنظام المستويات ──
+  // كل "فوز" = سجل فائز واحد بسجل البطولات، فالإضافة تكتب N سجلات.
+  // ولو حددت لعبة، نحدّث كمان فوزاته فيها عشان لفله بالكرت يتغيّر فعلاً.
+  const [addName, setAddName] = useState("");
+  const [addWins, setAddWins] = useState(1);
+  const [addGame, setAddGame] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function addManualWinner() {
+    const name = addName.trim();
+    const n = Math.max(1, Math.min(50, Math.floor(addWins) || 1));
+    if (!name || addBusy) return;
+    setAddBusy(true);
+    setAddMsg(null);
+    try {
+      const stamp = Date.now();
+      for (let i = 0; i < n; i++) {
+        await postWinner({
+          id: `manual-${stamp}-${i}`,
+          name,
+          gameType: addGame || st.gameType || "",
+          tournamentName: addGame || "إضافة يدوية",
+          date: new Date().toISOString(),
+        } as Winner, token);
+      }
+      if (addGame) {
+        const cur = await getPlayerStats(name).catch(() => null);
+        const before = cur?.wins?.[addGame] ?? 0;
+        await setPlayerWins(name, addGame, before + n, token);
+      }
+      refreshLvlWinners();
+      setAddMsg({ ok: true, text: `✅ أُضيف ${n} فوز لـ ${name}${addGame ? ` في "${addGame}"` : ""}` });
+      setAddName("");
+      setAddWins(1);
+    } catch (e: any) {
+      setAddMsg({ ok: false, text: e?.message || "⚠️ تعذّرت الإضافة" });
+    } finally {
+      setAddBusy(false);
+    }
+  }
+
   const lvlFiltered = useMemo(() => {
-    // 🎚️ ما يدخل القائمة إلا من وصل المستوى 1 على الأقل.
-    // levelFromWins = floor(wins / WINS_PER_LEVEL) → يعني لفل 0 لمن عنده
-    // أقل من WINS_PER_LEVEL فوزات، وهذولا ما يظهرون.
-    const withLevel = lvlPlayers.filter(p => levelFromWins(p.wins) >= 1);
+    // نجمّع عدد البطولات المكسوبة لكل اسم (بدون حساسية لحالة الأحرف)
+    const tally = new Map<string, { username: string; wins: number }>();
+    for (const w of lvlWinners) {
+      const name = (w.name || "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      const cur = tally.get(key);
+      if (cur) cur.wins += 1;
+      else tally.set(key, { username: name, wins: 1 });
+    }
+    const list = [...tally.values()].sort((a, b) => b.wins - a.wins);
     const q = statsQuery.trim().toLowerCase();
-    return q ? withLevel.filter(p => p.username.toLowerCase().includes(q)) : withLevel;
-  }, [lvlPlayers, statsQuery]);
+    return q ? list.filter(p => p.username.toLowerCase().includes(q)) : list;
+  }, [lvlWinners, statsQuery]);
 
   async function loadPlayerStats(nameArg?: string) {
     const name = (nameArg ?? statsQuery).trim();
@@ -790,6 +845,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   useSSE((data) => {
     if (typingRef.current) return; // ما نطبّق تحديث خارجي وهو يكتب حالياً
     setSt(data);
+    // 🔄 قائمة نظام المستويات مبنية على سجل الفائزين — نحدّثها مع كل بث
+    // عشان الفائز الجديد يظهر فوراً بعد إقفال البطولة بدون رفرش.
+    refreshLvlWinnersRef.current?.();
   });
 
   const sync = useCallback(async (newSt: TournamentState) => {
@@ -1972,8 +2030,47 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 <div className="lb-head">
                   <span style={{ fontSize: "1.15rem" }}>🎚️</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نظام المستويات</h3>
-                  <span className="lb-sub">— يظهر من وصل المستوى 1 ({WINS_PER_LEVEL} فوزات فأكثر)</span>
+                  <span className="lb-sub">— كل من فاز ببطولة كاملة</span>
                 </div>
+
+                {/* ➕ إضافة لاعب يدوياً: اسم + عدد فوزات + لعبة اختيارية */}
+                <div className="lvl-add">
+                  <input
+                    type="text"
+                    className="lb-name-input"
+                    placeholder="اسم اللاعب..."
+                    value={addName}
+                    onChange={e => setAddName(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter") addManualWinner(); }}
+                  />
+                  <input
+                    type="number"
+                    className="lb-pts-input"
+                    min={1}
+                    max={50}
+                    title="عدد البطولات المكسوبة"
+                    value={addWins}
+                    onChange={e => setAddWins(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+                  />
+                  <span className="lb-unit">فوز</span>
+                  <select
+                    className="lb-select"
+                    value={addGame}
+                    onChange={e => setAddGame(e.target.value)}
+                    title="اختياري — لو حددت لعبة يتحدّث لفله بكرتها كمان"
+                  >
+                    <option value="">بدون لعبة</option>
+                    {records.map(r => (
+                      <option key={r.id} value={r.tournamentName}>{r.displayName || r.tournamentName}</option>
+                    ))}
+                  </select>
+                  <button
+                    className="lb-btn primary"
+                    disabled={addBusy || !addName.trim()}
+                    onClick={addManualWinner}
+                  >{addBusy ? "⏳ جارٍ..." : "➕ إضافة"}</button>
+                </div>
+                {addMsg && <div className={`lb-msg${addMsg.ok ? " ok" : " err"}`}>{addMsg.text}</div>}
 
                 {/* 🔎 فلتر اختياري — القائمة تحت تظهر تلقائياً بدون بحث */}
                 <input
@@ -1992,7 +2089,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     <div className="lb-empty">
                       {statsQuery.trim()
                         ? "ما فيه اسم يطابق الفلتر"
-                        : `ما فيه لاعب وصل المستوى 1 بعد — يحتاج ${WINS_PER_LEVEL} فوزات`}
+                        : "ما فيه فائز ببطولة بعد — أول ما تخلص بطولة يتسجّل الفائز هنا"}
                     </div>
                   )}
                   {lvlFiltered.slice(lvlPage * LVL_PER_PAGE, lvlPage * LVL_PER_PAGE + LVL_PER_PAGE).map((pl, i) => {
@@ -2009,7 +2106,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         <span className="lvl-rank">{rank}</span>
                         <span className="lvl-name">{pl.username}</span>
                         <span className="lvl-badge">⭐ {levelFromWins(pl.wins)}</span>
-                        <span className="lvl-wins">{pl.wins}</span>
+                        <span className="lvl-wins" title={`${pl.wins} بطولة`}>{pl.wins}</span>
                         <span className="lvl-go">{isOpen ? "▾" : "←"}</span>
                       </button>
                     );
