@@ -564,6 +564,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 .admin-act{
   display:inline-flex;align-items:center;gap:7px;
+  text-decoration:none;
   padding:8px 14px;border-radius:10px;cursor:pointer;
   font-family:inherit;font-size:0.82rem;font-weight:800;
   color:var(--text);background:rgba(255,255,255,0.04);
