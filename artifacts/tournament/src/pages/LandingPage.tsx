@@ -1223,41 +1223,21 @@ export default function LandingPage() {
         /* ═══════════ 🎨 شكل زر حالة البطولة ═══════════
            موضوع بعد القواعد الأساسية عشان يفوز عليها بترتيب الملف. */
 
-        /* 🔴 فيه بطولة/بث — أحمر ملفت مع نبض وهالة، والنقطة تومض زي مؤشر LIVE */
+        /* 🔴 فيه بطولة/بث — أحمر ثابت بدون أي وميض أو نبض */
         .lp-watch-btn:not(.is-off){
-          position:relative;overflow:hidden;
           background:linear-gradient(135deg,#ff5252 0%,#e11d1d 55%,#9f0f0f 100%);
-          border:1px solid rgba(255,255,255,.3);
+          border:1px solid rgba(255,255,255,.28);
           color:#fff;font-weight:900;
-          box-shadow:0 6px 20px rgba(225,29,29,.5), inset 0 1px 0 rgba(255,255,255,.3);
-          animation:livePulse 2s ease-in-out infinite;
+          box-shadow:0 5px 16px rgba(225,29,29,.35), inset 0 1px 0 rgba(255,255,255,.26);
+          animation:none;
         }
-        @keyframes livePulse{
-          0%,100%{box-shadow:0 6px 20px rgba(225,29,29,.45), inset 0 1px 0 rgba(255,255,255,.3)}
-          50%{box-shadow:0 8px 30px rgba(255,60,60,.85), 0 0 0 5px rgba(255,60,60,.15),
-                        inset 0 1px 0 rgba(255,255,255,.38)}
-        }
+        .lp-watch-btn:not(.is-off)::after{content:none}
         .lp-watch-btn:not(.is-off):hover{
           filter:brightness(1.08);transform:translateY(-2px);
         }
         .lp-watch-btn:not(.is-off) .lp-watch-dot{
-          background:#fff;box-shadow:0 0 10px #fff,0 0 3px #fff;
-          animation:liveBlink 1.1s ease-in-out infinite;
-        }
-        @keyframes liveBlink{
-          0%,100%{opacity:1;transform:scale(1)}
-          50%{opacity:.25;transform:scale(.8)}
-        }
-        /* لمعة تمر على الزر */
-        .lp-watch-btn:not(.is-off)::after{
-          content:"";position:absolute;inset:0;pointer-events:none;
-          background:linear-gradient(100deg,transparent 38%,rgba(255,255,255,.3) 50%,transparent 62%);
-          transform:translateX(-130%) skewX(-18deg);
-          animation:watchSheen 2.8s ease-in-out infinite;
-        }
-        @keyframes watchSheen{
-          0%{transform:translateX(-130%) skewX(-18deg)}
-          55%,100%{transform:translateX(230%) skewX(-18deg)}
+          background:#fff;box-shadow:0 0 6px rgba(255,255,255,.8);
+          animation:none;opacity:1;
         }
 
         /* ⚫ ما فيه بطولة — هادي ومطفي عشان الفرق يبان فوراً */
@@ -1362,12 +1342,18 @@ export default function LandingPage() {
              [تسجيل دخول] [مشاهدة البطولة] [الدعم] [كيك] [ديسكورد]
              نحدد كل عنصر برقم صريح + direction:ltr داخل المجموعة، فالترتيب
              مضمون ولا يعتمد على اتجاه الصفحة. */
-          /* الأزرار على حافة الشاشة تماماً: نسحب الهيدر خارج حشوة .lp-page
-             بالكامل (سالب نفس قيمة الحشوة) فيبدأ من البكسل صفر.
-             الرقم 0px هو المسافة الباقية من الحافة — زوّده لو بغيتهم يبتعدون. */
+          /* 📍 تموضع مطلق بالزاوية اليسرى العليا — أضمن من الهوامش السالبة
+             لأنه ما يعتمد على اتجاه الصفحة ولا على حشوة .lp-page.
+             left هي الرقم الوحيد اللي يتحكم بالمسافة عن الحافة. */
           .lp-nav{
+            position:absolute;
+            top:clamp(14px,2vh,22px);
+            left:clamp(10px,1.2vw,16px);
+            width:auto;max-width:calc(100% - 300px);
+            margin:0;
             flex-wrap:nowrap;
-            margin-left:calc(0px - clamp(12px,4vw,20px));
+            justify-content:flex-start;
+            direction:ltr;
           }
           .lp-nav-left{order:1}
           .lp-nav-right{order:2;direction:ltr}
@@ -1378,9 +1364,8 @@ export default function LandingPage() {
           .lp-nav-icon[aria-label="كيك"]{order:4}
           .lp-nav-icon[aria-label="ديسكورد"]{order:5}
           /* اللوحة ترتفع لزاوية اليمين العليا بدل ما تكون تحت صف الهيدر */
-          /* اللوحة على حافة اليمين تماماً — متناظرة مع الأزرار اللي على
-             حافة اليسار. الرقم 0px هو المسافة من الحافة. */
-          .lp-board{top:clamp(24px,2.6vh,32px);right:0}
+          /* اللوحة بمكانها الأصلي — بعيدة عن الحافة زي ما كانت */
+          .lp-board{top:clamp(24px,2.6vh,32px)}
         }
 
       `}</style>
