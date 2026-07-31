@@ -750,10 +750,11 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   --box:calc(var(--row) * 2 + var(--vs) + var(--pad) * 2 + 2px);
   --g0:12px;
   --conn:15px;
-  --head-h:42px;
+  --head-h:132px;
   --crown-h:96px;               /* ارتفاع صندوق الكأس/اسم الفائز */               /* مساحة رأس العمود المحجوزة — ثابتة للكل */
-  --line:rgba(41,182,246,0.26);
-  --line-hot:rgba(41,182,246,0.85);
+  /* 🔴 مسارات الشجرة (الجذور) — حمراء */
+  --line:rgba(239,68,68,0.5);
+  --line-hot:rgba(255,82,82,0.95);
   --lw:2px;
   --row-bg:rgba(255,255,255,0.045);
   --row-br:rgba(255,255,255,0.09);
@@ -844,7 +845,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .r-right .match.pair-top .conn::before{inset-inline-start:0}
 .r-right .match.pair-top .conn::after{inset-inline-end:100%}
 /* المباراة اللي خلصت تولّع وصلتها فيبين مسار الفائز */
-.match.done > .conn{background:var(--line-hot);box-shadow:0 0 8px var(--glow)}
+.match.done > .conn{background:var(--line-hot);box-shadow:0 0 9px rgba(255,82,82,0.65)}
 
 /* ── شريحة اللاعب ── */
 .player{
@@ -955,17 +956,16 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 /* ── 🏆 الكأس فوق خانة النهائي — بدون أي إطار ── */
 /* الصندوق والفاصل بنفس الارتفاع، فمركز خانة النهائي يبقى بمنتصف العمود
    تماماً وخط الربط مع آخر اسمين ما ينزاح. */
-.final-crown,.final-spacer{
-  flex:0 0 var(--crown-h);height:var(--crown-h);
-  order:-1;
-}
-.final-spacer{order:99;visibility:hidden;pointer-events:none}
+/* 📍 خارج التدفق تماماً: ما ياخذ أي مساحة داخل الخانة، فالخانة تبقى
+   بمنتصف العمود بالضبط وخط الربط (الجذر) يوصلها بمكانه الصحيح. */
 .final-crown{
-  display:flex;align-items:center;justify-content:center;
-  width:100%;padding:0 2px;
+  position:absolute;bottom:calc(100% + 12px);
+  left:0;right:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:6px;pointer-events:none;
 }
 .final-cup{
-  font-size:3.2rem;line-height:1;
+  font-size:4.2rem;line-height:1;
   filter:drop-shadow(0 0 14px rgba(255,215,0,0.5));
   animation:cupFloat 3s ease-in-out infinite;
 }
@@ -974,6 +974,10 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   50%{transform:translateY(-6px) rotate(3deg)}
 }
 /* بعد التتويج: الكأس يختفي والشريط المائل ياخذ مكانه بالضبط */
+.champ-label{
+  font-size:0.62rem;font-weight:900;letter-spacing:4px;
+  color:var(--gold);text-shadow:0 0 10px rgba(255,215,0,0.5);
+}
 .champ-banner{
   width:100%;
   padding:10px 12px;
@@ -1010,14 +1014,14 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .green-mode .bracket{
   --row:54px;--g0:16px;--conn:20px;--lw:3px;
   --row-bg:#0b1830;--row-br:rgba(41,182,246,0.45);
-  --line:rgba(41,182,246,0.65);
+  --line:#ef4444;--line-hot:#ff5252;
 }
 .green-mode .p-name{font-size:1.3rem}
 .green-mode .p-badge{width:32px;height:32px;border-radius:9px;font-size:1rem}
 .green-mode .round,
 .green-mode .round.r-fwd{min-width:252px;max-width:300px}
 
-.green-mode .bracket{--head-h:46px;--crown-h:112px}
+.green-mode .bracket{--head-h:150px}
 .green-mode .round-title{font-size:0.88rem;background:#0e2038;border-color:rgba(41,182,246,0.5);color:#7fd4ff}
 .green-mode .round.r-center{min-width:286px;max-width:340px;background:#0e1c38;border-color:rgba(41,182,246,0.55)}
 .green-mode .round.r-center .round-title{background:#12355e;color:#fff}
@@ -1326,7 +1330,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .btn{padding:9px 18px;font-size:0.85rem}
   .sz-pill{padding:6px 13px;font-size:0.82rem}
   /* مقاسات الشجرة كلها من المتغيّرات فوق (--row / --g0 / --conn) */
-  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:36px;--crown-h:70px}
+  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:96px}
   .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:146px;max-width:176px}
   .round.r-center{min-width:162px;padding:8px}
   .p-name{font-size:0.9rem}
