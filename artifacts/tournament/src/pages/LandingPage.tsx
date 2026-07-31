@@ -1293,7 +1293,7 @@ export default function LandingPage() {
              58vh هو الرقم الوحيد اللي يتحكم بارتفاعها — كبّره تنزل أكثر. */
           .lp-grid{
             position:static;top:auto;padding:0;gap:9px;
-            margin-top:max(calc(min(48vh,400px) + clamp(10px,3vw,24px)), 52vh);
+            margin-top:max(calc(min(48vh,400px) + clamp(4px,1.5vw,12px)), 44vh);
           }
         }
 
@@ -1306,9 +1306,10 @@ export default function LandingPage() {
             justify-content:flex-start;
             max-width:calc(100% - 285px);   /* ما يزاحم اللوحة اللي باليمين */
           }
-          /* ترتيب العرض: الأيقونات وزر البطولة أولاً، وبعدهم الحساب */
-          .lp-nav-right{order:1}
-          .lp-nav-left{order:2}
+          /* ترتيب العرض من اليسار: تسجيل الدخول أولاً بالزاوية، وبعده
+             مشاهدة البطولة ← الدعم ← كيك ← ديسكورد. */
+          .lp-nav-left{order:1}
+          .lp-nav-right{order:2}
           /* اللوحة ترتفع لزاوية اليمين العليا بدل ما تكون تحت صف الهيدر */
           .lp-board{top:clamp(24px,2.6vh,32px)}
         }
