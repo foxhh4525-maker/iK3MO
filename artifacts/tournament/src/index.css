@@ -309,6 +309,17 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .toolbar-info b{color:var(--blue)}
 
 
+/* ── 🖥️ شجرة الأدمن بعرض الشاشة كاملة (ما فيه فراغ باليمين) ── */
+.admin-shell .main{padding-left:10px;padding-right:10px}
+.admin-shell .main > div{max-width:none}
+.admin-shell .bracket-scroll{width:100%}
+.admin-shell .bracket{width:100%;justify-content:center}
+.admin-shell .round,
+.admin-shell .round.r-fwd,
+.admin-shell .round.r-left,
+.admin-shell .round.r-right,
+.admin-shell .round.r-center{max-width:none;flex:1 1 0}
+
 /* ── 🧰 شريط أدوات البطولة: تدفق طبيعي بدون تموضع مطلق ── */
 .toolbar.tb-flex{
   display:flex;align-items:center;justify-content:space-between;
@@ -739,7 +750,8 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   --box:calc(var(--row) * 2 + var(--vs) + var(--pad) * 2 + 2px);
   --g0:12px;
   --conn:15px;
-  --head-h:224px;               /* مساحة رأس العمود المحجوزة — ثابتة للكل */
+  --head-h:42px;
+  --crown-h:96px;               /* ارتفاع صندوق الكأس/اسم الفائز */               /* مساحة رأس العمود المحجوزة — ثابتة للكل */
   --line:rgba(41,182,246,0.26);
   --line-hot:rgba(41,182,246,0.85);
   --lw:2px;
@@ -948,10 +960,25 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .round-title{font-size:0.64rem;padding:4px 11px;margin-bottom:10px}
 }
 
-/* ── 🏆 رأس عمود النهائي: كأس كبير + البطل ── */
+/* ── 🏆 صندوق الكأس/البطل فوق خانة النهائي (إطار مدموج) ── */
+/* الصندوق والفاصل بنفس الارتفاع، فمركز خانة النهائي يبقى بمنتصف العمود
+   تماماً وخطوط الربط مع آخر اسمين ما تنزاح. */
+.final-crown,.final-spacer{
+  flex:0 0 var(--crown-h);height:var(--crown-h);
+  order:-1;                       /* الصندوق فوق الشريحتين */
+}
+.final-spacer{order:99;visibility:hidden;pointer-events:none}
+.final-crown{
+  display:flex;align-items:center;justify-content:center;
+  padding:8px 12px;
+  background:linear-gradient(180deg,rgba(255,215,0,0.14),rgba(255,215,0,0.03));
+  border:1px solid rgba(255,215,0,0.45);
+  border-bottom:none;                      /* يندمج مع خانة النهائي تحته */
+  border-radius:13px 13px 0 0;
+  margin:0 -1px;                           /* يحاذي حدود الخانة بالضبط */
+}
 .final-cup{
-  font-size:3.6rem;
-  margin-top:22px;        /* ← الفراغ بين كلمة "النهائي" والكأس */line-height:1;
+  font-size:3.2rem;line-height:1;
   filter:drop-shadow(0 0 14px rgba(255,215,0,0.5));
   animation:cupFloat 3s ease-in-out infinite;
 }
@@ -959,49 +986,19 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   0%,100%{transform:translateY(0) rotate(-3deg)}
   50%{transform:translateY(-6px) rotate(3deg)}
 }
-/* لما يتحدد البطل: الكأس يكبر ويلمع أكثر */
-.final-cup.is-won{
-  font-size:4.2rem;
-  filter:drop-shadow(0 0 22px rgba(255,215,0,0.85));
-  animation:cupWin 2.2s ease-in-out infinite;
-}
-@keyframes cupWin{
-  0%,100%{transform:translateY(0) rotate(-6deg) scale(1)}
-  50%{transform:translateY(-9px) rotate(6deg) scale(1.08)}
-}
-
-/* 🏆 البطل — شريط مائل بحواف ذهبية يحمل اسم الفائز بألوان متحركة.
-   الكأس 🏆 اللي فوق (.final-cup) هو نفسه ما تغيّر — الشريط يجي تحته
-   مباشرة، وموقعه بين الكأس وأسماء النهائي. */
-.champ-slot{
-  width:100%;
-  margin-top:14px;        /* ← الفراغ بين الكأس وكلمة "اسم الفائز" */
-  display:flex;flex-direction:column;align-items:center;gap:7px;
-}
-.champ-label{
-  font-size:0.58rem;font-weight:800;letter-spacing:4px;
-  color:var(--gold);opacity:0.85;
-}
-.champ-banner{
-  width:100%;
-  padding:10px 12px;
-  display:flex;align-items:center;justify-content:center;overflow:hidden;
-  transform:skewX(-9deg);
-  background:linear-gradient(90deg,rgba(9,17,32,0.96),rgba(34,26,4,0.96) 50%,rgba(9,17,32,0.96));
-  border-top:2px solid var(--gold);
-  border-bottom:2px solid var(--gold);
-  box-shadow:0 6px 18px rgba(0,0,0,0.5), 0 0 22px rgba(255,215,0,0.22);
+/* بعد التتويج: الكأس يختفي واسم البطل ياخذ مكانه */
+.final-crown.is-won{
+  background:linear-gradient(180deg,rgba(255,215,0,0.2),rgba(255,215,0,0.04));
+  border-color:var(--gold);
   animation:champIn .5s cubic-bezier(.22,1,.36,1) both;
 }
 @keyframes champIn{
-  from{opacity:0;transform:skewX(-9deg) translateY(-8px)}
-  to{opacity:1;transform:skewX(-9deg) translateY(0)}
+  from{opacity:0;transform:translateY(-8px)}
+  to{opacity:1;transform:translateY(0)}
 }
-/* الاسم يرجع مستقيم داخل الشريط المائل */
 .champ-winner{
-  display:inline-block;transform:skewX(9deg);
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:1.65rem;font-weight:900;line-height:1.3;letter-spacing:-0.2px;
+  font-size:1.7rem;font-weight:900;line-height:1.25;letter-spacing:-0.2px;
   /* كل الألوان ما عدا الأصفر والأخضر — آمنة مع الكروما كي */
   background:linear-gradient(90deg,#ffffff,#00e5ff,#2979ff,#7c4dff,#ff2d8a,#ff5252,#00e5ff,#ffffff);
   background-size:400% 100%;
@@ -1013,6 +1010,13 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   0%{background-position:0% 50%}
   100%{background-position:400% 50%}
 }
+/* الخانة تحت الصندوق: بدون انحناء علوي عشان الإطار يبان واحد */
+.match.final-match{
+  border-color:rgba(255,215,0,0.45);
+  border-top:none;
+  border-radius:0 0 13px 13px;
+}
+.match.final-match > .player:first-of-type{border-radius:8px}
 
 /* ── 🟢 وضع الشاشة الخضراء (Chroma Key) ──
    خلفيات صلبة بدون شفافية ولا بلور، صفر توهّج وصفر أنيميشن (التوهّج يخلي
@@ -1027,7 +1031,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .green-mode .round,
 .green-mode .round.r-fwd{min-width:252px;max-width:300px}
 
-.green-mode .bracket{--head-h:250px}
+.green-mode .bracket{--head-h:46px;--crown-h:112px}
 .green-mode .round-title{font-size:0.88rem;background:#0e2038;border-color:rgba(41,182,246,0.5);color:#7fd4ff}
 .green-mode .round.r-center{min-width:286px;max-width:340px;background:#0e1c38;border-color:rgba(41,182,246,0.55)}
 .green-mode .round.r-center .round-title{background:#12355e;color:#fff}
@@ -1336,7 +1340,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .btn{padding:9px 18px;font-size:0.85rem}
   .sz-pill{padding:6px 13px;font-size:0.82rem}
   /* مقاسات الشجرة كلها من المتغيّرات فوق (--row / --g0 / --conn) */
-  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:160px}
+  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:36px;--crown-h:70px}
   .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:146px;max-width:176px}
   .round.r-center{min-width:162px;padding:8px}
   .p-name{font-size:0.9rem}
