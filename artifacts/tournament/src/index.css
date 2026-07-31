@@ -729,7 +729,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   --box:calc(var(--row) * 2 + var(--vs) + var(--pad) * 2 + 2px);
   --g0:12px;
   --conn:15px;
-  --head-h:192px;               /* مساحة رأس العمود المحجوزة — ثابتة للكل */
+  --head-h:224px;               /* مساحة رأس العمود المحجوزة — ثابتة للكل */
   --line:rgba(41,182,246,0.26);
   --line-hot:rgba(41,182,246,0.85);
   --lw:2px;
@@ -759,7 +759,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .round-head{
   flex:0 0 var(--head-h);height:var(--head-h);
   display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
-  gap:7px;margin-bottom:14px;
+  gap:0;margin-bottom:9px;
 }
 .round-title{
   align-self:center;flex-shrink:0;
@@ -940,7 +940,8 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
 /* ── 🏆 رأس عمود النهائي: كأس كبير + البطل ── */
 .final-cup{
-  font-size:3.6rem;margin-top:2px;line-height:1;
+  font-size:3.6rem;
+  margin-top:22px;        /* ← الفراغ بين كلمة "النهائي" والكأس */line-height:1;
   filter:drop-shadow(0 0 14px rgba(255,215,0,0.5));
   animation:cupFloat 3s ease-in-out infinite;
 }
@@ -964,8 +965,8 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
    مباشرة، وموقعه بين الكأس وأسماء النهائي. */
 .champ-slot{
   width:100%;
-  margin:0;
-  display:flex;flex-direction:column;align-items:center;gap:5px;
+  margin-top:14px;        /* ← الفراغ بين الكأس وكلمة "اسم الفائز" */
+  display:flex;flex-direction:column;align-items:center;gap:7px;
 }
 .champ-label{
   font-size:0.58rem;font-weight:800;letter-spacing:4px;
@@ -1016,7 +1017,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .green-mode .round,
 .green-mode .round.r-fwd{min-width:252px;max-width:300px}
 
-.green-mode .bracket{--head-h:216px}
+.green-mode .bracket{--head-h:250px}
 .green-mode .round-title{font-size:0.88rem;background:#0e2038;border-color:rgba(41,182,246,0.5);color:#7fd4ff}
 .green-mode .round.r-center{min-width:286px;max-width:340px;background:#0e1c38;border-color:rgba(41,182,246,0.55)}
 .green-mode .round.r-center .round-title{background:#12355e;color:#fff}
@@ -1307,7 +1308,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .btn{padding:9px 18px;font-size:0.85rem}
   .sz-pill{padding:6px 13px;font-size:0.82rem}
   /* مقاسات الشجرة كلها من المتغيّرات فوق (--row / --g0 / --conn) */
-  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:136px}
+  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:160px}
   .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:146px;max-width:176px}
   .round.r-center{min-width:162px;padding:8px}
   .p-name{font-size:0.9rem}
