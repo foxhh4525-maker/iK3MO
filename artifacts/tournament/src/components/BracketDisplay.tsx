@@ -125,7 +125,7 @@ export default function BracketOnlyPage() {
         // 🟢 قبل بدء البطولة: لو الأدمن فعّل "إظهار من بدري" نعرض بوابة
         // الانضمام على الشاشة الخضراء — عدّاد + أمر !دخول + عدد المنضمين.
         st.greenEarly ? (
-          <div className={`gate${!st.joinDeadline ? "" : !gateOpen ? " is-closed" : secsLeft <= 10 ? " is-hot" : ""}`}>
+          <div className={`gate${st.entryLog.length > 0 ? " has-players" : ""}${!st.joinDeadline ? "" : !gateOpen ? " is-closed" : secsLeft <= 10 ? " is-hot" : ""}`}>
             {st.name && <div className="gate-title">🏆 {st.name}</div>}
 
             {st.joinDeadline ? (
@@ -158,7 +158,23 @@ export default function BracketOnlyPage() {
             )}
 
             {st.entryLog.length > 0 && (
-              <div className="gate-count">👥 المنضمين <span>{st.entryLog.length}</span></div>
+              <>
+                <div className="gate-count">👥 المنضمين <span>{st.entryLog.length}</span></div>
+                {/* 👥 المشاركين — نفس الشاشة تنتقل تلقائياً: انتظار ← بوابة
+                    مفتوحة مع المشاركين ← الشجرة، بمصدر جرين سكرين واحد. */}
+                <div className="gate-players">
+                  {st.entryLog.map((e, i) => (
+                    <div className="gate-player" key={i} style={{ animationDelay: `${Math.min(i, 20) * 0.035}s` }}>
+                      <span className="gate-avatar">
+                        {e.avatar
+                          ? <img src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
+                          : e.user.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="gate-pname">{e.user}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         ) : (
