@@ -569,3 +569,26 @@ export async function resetAllPlayerMatchWins() {
   const result = await pool.query(`DELETE FROM player_match_wins`);
   return { cleared: result.rowCount || 0 };
 }
+
+// 📊 قائمة كل اللاعبين مع مجموع فوزاتهم من جدول player_wins — نفس الجدول
+// اللي يُبنى عليه نظام المستويات. ما كان فيه أي دالة تعرض "كل اللاعبين"،
+// بس دالة تقرأ لاعباً واحداً (getPlayerWins)، وهذا سبب عدم إمكانية بناء
+// قائمة مستويات صحيحة بالواجهة.
+export async function getPlayerLevels(limit = 500) {
+  const n = Math.max(1, Math.min(2000, Math.floor(limit) || 500));
+  if (USE_LOCAL_STORE) return localStore.getPlayerLevels(n);
+  if (!db || !pool) throw new Error("Database not initialized");
+  const result = await pool.query(
+    `SELECT username, MAX(display_name) AS display_name, SUM(wins)::int AS total
+       FROM player_wins
+      GROUP BY username
+     HAVING SUM(wins) > 0
+      ORDER BY total DESC, username ASC
+      LIMIT $1`,
+    [n],
+  );
+  return (result.rows || []).map((r: any) => ({
+    username: r.display_name || r.username,
+    wins: Number(r.total) || 0,
+  }));
+}
