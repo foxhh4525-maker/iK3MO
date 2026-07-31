@@ -217,7 +217,7 @@ export default function ViewerPage() {
 
                       {joinWindowOpen && (
                         <div className="gate-hint">
-                          اكتب <b>!دخول</b> بالشات عشان تنضم
+                          اكتب <b>دخول</b> او <b>!دخول</b> بالشات عشان تشارك
                         </div>
                       )}
                     </>
