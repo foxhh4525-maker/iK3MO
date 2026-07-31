@@ -140,18 +140,6 @@ async function ensureSchema() {
       -- مفتاح فريد على (اللاعب المطبَّع + اللعبة) عشان ما يتكرّر نفس اللاعب لنفس اللعبة.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_player_wins_user_game ON player_wins (username, game);
 
-      -- 🏆 عدّاد الماتشات المكسوبة (توب الفائزين). مستقل تماماً عن player_wins:
-      -- ما فيه عمود game، وما يتصفّر مع البطولات الجديدة أبداً.
-      CREATE TABLE IF NOT EXISTS player_match_wins (
-        id serial PRIMARY KEY,
-        username text NOT NULL UNIQUE,
-        display_name text NOT NULL DEFAULT '',
-        wins integer NOT NULL DEFAULT 0,
-        updated_at timestamp NOT NULL DEFAULT now(),
-        created_at timestamp NOT NULL DEFAULT now()
-      );
-      CREATE INDEX IF NOT EXISTS idx_player_match_wins_wins ON player_match_wins (wins DESC);
-
       CREATE INDEX IF NOT EXISTS idx_winners_date ON winners (date DESC);
       CREATE INDEX IF NOT EXISTS idx_archives_finished_at ON tournament_archives (finished_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_created_at ON tournament_records (created_at DESC);
@@ -482,53 +470,23 @@ export async function setPlayerWins(username: string, displayName: string, game:
 export async function getLeaderboard(limit = 3) {
   const n = Math.max(1, Math.floor(Number(limit) || 3));
   if (USE_LOCAL_STORE) return localStore.getLeaderboard(n);
-  if (!pool) throw new Error("Database not initialized");
-  // 🏆 المصدر الآن: player_match_wins (كل ماتش مكسوب = نقطة، بأي جولة وأي بطولة).
-  // قبل كان يقرأ من player_wins مقيّداً بكروت الألعاب — فكان يعرض بطولات مكسوبة
-  // مو ماتشات، ويتأثر بتقليم tournament_records.
+  if (!db || !pool) throw new Error("Database not initialized");
+  // 🔧 المصدر = جدول player_match_wins (ماتشات مكسوبة) — نفس اللي يستخدمه
+  // المخزّن المحلي، وهو المقصود بـ"توب الفائزين" حسب تعليق مسار /player/match-win.
+  // (كان يقرأ من player_wins وهو خاص بلفل الكروت، فتطلع أرقام مختلفة عن المحلي
+  // ويصير التحكم اليدوي من لوحة الأدمن بلا أثر.)
   const result = await pool.query(
-    `SELECT username, display_name, wins
+    `SELECT username, display_name, wins::int AS total
        FROM player_match_wins
       WHERE wins > 0
-      ORDER BY wins DESC, updated_at ASC
+      ORDER BY total DESC, updated_at ASC
       LIMIT $1`,
     [n],
   );
   return (result.rows || []).map((r: any) => ({
     username: (r.display_name && String(r.display_name).trim()) || r.username,
-    wins: Number(r.wins) || 0,
+    wins: Number(r.total) || 0,
   }));
-}
-
-// 🏆 زيادة/إنقاص عدّاد الماتشات المكسوبة (delta = +1 عند كسب ماتش، -1 عند التراجع).
-// كانت هذي الدالة موجودة في local-store فقط وناقصة هنا، فكان راوت
-// /player/match-win يرمي "is not a function" في وضع Postgres ويفشل صامتاً.
-// نستخدم UPSERT ذري: لو نزلت فوزتين بنفس اللحظة ما تضيع وحدة.
-export async function incrementPlayerMatchWin(username: string, displayName: string, delta = 1) {
-  const key = normalizePlayerName(username);
-  const display = String(displayName || username || "").trim();
-  if (!key) return null;
-  if (USE_LOCAL_STORE) return localStore.incrementPlayerMatchWin(key, display, delta);
-  if (!pool) throw new Error("Database not initialized");
-  const result = await pool.query(
-    `INSERT INTO player_match_wins (username, display_name, wins)
-     VALUES ($1, $2, GREATEST(0, $3))
-     ON CONFLICT (username) DO UPDATE SET
-       wins = GREATEST(0, player_match_wins.wins + $3),
-       display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), player_match_wins.display_name),
-       updated_at = now()
-     RETURNING *`,
-    [key, display, delta],
-  );
-  return result.rows[0] || null;
-}
-
-// 🧹 تصفير عدّاد الماتشات بالكامل (للأدمن فقط — ما ينستدعى تلقائياً أبداً).
-export async function resetMatchWins() {
-  if (USE_LOCAL_STORE) return localStore.resetMatchWins?.();
-  if (!pool) throw new Error("Database not initialized");
-  await pool.query(`DELETE FROM player_match_wins`);
-  return true;
 }
 
 // زيادة (أو إنقاص) فوزات لاعب في لعبة بمقدار delta — الاحتساب التلقائي يستدعيها بـ +1.
@@ -553,4 +511,61 @@ export async function incrementPlayerWin(username: string, displayName: string, 
     .values({ username: key, displayName: displayName || username, game: g, wins: Math.max(0, delta) })
     .returning();
   return result[0] || null;
+}
+
+// ── 🏆 نقاط التوب (ماتشات مكسوبة) ──
+// ⚠️ كانت incrementPlayerMatchWin ناقصة من هذا الملف رغم إن مسار
+// /player/match-win يستدعيها — فكان العدّاد ما يزيد أبداً (الخطأ يُبلع بصمت
+// بالواجهة). هذي إضافتها + تحكم يدوي كامل من لوحة الأدمن.
+export async function incrementPlayerMatchWin(username: string, displayName: string, delta = 1) {
+  const key = normalizePlayerName(username);
+  if (!key) return null;
+  if (USE_LOCAL_STORE) return localStore.incrementPlayerMatchWin(key, displayName || username, delta);
+  if (!db) throw new Error("Database not initialized");
+  const existing = await db.query.playerMatchWinsTable.findFirst({
+    where: eq(schema.playerMatchWinsTable.username, key),
+  });
+  if (existing) {
+    const next = Math.max(0, (existing.wins || 0) + delta);
+    const result = await db.update(schema.playerMatchWinsTable)
+      .set({ wins: next, displayName: displayName || existing.displayName, updatedAt: new Date() })
+      .where(eq(schema.playerMatchWinsTable.id, existing.id))
+      .returning();
+    return result[0] || null;
+  }
+  const result = await db.insert(schema.playerMatchWinsTable)
+    .values({ username: key, displayName: displayName || username, wins: Math.max(0, delta) })
+    .returning();
+  return result[0] || null;
+}
+
+// ✍️ تعيين قيمة صريحة لنقاط لاعب (تحكم يدوي من الأدمن).
+export async function setPlayerMatchWins(username: string, displayName: string, wins: number) {
+  const key = normalizePlayerName(username);
+  if (!key) return null;
+  const value = Math.max(0, Math.floor(Number(wins) || 0));
+  if (USE_LOCAL_STORE) return localStore.setPlayerMatchWins(key, displayName || username, value);
+  if (!db) throw new Error("Database not initialized");
+  const existing = await db.query.playerMatchWinsTable.findFirst({
+    where: eq(schema.playerMatchWinsTable.username, key),
+  });
+  if (existing) {
+    const result = await db.update(schema.playerMatchWinsTable)
+      .set({ wins: value, displayName: displayName || existing.displayName, updatedAt: new Date() })
+      .where(eq(schema.playerMatchWinsTable.id, existing.id))
+      .returning();
+    return result[0] || null;
+  }
+  const result = await db.insert(schema.playerMatchWinsTable)
+    .values({ username: key, displayName: displayName || username, wins: value })
+    .returning();
+  return result[0] || null;
+}
+
+// 🧹 تصفير نقاط التوب لكل اللاعبين.
+export async function resetAllPlayerMatchWins() {
+  if (USE_LOCAL_STORE) return localStore.resetAllPlayerMatchWins();
+  if (!db || !pool) throw new Error("Database not initialized");
+  const result = await pool.query(`DELETE FROM player_match_wins`);
+  return { cleared: result.rowCount || 0 };
 }
