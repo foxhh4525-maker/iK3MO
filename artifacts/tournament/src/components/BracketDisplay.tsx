@@ -168,15 +168,18 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                         {/* 🏆 فوق خانة النهائي مباشرة وبإطار مدموج معها:
                             يعرض الكأس قبل التتويج، وأول ما يتحدد البطل يختفي
                             الكأس ويطلع اسمه بنفس المكان. الفاصل السفلي
-                            (final-spacer) بنفس الارتفاع عشان الخانة تظل
-                            بمنتصف العمود وخط الربط ما ينزاح. */}
+                            الصندوق خارج التدفق (absolute) فما يزيح الخانة
+                            ولا يأثر على مكان خط الربط إطلاقاً. */}
                         {col.side === "center" && (
                           <div className={`final-crown${champion ? " is-won" : ""}`}>
                             {champion
                               ? (
-                                <div className="champ-banner">
-                                  <span className="champ-winner">{champion}</span>
-                                </div>
+                                <>
+                                  <div className="champ-label">صاحب الكأس</div>
+                                  <div className="champ-banner">
+                                    <span className="champ-winner">{champion}</span>
+                                  </div>
+                                </>
                               )
                               : <span className="final-cup" aria-hidden="true">🏆</span>}
                           </div>
@@ -205,7 +208,6 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                           pickedMatchId={pickedMatchId}
                         />
                         {col.side !== "center" && <span className="conn" aria-hidden="true" />}
-                        {col.side === "center" && <span className="final-spacer" aria-hidden="true" />}
                       </div>
                     );
                   })}
