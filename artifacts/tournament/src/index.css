@@ -590,7 +590,10 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 }
 .join-btn:hover{transform:translateY(-1px)}
 .join-btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
-.green-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.green-row,.teams-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.join-btn.is-off{background:rgba(255,255,255,0.06);color:var(--muted);cursor:not-allowed}
+.join-btn.is-off:hover{transform:none}
+.helpers-modal{max-width:720px}
 .green-open-btn{
   padding:10px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;
   font-family:inherit;font-size:0.8rem;font-weight:800;
@@ -598,17 +601,6 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   border:1px solid var(--border);transition:all .18s;
 }
 .green-open-btn:hover{background:var(--blue);color:#04121f;border-color:var(--blue)}
-.green-early-btn{
-  padding:10px 16px;border-radius:10px;cursor:pointer;white-space:nowrap;
-  font-family:inherit;font-size:0.82rem;font-weight:800;
-  color:var(--text);background:rgba(255,255,255,0.04);
-  border:1px dashed var(--border2);transition:all .18s;
-}
-.green-early-btn:hover{border-color:var(--blue);color:var(--blue)}
-.green-early-btn.on{
-  background:linear-gradient(135deg,#22c55e,#15803d);
-  border:1px solid #22c55e;color:#04210f;
-}
 .join-clock{
   font-size:1.35rem;font-weight:900;color:var(--blue);
   font-variant-numeric:tabular-nums;min-width:66px;
