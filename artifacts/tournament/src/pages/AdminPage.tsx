@@ -2,8 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
-import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type Winner } from "@/lib/types";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getLeaderboard, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
+import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
   p2, buildBracket, doWin, setSize as stSetSize, getOpenMatches, rTitle,
@@ -46,7 +46,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const canTournament = role === "admin" || !!permissions?.tournament;
   const canRecords = role === "admin" || !!permissions?.records;
   const [st, setSt] = useState<TournamentState>(defaultState());
-  const [sidebarHidden, setSidebarHidden] = useState(false);
   const [CH, setCH] = useState("ik3mo");
   const [kLive, setKLive] = useState(false);
   const [chatStatus, setChatStatus] = useState<"offline" | "connecting" | "live">("offline");
@@ -158,6 +157,60 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   useEffect(() => {
     refreshRecords();
   }, [refreshRecords]);
+
+  // ── 🏆 نقاط "الأكثر انتصاراً" (تحكم يدوي كامل من الأدمن) ──
+  const [lb, setLb] = useState<LeaderboardEntry[]>([]);
+  const [lbLimit, setLbLimit] = useState(10);
+  const [lbBusy, setLbBusy] = useState(false);
+  const [lbMsg, setLbMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [lbDraft, setLbDraft] = useState<Record<string, string>>({});
+  const [lbNewName, setLbNewName] = useState("");
+  const [lbNewPts, setLbNewPts] = useState(1);
+
+  async function loadLeaderboard(limit = lbLimit) {
+    setLbBusy(true);
+    try {
+      const rows = await getLeaderboard(limit);
+      setLb(rows);
+      setLbDraft({});
+    } finally {
+      setLbBusy(false);
+    }
+  }
+
+  // تعيين قيمة صريحة لنقاط لاعب (تشمل الصفر = تصفير فردي)
+  async function applyPoints(username: string, value: number) {
+    if (!token) return;
+    setLbBusy(true);
+    setLbMsg(null);
+    try {
+      await setMatchWins(username, Math.max(0, Math.floor(value)), token);
+      setLbMsg({ ok: true, text: `تم تحديث نقاط ${username} إلى ${Math.max(0, Math.floor(value))}` });
+      await loadLeaderboard();
+    } catch (err) {
+      setLbMsg({ ok: false, text: err instanceof Error ? err.message : "فشل التعديل" });
+    } finally {
+      setLbBusy(false);
+    }
+  }
+
+  async function resetAllPoints() {
+    if (!token) return;
+    if (!window.confirm("تصفير نقاط كل اللاعبين نهائياً؟ ما يمكن التراجع.")) return;
+    setLbBusy(true);
+    setLbMsg(null);
+    try {
+      const cleared = await resetAllMatchWins(token);
+      setLbMsg({ ok: true, text: `تم تصفير النقاط (${cleared} لاعب)` });
+      await loadLeaderboard();
+    } catch (err) {
+      setLbMsg({ ok: false, text: err instanceof Error ? err.message : "فشل التصفير" });
+    } finally {
+      setLbBusy(false);
+    }
+  }
+
+  useEffect(() => { if (token) loadLeaderboard(); /* eslint-disable-next-line */ }, [token]);
 
   // ── بحث إحصائيات اللاعبين (فوزات + لفل لكل لعبة) ──
   const [statsQuery, setStatsQuery] = useState("");
@@ -1478,17 +1531,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
         /* ── الشريط الجانبي على الجوال ── */
         @media (max-width: 900px) {
-          .sidebar {
-            width: 100% !important;
-            max-width: 100% !important;
-            height: auto !important;
-          }
-          .sidebar-hidden {
-            display: none;
-          }
-          .chat-frame-container iframe {
-            width: 100% !important;
-          }
         }
       `}</style>
       <div id="bg" style={{ backgroundImage: `url(${bgImg})` }} />
@@ -1909,6 +1951,92 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               </div>
             )}
 
+            {/* ── 🏆 نقاط الأكثر انتصاراً: تحكم يدوي كامل (تعديل/تصفير) ── */}
+            {canRecords && (
+              <div className="card">
+                <div className="lb-head">
+                  <span style={{ fontSize: "1.15rem" }}>🏆</span>
+                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نقاط الأكثر انتصاراً</h3>
+                  <span className="lb-sub">— عدّل نقاط أي لاعب أو صفّرها يدوياً</span>
+                  <div className="lb-tools">
+                    <select
+                      className="lb-select"
+                      value={lbLimit}
+                      onChange={e => { const n = Number(e.target.value); setLbLimit(n); loadLeaderboard(n); }}
+                      title="كم لاعب يظهر بالقائمة"
+                    >
+                      <option value={5}>أعلى 5</option>
+                      <option value={10}>أعلى 10</option>
+                      <option value={20}>أعلى 20</option>
+                      <option value={50}>أعلى 50</option>
+                    </select>
+                    <button className="lb-btn" onClick={() => loadLeaderboard()} disabled={lbBusy}>🔄 تحديث</button>
+                    <button className="lb-btn danger" onClick={resetAllPoints} disabled={lbBusy}>🧹 تصفير الكل</button>
+                  </div>
+                </div>
+
+                {lbMsg && (
+                  <div className={`lb-msg${lbMsg.ok ? " ok" : " err"}`}>{lbMsg.ok ? "✅" : "⚠️"} {lbMsg.text}</div>
+                )}
+
+                {/* ➕ إضافة/تعيين نقاط لاسم مو موجود بالقائمة */}
+                <div className="lb-add">
+                  <input
+                    type="text"
+                    className="lb-name-input"
+                    placeholder="اسم اللاعب..."
+                    value={lbNewName}
+                    onChange={e => setLbNewName(e.target.value)}
+                  />
+                  <input
+                    type="number"
+                    className="lb-pts-input"
+                    min={0}
+                    value={lbNewPts}
+                    onChange={e => setLbNewPts(Math.max(0, parseInt(e.target.value) || 0))}
+                  />
+                  <span className="lb-unit">نقطة</span>
+                  <button
+                    className="lb-btn primary"
+                    disabled={lbBusy || !lbNewName.trim()}
+                    onClick={() => { applyPoints(lbNewName.trim(), lbNewPts); setLbNewName(""); }}
+                  >✍️ تعيين</button>
+                </div>
+
+                <div className="lb-list">
+                  {lb.length === 0 && !lbBusy && (
+                    <div className="lb-empty">ما فيه نقاط مسجّلة بعد</div>
+                  )}
+                  {lb.map((row, i) => {
+                    const draft = lbDraft[row.username];
+                    const shown = draft !== undefined ? draft : String(row.wins);
+                    const changed = draft !== undefined && Number(draft) !== row.wins;
+                    return (
+                      <div key={row.username} className="lb-row">
+                        <span className={`lb-rank r${i + 1}`}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
+                        <span className="lb-name" title={row.username}>{row.username}</span>
+                        <div className="lb-ctrl">
+                          <button className="lb-step" disabled={lbBusy || row.wins <= 0} onClick={() => applyPoints(row.username, row.wins - 1)} title="نقص نقطة">−</button>
+                          <input
+                            type="number"
+                            className="lb-pts-input"
+                            min={0}
+                            value={shown}
+                            onChange={e => setLbDraft(d => ({ ...d, [row.username]: e.target.value }))}
+                          />
+                          <button className="lb-step" disabled={lbBusy} onClick={() => applyPoints(row.username, row.wins + 1)} title="زد نقطة">+</button>
+                          {changed && (
+                            <button className="lb-btn primary sm" disabled={lbBusy} onClick={() => applyPoints(row.username, Number(draft) || 0)}>حفظ</button>
+                          )}
+                          <button className="lb-btn danger sm" disabled={lbBusy || row.wins === 0} onClick={() => applyPoints(row.username, 0)} title="تصفير هذا اللاعب">↺ صفّر</button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {!canTournament && (
               <div className="card" style={{ textAlign: "center", padding: "28px 16px", opacity: 0.85 }}>
                 <div style={{ fontSize: "1.6rem", marginBottom: "8px" }}>🔒</div>
@@ -2125,32 +2253,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           </div>
         </div>
 
-        <button className={`sidebar-toggle${!sidebarHidden ? " sb-active" : ""}`} onClick={() => setSidebarHidden(h => !h)} title={sidebarHidden ? "إظهار الشات" : "إخفاء الشات"}>
-          <span>💬</span>
-          <span style={{ fontSize: "0.82rem", fontFamily: "Cairo, sans-serif", fontWeight: 700 }}>{sidebarHidden ? "الشات" : "إخفاء"}</span>
-        </button>
-
-        <div className={`sidebar${sidebarHidden ? " sidebar-hidden" : ""}`} id="sidebar-container">
-          <div className="sidebar-head">
-            <div className="kick-badge"><img src={iconImg} alt="IK3MO" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
-            <div className="sidebar-title">IK3MO</div>
-            <div className={`live-pill${chatStatus === "live" ? " pill-live" : chatStatus === "connecting" ? " pill-checking" : " pill-offline"}`}>
-              {chatStatus === "live" ? "🟢 مباشر" : chatStatus === "connecting" ? "🟡 يتحقق..." : "⚫ أوفلاين"}
-            </div>
-          </div>
-          <div className="chat-body">
-            <div className="chat-frame-container" style={{ position: "relative" }}>
-              {kLive ? (
-                <iframe src={`https://kick.com/popout/${CH}/chat`} allow="autoplay;fullscreen" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" style={{ display: "block" }} />
-              ) : (
-                <div className="chat-offline">
-                  <div className="ico">📡</div>
-                  <p>جاري التحقق من بث <b>{CH.toUpperCase()}</b> على Kick.<br />الشات يظهر تلقائياً عند البث.</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       </div>
 
       {/* 🎨 لوحة تخصيص ثيم/إيموجي/لقب الفائز — تظهر التغييرات فورًا بالصفحة العامة */}
