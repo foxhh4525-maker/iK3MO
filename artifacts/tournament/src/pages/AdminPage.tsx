@@ -1269,10 +1269,13 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
     // 🏆 نقطة توب الفائزين: كل ماتش حقيقي تكسبه = نقطة، بأي جولة وأي بطولة.
     // نتجاهل الماتشات اللي خصمها "باي" لأن اللاعب عدّى بدون ما يلعب.
+    // 🚫 وبوضع الفرق ما نحسب نقاط أصلاً: الخانة تحتوي فريق كامل مو لاعب
+    //    واحد ("سعود N فهد")، فتسجيلها بقائمة الأكثر انتصاراً يخرّب القائمة
+    //    بأسماء فرق بدل أسماء لاعبين.
     const m = st.rounds[rIdx]?.[mIdx];
     const matchWinner = side === "a" ? m?.a : m?.b;
     const matchLoser = side === "a" ? m?.b : m?.a;
-    if (matchWinner && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
+    if (!st.isTeams && matchWinner && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
       addMatchWin(matchWinner, 1, token);
     }
 
@@ -1334,7 +1337,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     // 🔙 نسحب نقطة الماتش اللي تراجعنا عنه: نقارن الشجرة الحالية بالسابقة
     // ونلقى الماتش اللي كان محسوم وصار غير محسوم.
     const undoneWinner = findUndoneMatchWinner(st, prevSnapshot as TournamentState);
-    if (undoneWinner) addMatchWin(undoneWinner, -1, token);
+    // بوضع الفرق ما سجّلنا نقطة أصلاً، فما فيه شي نسحبه
+    if (undoneWinner && !st.isTeams) addMatchWin(undoneWinner, -1, token);
 
     const restored: TournamentState = { ...prevSnapshot, winHistory: remaining, pickedMatchId: null };
     setSlotA("—"); setSlotB("—");
