@@ -739,29 +739,61 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .round-title{font-size:0.64rem;padding:4px 11px;margin-bottom:10px}
 }
 
-/* ── 👑 البطل داخل عمود النهائي ── */
+/* ── 🏆 رأس عمود النهائي: كأس كبير + البطل ── */
+.final-head{
+  display:flex;flex-direction:column;align-items:center;
+  gap:7px;margin-bottom:14px;
+}
+.final-cup{
+  font-size:2.8rem;line-height:1;
+  filter:drop-shadow(0 0 14px rgba(255,215,0,0.5));
+  animation:cupFloat 3s ease-in-out infinite;
+}
+@keyframes cupFloat{
+  0%,100%{transform:translateY(0) rotate(-3deg)}
+  50%{transform:translateY(-6px) rotate(3deg)}
+}
+/* لما يتحدد البطل: الكأس يكبر ويلمع أكثر */
+.final-cup.is-won{
+  font-size:3.4rem;
+  filter:drop-shadow(0 0 22px rgba(255,215,0,0.85));
+  animation:cupWin 2.2s ease-in-out infinite;
+}
+@keyframes cupWin{
+  0%,100%{transform:translateY(0) rotate(-6deg) scale(1)}
+  50%{transform:translateY(-9px) rotate(6deg) scale(1.08)}
+}
+.final-head .round-title{margin-bottom:0}
+
+/* 🏆 البطل — شريط مائل بحواف ذهبية يحمل اسم الفائز بألوان متحركة.
+   الكأس 🏆 اللي فوق (.final-cup) هو نفسه ما تغيّر — الشريط يجي تحته
+   مباشرة، وموقعه بين الكأس وأسماء النهائي. */
 .champ-slot{
-  margin-top:30px;padding-top:22px;
-  border-top:1px dashed rgba(255,215,0,0.45);
-  display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;
+  width:100%;
+  margin:10px 0 13px;
+  display:flex;justify-content:center;
 }
-.champ-crown{
-  font-size:1.75rem;line-height:1;
-  filter:drop-shadow(0 0 10px rgba(255,215,0,0.65));
-  animation:crownFloat 2.6s ease-in-out infinite;
+.champ-banner{
+  width:100%;
+  padding:10px 12px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  transform:skewX(-9deg);
+  background:linear-gradient(90deg,rgba(9,17,32,0.96),rgba(34,26,4,0.96) 50%,rgba(9,17,32,0.96));
+  border-top:2px solid var(--gold);
+  border-bottom:2px solid var(--gold);
+  box-shadow:0 6px 18px rgba(0,0,0,0.5), 0 0 22px rgba(255,215,0,0.22);
+  animation:champIn .5s cubic-bezier(.22,1,.36,1) both;
 }
-@keyframes crownFloat{
-  0%,100%{transform:translateY(0) rotate(-5deg)}
-  50%{transform:translateY(-5px) rotate(5deg)}
+@keyframes champIn{
+  from{opacity:0;transform:skewX(-9deg) translateY(-8px)}
+  to{opacity:1;transform:skewX(-9deg) translateY(0)}
 }
-.champ-label{
-  font-size:0.6rem;font-weight:800;letter-spacing:3px;
-  color:var(--gold);opacity:0.85;
-}
+/* الاسم يرجع مستقيم داخل الشريط المائل */
 .champ-winner{
+  display:inline-block;transform:skewX(9deg);
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:1.5rem;font-weight:900;letter-spacing:-0.3px;line-height:1.35;
-  /* كل الألوان ما عدا الأصفر والأخضر — عشان تشتغل بأمان مع الكروما كي */
+  font-size:1.65rem;font-weight:900;line-height:1.3;letter-spacing:-0.2px;
+  /* كل الألوان ما عدا الأصفر والأخضر — آمنة مع الكروما كي */
   background:linear-gradient(90deg,#ffffff,#00e5ff,#2979ff,#7c4dff,#ff2d8a,#ff5252,#00e5ff,#ffffff);
   background-size:400% 100%;
   -webkit-background-clip:text;background-clip:text;
@@ -801,15 +833,19 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .green-mode .match.done > .conn{animation:none !important;box-shadow:none !important;filter:none !important}
 /* 👑 البطل يضل متحرّك بالجرين سكرين — حركة تدرّج ألوان فقط بدون أي توهّج،
    فما تأثر على الكروما كي. شلنا بس الهالة المضيئة من حول التاج. */
-.green-mode .champ-crown{filter:none}
-.green-mode .champ-slot{border-top-color:rgba(41,182,246,0.5)}
-.green-mode .champ-label{color:#7fd4ff}
+.green-mode .final-cup{filter:none}
 .green-mode .match.ready{border-color:#29b6f6 !important;background:#0c2136 !important}
 .green-mode .match.picked-match{
   border-color:#ff2d2d !important;background:#2a1113 !important;
   box-shadow:0 0 0 3px #ff2d2d !important;
 }
-.green-mode .champ-winner{font-size:1.85rem}
+.green-mode .champ-winner{font-size:2.1rem}
+.green-mode .champ-banner{
+  background:#1d1704;
+  box-shadow:none !important;animation:none !important;
+}
+.green-mode .final-cup{font-size:3.2rem}
+.green-mode .final-cup.is-won{font-size:3.8rem}
 
 /* ── أزرار وضع الخلفية بصفحة /bracket ── */
 /* شبه مخفية (شفافية 6%) عشان ما تبين بالبث، وتظهر كامل لما تحرّك عليها الماوس */
