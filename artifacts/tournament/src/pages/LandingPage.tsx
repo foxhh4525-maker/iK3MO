@@ -928,6 +928,7 @@ export default function LandingPage() {
         /* ===== زر مشاهدة البطولة ===== */
         /* يتعرض بمكانين حسب المقاس: داخل الهيدر (ديسكتوب) أو فوق الكروت (جوال) */
         .lp-watch-desktop{display:flex;align-items:center;direction:rtl}
+        .lp-watch-mobile{display:none;align-items:center;direction:rtl}
         .lp-watch-row{display:none;direction:rtl}
         .lp-watch-btn{
           display:flex;align-items:center;gap:9px;padding:clamp(8px,2vw,10px) clamp(16px,4vw,24px);border-radius:999px;
@@ -1305,26 +1306,21 @@ export default function LandingPage() {
           .lp-login-text{display:none}
           .lp-login-btn svg{width:18px;height:18px;opacity:1}
 
-          /* 🏆 زر حالة البطولة صار داخل الهيدر جنب تسجيل الدخول.
-             display:contents على .lp-nav-right يرفع أطفاله ليصيروا عناصر
-             مباشرة داخل .lp-nav، فنقدر نرتّبهم بـ order بحرية:
-             [تسجيل الدخول] [زر البطولة] [الكأس] [الأيقونات] */
+          /* 🏆 زر حالة البطولة جنب تسجيل الدخول — النسخة الخاصة بالجوال
+             موجودة أصلاً داخل .lp-nav-left بالـ DOM، فمكانها مضمون على أي
+             متصفح. (الطريقة القديمة كانت display:contents وهي تفشل بصمت
+             على متصفحات جوال قديمة، وهذا اللي كان يخلي الزر ما ينتقل.) */
           .lp-nav{
             flex-wrap:wrap;row-gap:8px;gap:7px;margin-bottom:0;
-            justify-content:flex-start;   /* الدخول + زر البطولة يلتصقون باليسار */
+            justify-content:space-between;
           }
-          .lp-nav-right{display:contents}
-          .lp-nav-left{order:1}
-          /* !important عشان ما تلغيه قاعدة .lp-watch-desktop{display:none}
-             الموجودة ببلوك الجوال الأقدم بأعلى الملف. */
-          .lp-watch-desktop{
-            display:flex !important;
-            order:2 !important;
-            margin-inline-end:auto;   /* يدفع باقي الأيقونات لليمين */
+          .lp-nav-left{
+            display:flex;align-items:center;gap:8px;
+            flex:1 1 auto;min-width:0;
           }
-          .lp-nav-left{margin-inline-end:0}
-          .lp-nav-icon{order:3}
-          .lp-board-toggle{order:4}   /* 🏆 بأقصى اليمين */
+          .lp-watch-mobile{display:flex}
+          .lp-watch-desktop{display:none !important}
+          .lp-nav-right{display:flex;align-items:center;gap:7px;flex-wrap:nowrap}
           .lp-nav-sep{display:none}
           /* الزر مضغوط عشان يقعد بصف واحد مع باقي الأيقونات */
           .lp-watch-btn{
@@ -1362,11 +1358,12 @@ export default function LandingPage() {
              [تسجيل دخول] [مشاهدة البطولة] [الدعم] [كيك] [ديسكورد]
              نحدد كل عنصر برقم صريح + direction:ltr داخل المجموعة، فالترتيب
              مضمون ولا يعتمد على اتجاه الصفحة. */
-          /* نسحب الهيدر خارج حشوة .lp-page عشان يوصل لحافة الشاشة تقريباً.
-             الرقم 8px هو المسافة الباقية من الحافة — صغّره يقرب أكثر. */
+          /* الأزرار على حافة الشاشة تماماً: نسحب الهيدر خارج حشوة .lp-page
+             بالكامل (سالب نفس قيمة الحشوة) فيبدأ من البكسل صفر.
+             الرقم 0px هو المسافة الباقية من الحافة — زوّده لو بغيتهم يبتعدون. */
           .lp-nav{
             flex-wrap:nowrap;
-            margin-left:calc(8px - clamp(12px,4vw,20px));
+            margin-left:calc(0px - clamp(12px,4vw,20px));
           }
           .lp-nav-left{order:1}
           .lp-nav-right{order:2;direction:ltr}
@@ -1419,6 +1416,11 @@ export default function LandingPage() {
                 <span className="lp-login-text">تسجيل دخول</span>
               </button>
             )}
+
+            {/* 📱 نسخة زر البطولة الخاصة بالجوال — موجودة داخل نفس مجموعة
+                تسجيل الدخول بالـ DOM، فمكانها مضمون بدون أي حيل CSS.
+                مخفية بالبي سي، والنسخة اللي بالمجموعة اليمنى مخفية بالجوال. */}
+            <div className="lp-watch-mobile">{watchBtn}</div>
           </div>
 
           {/* ➡️ يمين */}
