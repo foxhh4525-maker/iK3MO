@@ -365,6 +365,92 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .cardpick-go{color:var(--blue);font-weight:900;flex-shrink:0}
 .cardpick-busy{margin-top:14px;text-align:center;font-size:0.85rem;font-weight:800;color:var(--blue)}
 
+
+/* ── 🧩 لوحتان جنب بعض (المستويات + نقاط التوب) ── */
+.panels-row{
+  display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;
+}
+.panels-row > .panel-half{
+  flex:1 1 440px;min-width:0;margin-bottom:0;
+}
+
+/* ── 🎚️ قائمة نظام المستويات ── */
+.lvl-list{display:flex;flex-direction:column;gap:7px;margin-top:4px}
+.lvl-row{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 12px;border-radius:11px;
+  background:rgba(255,255,255,0.035);border:1px solid var(--border);
+  transition:border-color .16s;
+}
+.lvl-row:hover{border-color:rgba(41,182,246,0.4)}
+/* الصف كزر قابل للضغط (يفتح تفاصيل اللاعب) */
+.lvl-row.as-btn{
+  width:100%;cursor:pointer;text-align:start;font-family:inherit;color:var(--text);
+}
+.lvl-row.as-btn:hover:not(:disabled){background:rgba(41,182,246,0.12);transform:translateX(-3px)}
+.lvl-row.as-btn:disabled{opacity:0.5;cursor:not-allowed}
+.lvl-row.as-btn.on{border-color:var(--blue);background:rgba(41,182,246,0.14)}
+.lvl-rank{
+  flex-shrink:0;min-width:22px;text-align:center;
+  font-size:0.8rem;font-weight:900;color:var(--muted);
+}
+.lvl-go{flex-shrink:0;color:var(--blue);font-weight:900;font-size:0.9rem}
+
+/* رأس تفاصيل اللاعب المختار */
+.lvl-detail-head{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 12px;margin:14px 0 10px;border-radius:11px;
+  background:rgba(41,182,246,0.08);border:1px solid rgba(41,182,246,0.3);
+  font-size:0.9rem;font-weight:800;
+}
+.lvl-detail-head b{color:#7fd4ff}
+.lvl-detail-sum{flex:1;font-size:0.76rem;color:var(--muted);font-weight:700}
+.lvl-name{
+  flex:0 0 26%;min-width:0;font-weight:800;font-size:0.92rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lvl-badge{
+  flex-shrink:0;padding:3px 10px;border-radius:99px;
+  background:rgba(41,182,246,0.12);color:#7fd4ff;
+  font-size:0.76rem;font-weight:900;
+}
+.lvl-track{
+  flex:1;min-width:50px;height:7px;border-radius:99px;overflow:hidden;
+  background:rgba(255,255,255,0.1);position:relative;
+}
+.lvl-fill{
+  position:absolute;inset:0 auto 0 0;border-radius:99px;
+  background:linear-gradient(90deg,#1976e6,#39c4ff);
+  box-shadow:0 0 8px rgba(41,182,246,0.5);
+  transition:width .4s ease;
+}
+.lvl-wins{
+  flex-shrink:0;min-width:26px;text-align:center;
+  font-size:0.78rem;font-weight:900;color:var(--muted);
+}
+.lvl-ctrl{display:flex;gap:5px;flex-shrink:0}
+
+/* ترقيم الصفحات */
+.lvl-pager{
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  flex-wrap:wrap;margin-top:12px;
+}
+.lvl-pg,.lvl-pg-nav{
+  min-width:30px;height:30px;padding:0 8px;border-radius:8px;cursor:pointer;
+  font-family:inherit;font-size:0.8rem;font-weight:800;
+  color:var(--text);background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);transition:all .16s;
+}
+.lvl-pg:hover:not(.on),.lvl-pg-nav:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.lvl-pg.on{background:var(--blue);border-color:var(--blue);color:#04121f}
+.lvl-pg-nav{font-size:1rem;line-height:1}
+.lvl-pg-nav:disabled{opacity:0.35;cursor:not-allowed}
+
+@media (max-width:640px){
+  .lvl-name{flex-basis:34%}
+  .lvl-track{display:none}
+}
+
 /* ── 🏆 لوحة نقاط الأكثر انتصاراً ── */
 .lb-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
 .lb-sub{font-size:0.75rem;color:var(--muted)}
