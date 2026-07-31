@@ -42,6 +42,14 @@ interface Props {
 
 type SlotState = "idle" | "rolling" | "locked";
 
+// ── 🗣️ أوامر الشات: تُقبل بعلامة ! أو بدونها ──
+// ^\s*!?  = تسمح بمسافات بالبداية وعلامة ! اختيارية
+// (?:...)  = الكلمة نفسها بالعربي أو الإنجليزي
+// (?=$|\s|[^\p{L}\p{N}]) = لازم ينتهي الأمر هنا، فما تنطبق على كلمة أطول
+//   مثل "دخولي" أو "الدخول" — يعني الجملة العادية بالشات ما تُحسب انضمام.
+const JOIN_CMD = /^\s*!?(?:دخول|join)(?=$|\s|[^\p{L}\p{N}])/iu;
+const LEAVE_CMD = /^\s*!?(?:خروج|leave)(?=$|\s|[^\p{L}\p{N}])/iu;
+
 export default function AdminPage({ token, role, permissions, onLogout }: Props) {
   const canTournament = role === "admin" || !!permissions?.tournament;
   const canRecords = role === "admin" || !!permissions?.records;
@@ -835,8 +843,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         );
         if (!content || !user) return;
 
-        // 🚪 أمر الانسحاب الذاتي: يخلي اللاعب يطلع نفسه من القائمة قبل بدء البطولة
-        if (/!خروج|!leave/i.test(content)) {
+        // 🚪 أمر الانسحاب الذاتي: يخلي اللاعب يطلع نفسه من القائمة قبل بدء البطولة.
+        // يُقبل بعلامة ! أو بدونها (خروج / !خروج / leave / !leave).
+        if (LEAVE_CMD.test(content)) {
           let didLeave = false;
           setSt(prev => {
             if (prev.phase !== "setup") return prev;
@@ -849,7 +858,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           return;
         }
 
-        if (!/!دخول|!join/i.test(content)) return;
+        if (!JOIN_CMD.test(content)) return;
 
         let didAdd = false;
         setSt(prev => {
@@ -1128,7 +1137,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     const joined = st.players.filter(p => p).length;
     const MIN_PLAYERS = 2;
     if (joined === 0) {
-      return "⚠️ ما انضم ولا لاعب لسا! خلي المشاهدين يكتبوا !دخول بالشات قبل ما تبدأ.";
+      return "⚠️ ما انضم ولا لاعب لسا! خلي المشاهدين يكتبوا دخول بالشات قبل ما تبدأ.";
     }
     if (joined < MIN_PLAYERS) {
       const missing = MIN_PLAYERS - joined;
@@ -2186,8 +2195,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   <span className="reg-count">{st.players.filter(p => p).length}</span>
                   <span className="reg-hint">
                     {st.joinDeadline && getJoinSecondsLeft() > 0
-                      ? "الباب مفتوح الآن — أي !دخول بالشات ينضاف مباشرة"
-                      : <>الانضمام تلقائي بكتابة <b>!دخول</b> بالشات</>}
+                      ? "الباب مفتوح الآن — أي دخول بالشات ينضاف مباشرة"
+                      : <>الانضمام تلقائي بكتابة <b>دخول</b> أو <b>!دخول</b> بالشات</>}
                   </span>
                   {/* 🤖 تنضاف بأي وقت — قبل فتح الباب أو وهو مفتوح — عشان تقدر
                       تجرّب شكل الشجرة فوراً بدون ما تنتظر أحد ينضم. */}
