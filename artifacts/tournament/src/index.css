@@ -794,16 +794,8 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   white-space:nowrap;
 }
 /* عمود النهائي */
-.round.r-center{
-  background:rgba(41,182,246,0.05);
-  border:1px solid rgba(41,182,246,0.3);border-radius:16px;padding:14px;
-  min-width:224px;max-width:268px;flex-shrink:0;
-}
-.round.r-center .round-title{
-  background:rgba(41,182,246,0.16);
-  border-color:rgba(41,182,246,0.45);
-  color:#fff;font-size:0.8rem;letter-spacing:2px;
-}
+/* عمود النهائي بنفس شكل بقية الأعمدة — بدون إطار مستطيل ولا عنوان مميّز */
+.round.r-center{min-width:224px;max-width:268px;flex-shrink:0}
 
 /* ── المباريات ── */
 /* المسافة تتضاعف كل دور (‎--k = 2^ri‎ تجي من BracketDisplay)، فيصير مركز كل
@@ -960,22 +952,17 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .round-title{font-size:0.64rem;padding:4px 11px;margin-bottom:10px}
 }
 
-/* ── 🏆 صندوق الكأس/البطل فوق خانة النهائي (إطار مدموج) ── */
+/* ── 🏆 الكأس فوق خانة النهائي — بدون أي إطار ── */
 /* الصندوق والفاصل بنفس الارتفاع، فمركز خانة النهائي يبقى بمنتصف العمود
-   تماماً وخطوط الربط مع آخر اسمين ما تنزاح. */
+   تماماً وخط الربط مع آخر اسمين ما ينزاح. */
 .final-crown,.final-spacer{
   flex:0 0 var(--crown-h);height:var(--crown-h);
-  order:-1;                       /* الصندوق فوق الشريحتين */
+  order:-1;
 }
 .final-spacer{order:99;visibility:hidden;pointer-events:none}
 .final-crown{
   display:flex;align-items:center;justify-content:center;
-  padding:8px 12px;
-  background:linear-gradient(180deg,rgba(255,215,0,0.14),rgba(255,215,0,0.03));
-  border:1px solid rgba(255,215,0,0.45);
-  border-bottom:none;                      /* يندمج مع خانة النهائي تحته */
-  border-radius:13px 13px 0 0;
-  margin:0 -1px;                           /* يحاذي حدود الخانة بالضبط */
+  width:100%;padding:0 2px;
 }
 .final-cup{
   font-size:3.2rem;line-height:1;
@@ -986,20 +973,26 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   0%,100%{transform:translateY(0) rotate(-3deg)}
   50%{transform:translateY(-6px) rotate(3deg)}
 }
-/* بعد التتويج: الكأس يختفي واسم البطل ياخذ مكانه */
-.final-crown.is-won{
-  background:linear-gradient(180deg,rgba(255,215,0,0.2),rgba(255,215,0,0.04));
-  border-color:var(--gold);
+/* بعد التتويج: الكأس يختفي والشريط المائل ياخذ مكانه بالضبط */
+.champ-banner{
+  width:100%;
+  padding:10px 12px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  transform:skewX(-9deg);
+  background:linear-gradient(90deg,rgba(9,17,32,0.96),rgba(34,26,4,0.96) 50%,rgba(9,17,32,0.96));
+  border-top:2px solid var(--gold);
+  border-bottom:2px solid var(--gold);
+  box-shadow:0 6px 18px rgba(0,0,0,0.5), 0 0 22px rgba(255,215,0,0.22);
   animation:champIn .5s cubic-bezier(.22,1,.36,1) both;
 }
 @keyframes champIn{
-  from{opacity:0;transform:translateY(-8px)}
-  to{opacity:1;transform:translateY(0)}
+  from{opacity:0;transform:skewX(-9deg) translateY(-8px)}
+  to{opacity:1;transform:skewX(-9deg) translateY(0)}
 }
 .champ-winner{
+  display:inline-block;transform:skewX(9deg);
   max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-size:1.7rem;font-weight:900;line-height:1.25;letter-spacing:-0.2px;
-  /* كل الألوان ما عدا الأصفر والأخضر — آمنة مع الكروما كي */
+  font-size:1.65rem;font-weight:900;line-height:1.3;letter-spacing:-0.2px;
   background:linear-gradient(90deg,#ffffff,#00e5ff,#2979ff,#7c4dff,#ff2d8a,#ff5252,#00e5ff,#ffffff);
   background-size:400% 100%;
   -webkit-background-clip:text;background-clip:text;
@@ -1010,13 +1003,6 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   0%{background-position:0% 50%}
   100%{background-position:400% 50%}
 }
-/* الخانة تحت الصندوق: بدون انحناء علوي عشان الإطار يبان واحد */
-.match.final-match{
-  border-color:rgba(255,215,0,0.45);
-  border-top:none;
-  border-radius:0 0 13px 13px;
-}
-.match.final-match > .player:first-of-type{border-radius:8px}
 
 /* ── 🟢 وضع الشاشة الخضراء (Chroma Key) ──
    خلفيات صلبة بدون شفافية ولا بلور، صفر توهّج وصفر أنيميشن (التوهّج يخلي
