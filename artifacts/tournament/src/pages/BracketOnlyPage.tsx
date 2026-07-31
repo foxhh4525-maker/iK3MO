@@ -122,9 +122,9 @@ export default function BracketOnlyPage() {
       }}
     >
             {st.phase === "setup" ? (
-        // 🟢 قبل بدء البطولة: لو الأدمن فعّل "إظهار من بدري" نعرض بوابة
-        // الانضمام على الشاشة الخضراء — عدّاد + أمر !دخول + عدد المنضمين.
-        st.greenEarly ? (
+        // 🟢 قبل بدء البطولة: نعرض بوابة الانضمام دايماً — عدّاد + أمر دخول
+        // + المشاركين. ما فيه أي تفعيل يدوي، الصفحة جاهزة للبث من بدري.
+        (
           <div className={`gate${st.entryLog.length > 0 ? " has-players" : ""}${!st.joinDeadline ? "" : !gateOpen ? " is-closed" : secsLeft <= 10 ? " is-hot" : ""}`}>
             {st.name && <div className="gate-title">🏆 {st.name}</div>}
 
@@ -177,12 +177,6 @@ export default function BracketOnlyPage() {
               </>
             )}
           </div>
-        ) : (
-          mode === "dark" && (
-            <p style={{ opacity: 0.5, fontSize: "0.9rem", color: "var(--text)" }}>
-              ⏳ ما فيه شجرة بطولة الآن — البطولة لسا ما بدأت
-            </p>
-          )
         )
       ) : (
         <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
