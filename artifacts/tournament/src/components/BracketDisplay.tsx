@@ -139,10 +139,12 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                 <div className="round-head">
                   {col.side === "center" ? (
                     <>
-                      <div className={`final-cup${champion ? " is-won" : ""}`} aria-hidden="true">🏆</div>
+                      {/* الترتيب: النهائي ← الكأس ← "اسم الفائز" ← الاسم الملوّن */}
                       <div className="round-title">النهائي</div>
+                      <div className={`final-cup${champion ? " is-won" : ""}`} aria-hidden="true">🏆</div>
                       {champion && (
                         <div className="champ-slot">
+                          <div className="champ-label">اسم الفائز</div>
                           <div className="champ-banner">
                             <span className="champ-winner">{champion}</span>
                           </div>
