@@ -103,6 +103,34 @@ export default function ViewerPage() {
           .viewer-back-btn{ top: 12px; left: 12px; padding: 8px 16px 8px 13px; font-size: .78rem }
           .viewer-home-btn{ padding: 12px 26px; font-size: .92rem }
         }
+        /* ═══════════ 🖥️ الشجرة على عرض الشاشة كاملة ═══════════
+           خاص بصفحة العرض (.viewer-shell) فقط — صفحة /bracket الخاصة
+           بالشاشة الخضراء ما تتأثر إطلاقاً لأنها ما تستخدم هذا الكلاس.
+
+           ثلاثة قيود كانت تمنع الشجرة تملأ العرض:
+           1) .main > div عليه max-width:1600px
+           2) حشوة .main الجانبية
+           3) أعمدة الجولات عليها max-width فما تكبر مهما كانت المساحة
+           نلغيهم هنا ونخلي الأعمدة تتقاسم العرض بالتساوي (flex:1 1 0).
+           المسافة بين الأعمدة (gap) تبقى ثابتة، فخطوط الربط تظل مضبوطة. */
+        .viewer-shell .main{ padding-left: 10px; padding-right: 10px }
+        .viewer-shell .main > div{ max-width: none }
+        .viewer-shell .bracket-scroll{ width: 100% }
+        .viewer-shell .bracket{ width: 100%; justify-content: center }
+        .viewer-shell .round,
+        .viewer-shell .round.r-fwd,
+        .viewer-shell .round.r-left,
+        .viewer-shell .round.r-right{ max-width: none; flex: 1 1 0 }
+        .viewer-shell .round.r-center{ max-width: none; flex: 1 1 0 }
+
+        /* مساحة أوسع = أسماء أكبر وأوضح للمشاهد */
+        @media (min-width: 1100px){
+          .viewer-shell .bracket{ --row: 48px; --conn: 20px }
+          .viewer-shell .p-name{ font-size: 1.14rem }
+          .viewer-shell .p-badge{ width: 28px; height: 28px; font-size: .84rem }
+          .viewer-shell .round.r-center .player .p-name{ font-size: 1.24rem }
+        }
+
       `}</style>
       <div id="bg" style={{ backgroundImage: `url(${bgImg})` }} />
       <div id="bg-grad" />
