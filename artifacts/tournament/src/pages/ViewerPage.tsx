@@ -309,13 +309,16 @@ export default function ViewerPage() {
                               {e.user.charAt(0).toUpperCase()}
                             </div>
                           )}
+                          {/* 🔤 الاسم كامل — يلتف على سطرين بدل ما يتقصّ */}
                           <span
                             style={{
                               fontSize: "0.95rem",
                               fontWeight: 700,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
+                              minWidth: 0,
+                              whiteSpace: "normal",
+                              overflowWrap: "anywhere",
+                              wordBreak: "break-word",
+                              lineHeight: 1.35,
                             }}
                           >
                             {e.user}
