@@ -2334,9 +2334,13 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
             {/* TOURNAMENT SCREEN */}
             {canTournament && st.phase === "tournament" && (
               <div>
-                <div className="toolbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", gap: "20px", flexWrap: "wrap" }}>
-                  <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-                    <button className="btn btn-ghost" onClick={() => resetTournament()} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>↺ بطولة جديدة</button>
+                {/* ⚠️ قبل: اسم البطولة كان position:absolute بنص الشريط، فيتداخل
+                    مع أزرار اليسار (خصوصاً خانة الماتش العشوائي) لما تطول.
+                    الحين كل شي بتدفق flex طبيعي — العنوان بالنص بمرونة
+                    والمجموعتان على الطرفين، وما فيه تداخل مهما طال الاسم. */}
+                <div className="toolbar tb-flex">
+                  <div className="tb-side">
+                    <button className="btn-stop" onClick={() => resetTournament()} title="يوقف البطولة الحالية ويرجّعك لشاشة الإعداد">⛔ إيقاف البطولة</button>
                     <button className="btn btn-ghost" onClick={undoLastWin} disabled={!st.winHistory?.length} title={st.winHistory?.length ? "تراجع عن آخر نتيجة فوز" : "ما فيه نتيجة نتراجع عنها"} style={{ padding: "6px 14px", fontSize: "0.85rem", opacity: st.winHistory?.length ? 1 : 0.4, cursor: st.winHistory?.length ? "pointer" : "not-allowed" }}>↩️ تراجع</button>
                     <button
                       className="btn btn-ghost"
@@ -2356,12 +2360,10 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       <span className={slotClassB}>{slotB}</span>
                     </div>
                   </div>
-                  <div className="toolbar-info" style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}>
-                    <span style={{ color: "var(--gold)", fontWeight: 900, fontSize: "1.4rem", whiteSpace: "nowrap", textShadow: "0 0 12px rgba(255,215,0,0.6)" }}>
-                      {st.name ? `🏆 ${st.name}` : ""}
-                    </span>
+                  <div className="tb-title">
+                    <span>{st.name ? `🏆 ${st.name}` : ""}</span>
                   </div>
-                  <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div className="tb-side tb-stats">
                     <span>{st.isTeams ? "الفرق:" : "اللاعبون:"}</span> <b>{st.players.length}</b>
                     {st.byeN > 0 && <span style={{ color: "var(--blue)" }}>(بايب: {st.byeN})</span>}
                     <span style={{ opacity: 0.5 }}>·</span>
