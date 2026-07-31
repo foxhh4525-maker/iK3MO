@@ -337,3 +337,20 @@ export default function ViewerPage() {
 
                 <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
 
+                {/* ✅ لما تنتهي البطولة (يتحدد البطل) يظهر زر للزوار يرجعهم للصفحة الرئيسية */}
+                {st.champion && (
+                  <div className="viewer-home-row">
+                    <a className="viewer-home-btn" href="/">
+                      <span aria-hidden="true">🏠</span>
+                      العودة للصفحة الرئيسية
+                    </a>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
