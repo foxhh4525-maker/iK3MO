@@ -28,6 +28,14 @@ export default function ViewerPage() {
     setConnected(true);
   });
 
+  // 🔵 المدة الكلية للبوابة — نلتقطها أول ما تُفتح عشان نحسب نسبة الحلقة.
+  // ما تعتمد على أي حقل جديد بالخادم: نأخذ المتبقي وقت ما وصلنا الموعد.
+  const [joinTotal, setJoinTotal] = useState(0);
+  useEffect(() => {
+    if (!st.joinDeadline) { setJoinTotal(0); return; }
+    setJoinTotal(Math.max(1, Math.ceil((st.joinDeadline - Date.now()) / 1000)));
+  }, [st.joinDeadline]);
+
   function getJoinSecondsLeft(): number {
     if (!st.joinDeadline) return 0;
     return Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000));
@@ -150,67 +158,66 @@ export default function ViewerPage() {
         <div className="main">
           <div style={{ width: "100%", margin: "0 auto" }}>
             <header className="site-header">
-              <div className="tag">iK3MO</div>
               <h1>iK3MO</h1>
               <p>شاهد البطولة مباشرة</p>
             </header>
 
             {st.phase === "setup" ? (
               <div className="waiting-screen">
-                <div className="waiting-icon">⏳</div>
-                {/* 🏆 اسم البطولة يظهر فقط بعد ما الأدمن يفتح باب الانضمام */}
-                {st.name && joinWindowOpen && (
-                  <span
-                    style={{
-                      color: "var(--gold)",
-                      fontWeight: 900,
-                      fontSize: "clamp(1rem,3vw,1.3rem)",
-                      textShadow: "0 0 12px rgba(255,215,0,0.6)",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    🏆 {st.name}
-                  </span>
-                )}
-                <p>في انتظار بدء البطولة...</p>
-                <p style={{ fontSize: "0.8rem", opacity: 0.5 }}>
-                  ستظهر البطولة هنا تلقائياً عند انطلاقها
-                </p>
+                {/* ⏳ لوحة بوابة الانضمام — حلقة تفرغ مع الوقت بدل الرمز الدوّار */}
+                <div
+                  className={`gate${!st.joinDeadline ? "" : !joinWindowOpen ? " is-closed" : getJoinSecondsLeft() <= 10 ? " is-hot" : ""}`}
+                >
+                  {st.name && (st.joinDeadline || joinWindowOpen) && (
+                    <div className="gate-title">🏆 {st.name}</div>
+                  )}
 
-                {/* ⏱️ نافذة الانضمام — تظهر فقط لما الأدمن يفتحها */}
-                {st.joinDeadline && (
-                  <div
-                    style={{
-                      marginTop: "18px",
-                      padding: "12px 20px",
-                      borderRadius: "12px",
-                      background: "rgba(0,0,0,0.4)",
-                      border: "1px solid rgba(255,255,255,0.14)",
-                      display: "inline-flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: "4px",
-                    }}
-                  >
-                    <span style={{ fontSize: "0.85rem", color: "var(--muted, #aaa)" }}>
-                      {joinWindowOpen ? "⏱️ باب الانضمام مفتوح" : "⛔ باب الانضمام مقفل"}
-                    </span>
-                    <span
-                      style={{
-                        fontWeight: 900,
-                        fontSize: "1.6rem",
-                        color: !joinWindowOpen ? "#ef4444" : getJoinSecondsLeft() <= 10 ? "#ef4444" : "var(--blue)",
-                      }}
-                    >
-                      {joinWindowOpen
-                        ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
-                        : "⛔"}
-                    </span>
-                    {joinWindowOpen && (
-                      <span style={{ fontSize: "0.75rem", opacity: 0.6 }}>اكتب !دخول بالشات عشان تنضم</span>
-                    )}
-                  </div>
-                )}
+                  {st.joinDeadline ? (
+                    <>
+                      <div
+                        className="gate-ring"
+                        style={{ ["--p" as any]: joinTotal ? Math.max(0, getJoinSecondsLeft() / joinTotal) : 0 }}
+                      >
+                        <svg viewBox="0 0 120 120" aria-hidden="true">
+                          <circle className="gate-track" cx="60" cy="60" r="52" />
+                          <circle className="gate-bar" cx="60" cy="60" r="52" />
+                        </svg>
+                        <div className="gate-face">
+                          <div className="gate-time">
+                            {joinWindowOpen
+                              ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
+                              : "00:00"}
+                          </div>
+                          <div className="gate-unit">{joinWindowOpen ? "متبقي" : "انتهى"}</div>
+                        </div>
+                      </div>
+
+                      <div className="gate-status">
+                        <span className="gate-dot" />
+                        {joinWindowOpen ? "باب الانضمام مفتوح" : "باب الانضمام مقفل"}
+                      </div>
+
+                      {joinWindowOpen && (
+                        <div className="gate-hint">
+                          اكتب <b>!دخول</b> بالشات عشان تنضم
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className="gate-wait" aria-hidden="true"><i /><i /><i /></div>
+                      <div className="gate-status">
+                        <span className="gate-dot" />
+                        في انتظار بدء البطولة
+                      </div>
+                      <div className="gate-hint">ستظهر البطولة هنا تلقائياً عند انطلاقها</div>
+                    </>
+                  )}
+
+                  {joinedPlayers.length > 0 && (
+                    <div className="gate-count">👥 المنضمين <span>{joinedPlayers.length}</span></div>
+                  )}
+                </div>
 
                 {/* 👥 اللاعبون المنضمين */}
                 {joinedPlayers.length > 0 && (
