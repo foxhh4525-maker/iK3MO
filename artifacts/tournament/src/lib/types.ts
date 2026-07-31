@@ -61,6 +61,8 @@ export interface TournamentState {
   pickedMatchId?: string | null;
   /** إظهار شاشة الجرين سكرين من قبل بدء البطولة (تعرض بوابة الانضمام) */
   greenEarly?: boolean;
+  /** بدء البطولة تلقائياً فور انتهاء مهلة باب الانضمام */
+  autoStart?: boolean;
   name: string;
   gameType: string;
   champion: string;
