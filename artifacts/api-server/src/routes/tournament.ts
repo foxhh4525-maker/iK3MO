@@ -92,6 +92,8 @@ const {
   setPlayerWins: dbSetPlayerWins,
   incrementPlayerWin: dbIncrementPlayerWin,
   incrementPlayerMatchWin: dbIncrementPlayerMatchWin,
+  setPlayerMatchWins: dbSetPlayerMatchWins,
+  resetAllPlayerMatchWins: dbResetAllPlayerMatchWins,
   getLeaderboard: dbGetLeaderboard,
   normalizePlayerName: dbNormalizePlayerName,
   getArchives: dbGetArchives,
@@ -586,6 +588,38 @@ router.post("/player/match-win", requireAdmin, requirePermission("tournament"), 
   } catch (err) {
     logger.error({ err }, "Failed to record match win");
     res.status(500).json({ error: "فشل تسجيل فوز الماتش" });
+  }
+});
+
+// ✍️ تحكم يدوي بنقاط التوب: يحدد قيمة صريحة لنقاط لاعب (بدل حصر ±1).
+// صلاحية "records" لأنها تعديل على السجلات مو على مجرى البطولة.
+router.post("/player/match-wins", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
+  try {
+    const { username, wins } = req.body as { username?: string; wins?: number };
+    const name = (username || "").trim();
+    if (!name) {
+      res.status(400).json({ error: "اسم اللاعب مطلوب" });
+      return;
+    }
+    const value = Math.max(0, Math.min(100000, Math.floor(Number(wins) || 0)));
+    const row = await dbSetPlayerMatchWins(name, name, value);
+    broadcast(); // تتحدّث قائمة التوب لحظياً عند كل المشاهدين
+    res.json(row);
+  } catch (err) {
+    logger.error({ err }, "Failed to set match wins");
+    res.status(500).json({ error: "فشل تعديل النقاط" });
+  }
+});
+
+// 🧹 تصفير نقاط التوب لكل اللاعبين (بداية موسم جديد).
+router.post("/player/match-wins/reset", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
+  try {
+    const out = await dbResetAllPlayerMatchWins();
+    broadcast();
+    res.json(out || { cleared: 0 });
+  } catch (err) {
+    logger.error({ err }, "Failed to reset match wins");
+    res.status(500).json({ error: "فشل تصفير النقاط" });
   }
 });
 
