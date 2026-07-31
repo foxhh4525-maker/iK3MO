@@ -445,16 +445,13 @@ export default function LandingPage() {
            نستخدم direction:ltr على الحاوية عشان الوضع يكون ثابت بغض النظر
            عن اتجاه الصفحة، ونرجّع rtl للمجموعة عشان ترتيب العناصر يبقى زي ما هو. */
         .lp-nav{
-          direction:ltr;
           width:100%;margin:0 0 8px;display:flex;align-items:center;justify-content:flex-start;
-          max-width:calc(100% - 290px);
           gap:clamp(8px,2.5vw,18px);flex-wrap:wrap;row-gap:12px;
           position:relative;z-index:2;
           animation:enterDown .7s cubic-bezier(.22,1,.36,1) both;
         }
         /* كل أزرار الهيدر بمجموعة وحدة على اليمين */
         .lp-nav-group{
-          direction:rtl;
           display:flex;align-items:center;justify-content:flex-start;
           gap:clamp(9px,2.2vw,15px);flex-wrap:wrap;row-gap:10px;
         }
@@ -471,10 +468,29 @@ export default function LandingPage() {
           box-shadow:0 0 18px rgba(41,182,246,.25);
         }
         .lp-nav-sep{width:1px;height:26px;background:rgba(255,255,255,.18);margin:0 2px}
+        /* 💻 الديسكتوب فقط: الأزرار يسار وما تزاحم لوحة التوب اللي باليمين */
+        @media (min-width:641px){
+          .lp-nav{direction:ltr;max-width:calc(100% - 290px)}
+          .lp-nav-group{direction:rtl}
+        }
         @media (max-width:640px){
-          .lp-nav{justify-content:center;text-align:center}
-          .lp-nav-group{justify-content:center;flex-basis:100%}
+          .lp-nav{justify-content:center;text-align:center;direction:rtl;max-width:100%}
+          .lp-nav-group{justify-content:center;flex-basis:100%;direction:rtl}
           .lp-nav-sep{display:none}
+          /* 👤 زر الدخول أيقونة فقط بدون كلمة — يوفّر مساحة بصف الهيدر */
+          .lp-login-label{display:none}
+          .lp-login-btn{
+            width:34px;height:34px;padding:0;border-radius:50%;
+            display:inline-flex;align-items:center;justify-content:center;gap:0;
+          }
+          /* 🖼️ الخلفية: أصغر (بدل cover اللي يكبّرها جداً بالشاشة الطويلة)
+             وأنزل شوي عن أعلى الصفحة */
+          .lp-bg{
+            background-size:122% auto;
+            background-position:center 19%;
+            background-attachment:scroll;
+            background-color:#060d1a;
+          }
         }
 
         /* ===== 💚 أيقونة الدعم (جنب كيك) ===== */
@@ -1050,7 +1066,7 @@ export default function LandingPage() {
             ) : (
               <button className="lp-login-btn" onClick={openLogin}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10Zm0 2c-4.42 0-8 2.24-8 5v1h16v-1c0-2.76-3.58-5-8-5Z"/></svg>
-                تسجيل دخول
+                <span className="lp-login-label">تسجيل دخول</span>
               </button>
             )}
           </div>
