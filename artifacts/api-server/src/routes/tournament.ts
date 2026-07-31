@@ -89,6 +89,7 @@ const {
   deleteTournamentRecord: dbDeleteRecord,
   setTournamentRecordVisibility: dbSetRecordVisibility,
   getPlayerWins: dbGetPlayerWins,
+  getPlayerLevels: dbGetPlayerLevels,
   setPlayerWins: dbSetPlayerWins,
   incrementPlayerWin: dbIncrementPlayerWin,
   incrementPlayerMatchWin: dbIncrementPlayerMatchWin,
@@ -557,6 +558,19 @@ router.get("/player/stats", async (req: Request, res: Response) => {
 
 // 🏆 قائمة المتصدّرين (عام، بدون توكن): أعلى اللاعبين حسب مجموع فوزاتهم عبر
 // كل الألعاب. تستخدمه القائمة المنبثقة تحت أيقونة الكأس بالصفحة العامة.
+// 📊 قائمة نظام المستويات — كل اللاعبين ومجموع فوزاتهم من player_wins.
+// عامة للقراءة زي /player/stats و /player/leaderboard.
+router.get("/player/levels", async (req: Request, res: Response) => {
+  try {
+    const limit = Number(req.query.limit) || 500;
+    const rows = await dbGetPlayerLevels(limit);
+    res.json(rows || []);
+  } catch (err) {
+    logger.error({ err }, "Failed to fetch player levels");
+    res.json([]);
+  }
+});
+
 router.get("/player/leaderboard", async (req: Request, res: Response) => {
   try {
     const limit = Math.min(50, Math.max(1, Math.floor(Number(req.query.limit) || 3)));
