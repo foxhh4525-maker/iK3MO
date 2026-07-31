@@ -187,6 +187,19 @@ export const localStore = {
   getPlayerWins(username: string) {
     return load().playerWins.filter((w) => w.username === username);
   },
+  // 📊 تجميع كل اللاعبين مع مجموع فوزاتهم (نظام المستويات)
+  getPlayerLevels(limit = 500) {
+    const s = load();
+    const map = new Map<string, { username: string; wins: number }>();
+    for (const w of s.playerWins || []) {
+      const n = Number(w.wins) || 0;
+      if (n <= 0) continue;
+      const cur = map.get(w.username);
+      if (cur) cur.wins += n;
+      else map.set(w.username, { username: w.displayName || w.username, wins: n });
+    }
+    return [...map.values()].sort((a, b) => b.wins - a.wins).slice(0, limit);
+  },
   setPlayerWins(username: string, displayName: string, game: string, wins: number) {
     const s = load();
     const idx = s.playerWins.findIndex((w) => w.username === username && w.game === game);
