@@ -1622,6 +1622,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     🙋 المساعدين
                   </button>
                 )}
+                {/* 🏆 ينقلك للصفحة الرئيسية (لوحة الأبطال). رابط عادي عشان
+                    الجلسة محفوظة بـ localStorage فترجع للأدمن بدون تسجيل. */}
+                <a className="admin-act" href="/" title="الانتقال للوحة الأبطال (الصفحة الرئيسية)">
+                  🏆 لوحة الأبطال
+                </a>
                 <button className="admin-act danger" onClick={onLogout} title="تسجيل الخروج من لوحة الأدمن">
                   🚪 خروج
                 </button>
