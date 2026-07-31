@@ -923,6 +923,36 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   background:var(--blue);color:#04121f;font-weight:900;
 }
 /* شاشة الانتظار قبل فتح البوابة — نقاط تتحرك بدل الرمز الدوّار */
+/* 👥 شبكة المشاركين داخل لوحة البوابة */
+.gate-players{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+  gap:9px;width:100%;margin-top:2px;
+}
+.gate-player{
+  display:flex;align-items:center;gap:9px;
+  padding:8px 12px;border-radius:12px;
+  background:rgba(255,255,255,0.05);
+  border:1px solid var(--border);
+  animation:gatePop .38s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes gatePop{
+  from{opacity:0;transform:translateY(10px) scale(.94)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+.gate-avatar{
+  width:34px;height:34px;border-radius:50%;flex-shrink:0;overflow:hidden;
+  display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--blue),#0d4fb0);
+  color:#fff;font-weight:900;font-size:0.9rem;
+  border:2px solid rgba(41,182,246,0.45);
+}
+.gate-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+.gate-pname{
+  flex:1;min-width:0;font-weight:800;font-size:0.95rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.gate.has-players{width:100%;max-width:860px}
+
 .gate-wait{display:flex;gap:9px;padding:6px 0}
 .gate-wait i{
   width:11px;height:11px;border-radius:50%;background:var(--blue);
@@ -945,6 +975,9 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   box-shadow:none;border-color:rgba(41,182,246,0.5);
 }
 .green-mode .gate-bar,.green-mode .gate-title{filter:none;text-shadow:none}
+.green-mode .gate-player{background:#0a1526;border-color:rgba(41,182,246,0.4);animation:none}
+.green-mode .gate-pname{font-size:1.02rem}
+.green-mode .gate-avatar{width:36px;height:36px}
 
 /* ── أزرار وضع الخلفية بصفحة /bracket ── */
 /* شبه مخفية (شفافية 6%) عشان ما تبين بالبث، وتظهر كامل لما تحرّك عليها الماوس */
