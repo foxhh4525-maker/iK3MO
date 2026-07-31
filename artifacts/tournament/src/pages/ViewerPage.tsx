@@ -16,6 +16,16 @@ export default function ViewerPage() {
     return () => clearInterval(id);
   }, [st.joinDeadline]);
 
+  // 🏷️ عنوان تبويب المتصفح — نفس أسلوب صفحة الأدمن، ونرجّع العنوان
+  // الأصلي عند الخروج من الصفحة عشان ما يعلق على بقية الصفحات.
+  useEffect(() => {
+    const previousTitle = document.title;
+    document.title = "لوحة البطولة 🎮 | IK3MO";
+    return () => {
+      document.title = previousTitle;
+    };
+  }, []);
+
   // ✅ useEffect يراقب تغير phase للتأكد من الاستجابة الفورية
   useEffect(() => {
     console.log("[Viewer] Phase changed to:", st.phase, "rounds:", st.rounds?.length);
