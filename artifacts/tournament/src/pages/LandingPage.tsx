@@ -704,20 +704,22 @@ export default function LandingPage() {
 
           /* زر البطولة ينزل من الهيدر ويستقر فوق الكروت مباشرة */
           .lp-watch-desktop{display:none}
-          /* الحساب مربوط بارتفاع صورة الهيرو نفسها (min(48vh,400px))، فالزر
-             ينزل تحت الصورة بمسافة ثابتة مهما كان طول شاشة الجوال — بدل رقم
-             تخميني كان يطلع فوق على بعض الأجهزة. */
+          /* موضع الزر = الأكبر بين قيمتين:
+             1) تحت صورة الهيرو بمسافة ثابتة (min(48vh,400px) هو نفس ارتفاعها)
+             2) 74vh من أسفل الهيدر
+             فيضمن إنه ينزل لأسفل الشاشة تقريباً على أي جهاز، وما يطلع فوق
+             الصورة أبداً. الكروت تجي تحته فتحتاج تمرير عشان تشوفها. */
           .lp-watch-row{
             display:flex;justify-content:center;
             position:relative;z-index:3;
-            margin-top:calc(min(48vh,400px) + clamp(60px,15vw,110px));
+            margin-top:max(calc(min(48vh,400px) + clamp(60px,15vw,110px)), 74vh);
           }
           .lp-watch-btn{padding:10px 20px;font-size:.82rem;gap:8px}
 
           /* الكروت تنزل تحت زر البطولة */
           .lp-grid{
             position:static;top:auto;
-            margin-top:clamp(34px,9vw,54px);
+            margin-top:clamp(44px,12vw,72px);
             padding:0;
             gap:9px;
           }
@@ -729,7 +731,11 @@ export default function LandingPage() {
           }
           .lp-login-text{display:none}
           .lp-login-btn svg{width:18px;height:18px;opacity:1}
-          .lp-user-avatar{width:26px;height:26px}
+          /* 👤 بالجوال: أيقونة الخروج وحدها — بدون صورة البروفايل وبدون الاسم */
+          .lp-user-avatar{display:none}
+          .lp-user-chip{padding:0;gap:0;border:none;background:none;box-shadow:none}
+          .lp-logout-btn{width:34px;height:34px;background:rgba(255,255,255,.1)}
+          .lp-logout-btn svg{width:17px;height:17px}
 
           /* اسم اللعبة كان يتقصّ على كرت بعرض ~160px */
           .lp-card-head{font-size:clamp(.88rem,3.6vw,1.12rem);max-width:96%}
