@@ -746,7 +746,7 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .bracket{
   --row:40px;
   --vs:5px;
-  --pad:3px;                                   /* حشوة إطار الخانة */
+  --pad:5px;                                   /* حشوة إطار الخانة */
   --box:calc(var(--row) * 2 + var(--vs) + var(--pad) * 2 + 2px);
   --g0:12px;
   --conn:15px;
@@ -807,15 +807,17 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   gap:calc((var(--box) + var(--g0)) * var(--k,1) - var(--box));
   --pitch:calc((var(--box) + var(--g0)) * var(--k,1));
 }
+/* 🖼️ كل خانة منافسين لها نفس الإطار — بما فيها النهائي */
 .match{
   position:relative;
   height:var(--box);min-height:var(--box);
   display:flex;flex-direction:column;align-items:stretch;
   flex:0 0 auto;
   padding:var(--pad);
-  background:rgba(255,255,255,0.025);
-  border:1px solid rgba(255,255,255,0.06);
-  border-radius:12px;
+  background:linear-gradient(180deg,rgba(16,30,54,0.72),rgba(8,16,32,0.78));
+  border:1.5px solid rgba(41,182,246,0.34);
+  border-radius:14px;
+  box-shadow:0 6px 18px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.06);
   transition:border-color .2s,box-shadow .2s;
 }
 
@@ -1053,50 +1055,57 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .final-crown.is-won::after{display:none}
 }
 
-/* ── 🟢 وضع الشاشة الخضراء (Chroma Key) ──
-   خلفيات صلبة بدون شفافية ولا بلور، صفر توهّج وصفر أنيميشن (التوهّج يخلي
-   فلتر الكروما ياكل الحواف)، وخط أكبر لأن الشجرة تكون على عرض الشاشة. */
-.green-mode .bracket{
-  --row:54px;--g0:16px;--conn:20px;--lw:3px;
-  --row-bg:#0b1830;--row-br:rgba(41,182,246,0.45);
+/* ── 📺 وضع OBS (خلفية شفافة) ──
+   الصفحة بلا خلفية عشان تنحط كمصدر متصفح فوق الفيديو مباشرة. لذلك كل
+   العناصر صلبة (بدون شفافية ولا backdrop-blur) وبحدود أوضح وظلال أقوى،
+   عشان تُقرأ فوق أي خلفية مهما كانت فاتحة أو مزحومة. */
+.obs-mode .bracket{
+  --row:52px;--g0:16px;--conn:20px;--lw:3px;
+  --row-bg:#0d1c34;--row-br:rgba(120,200,255,0.5);
   --line:#ef4444;--line-hot:#ff5252;
 }
-.green-mode .p-name{font-size:1.3rem}
-.green-mode .p-badge{width:32px;height:32px;border-radius:9px;font-size:1rem}
-.green-mode .round,
-.green-mode .round.r-fwd{min-width:252px;max-width:300px}
-
-.green-mode .bracket{--head-h:150px}
-.green-mode .round-title{font-size:0.88rem;background:#0e2038;border-color:rgba(41,182,246,0.5);color:#7fd4ff}
-/* عمود النهائي زي بقية الأعمدة — بدون إطار ولا خلفية مستطيلة */
-.green-mode .round.r-center{min-width:286px;max-width:340px;background:none;border:none;padding:0}
-.green-mode .round.r-center .player .p-name{font-size:1.42rem}
-.green-mode .match{background:#0a1526;border-color:rgba(41,182,246,0.25)}
-.green-mode .player{background:#0b1830;backdrop-filter:none;-webkit-backdrop-filter:none}
-.green-mode .player.winner{background:#2b2410;border-color:rgba(255,215,0,0.6);color:#ffd700}
-.green-mode .player.loser{background:#0b1830;opacity:0.5}
-.green-mode .player.empty,.green-mode .player.bye-slot{background:#091426}
-.green-mode .match.done{opacity:1}
-/* صفر توهّج وصفر حركة */
-.green-mode .match,
-.green-mode .player,
-.green-mode .match.done > .conn{animation:none !important;box-shadow:none !important;filter:none !important}
-/* 👑 البطل يضل متحرّك بالجرين سكرين — حركة تدرّج ألوان فقط بدون أي توهّج،
-   فما تأثر على الكروما كي. شلنا بس الهالة المضيئة من حول التاج. */
-.green-mode .final-cup{filter:none}
-.green-mode .match.ready{border-color:#29b6f6 !important;background:#0c2136 !important}
-.green-mode .match.picked-match{
+.obs-mode .p-name{font-size:1.24rem;text-shadow:0 1px 3px rgba(0,0,0,0.9)}
+.obs-mode .p-badge{width:31px;height:31px;border-radius:9px;font-size:0.95rem;background:#12325a;color:#9fdcff}
+.obs-mode .round,.obs-mode .round.r-fwd{min-width:248px;max-width:300px}
+.obs-mode .round.r-center{min-width:282px;max-width:336px;background:none;border:none;padding:0}
+.obs-mode .round-title{
+  background:#0b2138;border-color:rgba(120,200,255,0.55);color:#9fdcff;
+  font-size:0.86rem;box-shadow:0 3px 10px rgba(0,0,0,0.5);
+}
+.obs-mode .match{
+  background:#0b1830;
+  border-color:rgba(120,200,255,0.42);
+  box-shadow:0 8px 22px rgba(0,0,0,0.65);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.obs-mode .match.final-match{background:#101a34;border-color:rgba(255,215,0,0.6)}
+.obs-mode .player{
+  background:#0d1c34;backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.obs-mode .player.winner{background:#2b2410;border-color:rgba(255,215,0,0.65);color:#ffd700}
+.obs-mode .player.loser{background:#0d1c34;opacity:0.48}
+.obs-mode .player.empty,.obs-mode .player.bye-slot{background:#0a1526}
+.obs-mode .match.done{opacity:1}
+.obs-mode .match.ready{border-color:#29b6f6 !important;background:#0d2540 !important;animation:none !important}
+.obs-mode .match.picked-match{
   border-color:#ff2d2d !important;background:#2a1113 !important;
-  box-shadow:0 0 0 3px #ff2d2d !important;
+  box-shadow:0 0 0 3px #ff2d2d !important;animation:none !important;
 }
-.green-mode .champ-winner{font-size:2.1rem}
-.green-mode .champ-banner{
-  background:#12203a padding-box, linear-gradient(135deg,#ffd700,#a97400 45%,#ffe98a) border-box;
-  box-shadow:none !important;
+.obs-mode .final-cup{font-size:5rem;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.7))}
+.obs-mode .champ-winner{font-size:2.1rem}
+.obs-mode .champ-banner{
+  background:#101a34 padding-box, linear-gradient(135deg,#ffd700,#a97400 45%,#ffe98a) border-box;
+  box-shadow:0 8px 22px rgba(0,0,0,0.7);
 }
-.green-mode .champ-label{box-shadow:none}
-.green-mode .final-cup{font-size:4.6rem}
-
+.obs-mode .champ-label{box-shadow:0 2px 8px rgba(0,0,0,0.6)}
+/* لوحة البوابة كذلك صلبة */
+.obs-mode .gate{
+  background:#0b1830;backdrop-filter:none;-webkit-backdrop-filter:none;
+  box-shadow:0 12px 40px rgba(0,0,0,0.6);border-color:rgba(120,200,255,0.45);
+}
+.obs-mode .gate-player{background:#0d1c34;border-color:rgba(120,200,255,0.4);animation:none}
+.obs-mode .gate-pname{font-size:1.04rem}
+.obs-mode .gate-title{text-shadow:0 2px 6px rgba(0,0,0,0.8)}
 
 /* ── ⏳ لوحة بوابة الانضمام (تُستخدم بصفحة العرض وبالجرين سكرين) ── */
 .gate{
@@ -1226,14 +1235,14 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   .gate-hint{font-size:0.9rem}
 }
 /* بالشاشة الخضراء: خلفيات صلبة بدون بلور ولا توهّج */
-.green-mode .gate{
+.obs-mode .gate{
   background:#0b1830;backdrop-filter:none;-webkit-backdrop-filter:none;
   box-shadow:none;border-color:rgba(41,182,246,0.5);
 }
-.green-mode .gate-bar,.green-mode .gate-title{filter:none;text-shadow:none}
-.green-mode .gate-player{background:#0a1526;border-color:rgba(41,182,246,0.4);animation:none}
-.green-mode .gate-pname{font-size:1.02rem}
-.green-mode .gate-avatar{width:36px;height:36px}
+.obs-mode .gate-bar,.obs-mode .gate-title{filter:none;text-shadow:none}
+.obs-mode .gate-player{background:#0a1526;border-color:rgba(41,182,246,0.4);animation:none}
+.obs-mode .gate-pname{font-size:1.02rem}
+.obs-mode .gate-avatar{width:36px;height:36px}
 
 /* ── أزرار وضع الخلفية بصفحة /bracket ── */
 /* شبه مخفية (شفافية 6%) عشان ما تبين بالبث، وتظهر كامل لما تحرّك عليها الماوس */
