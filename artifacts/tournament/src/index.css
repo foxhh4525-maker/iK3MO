@@ -682,6 +682,19 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   transform:translateY(-3px);
 }
 .imglog-card a{display:block;width:100%;line-height:0}
+.imglog-time{font-size:0.68rem;color:var(--blue);font-weight:800;font-variant-numeric:tabular-nums}
+.imglog-link{display:flex;flex-direction:column;gap:5px;width:100%}
+.imglog-select{
+  width:100%;padding:5px 7px;border-radius:7px;
+  font-family:inherit;font-size:0.72rem;font-weight:700;
+  background:rgba(0,0,0,0.35);color:var(--text);border:1px solid var(--border);cursor:pointer;
+}
+.imglog-linkbtn{
+  width:100%;padding:5px 8px;border-radius:7px;cursor:pointer;
+  font-family:inherit;font-size:0.72rem;font-weight:800;
+  color:#04121f;background:linear-gradient(135deg,var(--blue),var(--blue2));border:none;
+}
+.imglog-linkbtn:disabled{opacity:.4;cursor:not-allowed}
 .imglog-del{
   width:100%;padding:5px 8px;border-radius:8px;cursor:pointer;
   font-family:inherit;font-size:0.72rem;font-weight:800;
