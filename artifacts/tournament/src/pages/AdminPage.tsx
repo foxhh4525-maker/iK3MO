@@ -2283,14 +2283,14 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       + عدد المنضمين) قبل ما تبدأ البطولة — عشان تحطها بالبث
                       من بدري بدل ما تكون فاضية. */}
                   <div className="setup-field">
-                    <label>🟢 الشاشة الخضراء</label>
+                    <label>📺 شجرة OBS</label>
                     {/* العرض شغّال دايماً — صفحة /bracket تعرض بوابة الانضمام
                         والمشاركين تلقائياً قبل بدء البطولة، فما فيه شي تفعّله.
                         هذا الزر مجرد اختصار يفتح النافذة بجهازك. */}
                     <button
                       className="green-open-btn"
-                      title="يفتح نافذة /bracket?green=1 — حطها كمصدر متصفح بـ OBS"
-                      onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
+                      title="يفتح صفحة الشجرة بخلفية شفافة — حطها كمصدر متصفح بـ OBS"
+                      onClick={() => window.open("/bracket", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
                     >
                       ↗ افتح النافذة
                     </button>
@@ -2465,9 +2465,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       className="btn btn-ghost"
                       title="يفتح نافذة منفصلة فيها شجرة البطولة فقط بخلفية خضراء (Chroma Key) — مناسبة للستريمر بدل ما يفتح صفحة الأدمن كاملة"
                       style={{ padding: "6px 14px", fontSize: "0.85rem" }}
-                      onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
+                      onClick={() => window.open("/bracket", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
                     >
-                      🟢 نافذة الشجرة (خلفية خضراء)
+                      📺 نافذة الشجرة (خلفية شفافة)
                     </button>
 
                     {/* 🎲 الماتش العشوائي — مدموج بنفس الشريط بدل ما يكون بصف مستقل */}
