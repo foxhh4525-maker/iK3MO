@@ -90,6 +90,9 @@ const {
   setTournamentRecordVisibility: dbSetRecordVisibility,
   getPlayerWins: dbGetPlayerWins,
   getPlayerLevels: dbGetPlayerLevels,
+  addRecordHistory: dbAddRecordHistory,
+  getRecordHistory: dbGetRecordHistory,
+  deleteRecordHistory: dbDeleteRecordHistory,
   setPlayerWins: dbSetPlayerWins,
   incrementPlayerWin: dbIncrementPlayerWin,
   incrementPlayerMatchWin: dbIncrementPlayerMatchWin,
@@ -461,6 +464,33 @@ router.post("/images/delete", requireAdmin, requirePermission("records"), async 
   }
 });
 
+// 📜 سجل كروت البطولات — لقطات تاريخية مرتّبة من الأحدث.
+router.get("/records/history", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
+  try {
+    const limit = Number(req.query.limit) || 300;
+    res.json(await dbGetRecordHistory(limit));
+  } catch (err: any) {
+    logger.error({ err }, "Failed to fetch record history");
+    res.status(500).json({ error: err?.message || "فشل جلب السجل" });
+  }
+});
+
+// 🗑️ حذف لقطة من السجل (ما تمس الكرت ولا الصورة بـ Cloudinary).
+router.post("/records/history/delete", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
+  const { id } = req.body as { id?: number };
+  if (!id) {
+    res.status(400).json({ error: "معرّف السطر مطلوب" });
+    return;
+  }
+  try {
+    await dbDeleteRecordHistory(Number(id));
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err }, "Failed to delete record history");
+    res.status(500).json({ error: err?.message || "فشل الحذف" });
+  }
+});
+
 router.post("/migrate-images", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
   if (!isCloudinaryConfigured) {
     res.status(400).json({ error: "Cloudinary غير مهيّأ — أضف متغيرات البيئة أولاً" });
@@ -536,6 +566,19 @@ router.put("/records", requireAdmin, requirePermission("records"), async (req: R
       }
     }
 
+    // 📜 لقطة للسجل التاريخي: اللعبة + الفائز + الصورة + وقت الحفظ.
+    // تُكتب هنا (بالخادم) فتشمل أي مصدر حفظ، وتتجاهل التكرار لو ما تغيّر شي.
+    try {
+      await dbAddRecordHistory({
+        tournamentName,
+        displayName: displayName ?? row?.displayName ?? "",
+        winnerName,
+        image,
+      });
+    } catch (hErr) {
+      logger.error({ err: hErr }, "Failed to append record history");
+    }
+
     broadcast(); // ننبّه المشاهدين عشان يعيدون جلب السجل
     res.json(row);
   } catch (err) {
@@ -571,6 +614,19 @@ router.patch("/records/:id/visibility", requireAdmin, requirePermission("records
     const isHidden = Boolean((req.body as { isHidden?: boolean })?.isHidden);
     const result = await dbSetRecordVisibility(id, isHidden);
     const row = Array.isArray(result) ? result[0] : result;
+    // 📜 لقطة للسجل التاريخي: اللعبة + الفائز + الصورة + وقت الحفظ.
+    // تُكتب هنا (بالخادم) فتشمل أي مصدر حفظ، وتتجاهل التكرار لو ما تغيّر شي.
+    try {
+      await dbAddRecordHistory({
+        tournamentName,
+        displayName: displayName ?? row?.displayName ?? "",
+        winnerName,
+        image,
+      });
+    } catch (hErr) {
+      logger.error({ err: hErr }, "Failed to append record history");
+    }
+
     broadcast(); // ننبّه المشاهدين عشان يعيدون جلب السجل
     res.json(row);
   } catch (err) {
