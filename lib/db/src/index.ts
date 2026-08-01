@@ -140,6 +140,18 @@ async function ensureSchema() {
       -- مفتاح فريد على (اللاعب المطبَّع + اللعبة) عشان ما يتكرّر نفس اللاعب لنفس اللعبة.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_player_wins_user_game ON player_wins (username, game);
 
+      -- 📜 سجل تاريخي لكروت البطولات: لقطة تُحفظ عند كل تغيير صورة أو فائز،
+      -- عشان يبقى تاريخ كل بطولة محفوظاً حتى لو تغيّر الكرت لاحقاً.
+      CREATE TABLE IF NOT EXISTS record_history (
+        id serial PRIMARY KEY,
+        tournament_name text NOT NULL,
+        display_name text NOT NULL DEFAULT '',
+        winner_name text NOT NULL DEFAULT '',
+        image text NOT NULL DEFAULT '',
+        saved_at timestamp NOT NULL DEFAULT now()
+      );
+      CREATE INDEX IF NOT EXISTS idx_record_history_saved_at ON record_history (saved_at DESC);
+
       CREATE INDEX IF NOT EXISTS idx_winners_date ON winners (date DESC);
       CREATE INDEX IF NOT EXISTS idx_archives_finished_at ON tournament_archives (finished_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_created_at ON tournament_records (created_at DESC);
@@ -570,25 +582,81 @@ export async function resetAllPlayerMatchWins() {
   return { cleared: result.rowCount || 0 };
 }
 
-// 📊 قائمة كل اللاعبين مع مجموع فوزاتهم من جدول player_wins — نفس الجدول
-// اللي يُبنى عليه نظام المستويات. ما كان فيه أي دالة تعرض "كل اللاعبين"،
-// بس دالة تقرأ لاعباً واحداً (getPlayerWins)، وهذا سبب عدم إمكانية بناء
-// قائمة مستويات صحيحة بالواجهة.
-export async function getPlayerLevels(limit = 500) {
-  const n = Math.max(1, Math.min(2000, Math.floor(limit) || 500));
-  if (USE_LOCAL_STORE) return localStore.getPlayerLevels(n);
-  if (!db || !pool) throw new Error("Database not initialized");
-  const result = await pool.query(
-    `SELECT username, MAX(display_name) AS display_name, SUM(wins)::int AS total
-       FROM player_wins
-      GROUP BY username
-     HAVING SUM(wins) > 0
-      ORDER BY total DESC, username ASC
-      LIMIT $1`,
-    [n],
+// ── 📜 سجل كروت البطولات (لقطة عند كل حفظ) ──
+
+export interface RecordHistoryRow {
+  id: number;
+  tournamentName: string;
+  displayName: string;
+  winnerName: string;
+  image: string;
+  savedAt: string;
+}
+
+/**
+ * يضيف لقطة جديدة للسجل. نتجاهل الإضافة لو آخر لقطة لنفس اللعبة تطابقها
+ * (نفس الصورة ونفس الفائز) — عشان ما يتكرر السطر مع كل حفظ ما فيه تغيير.
+ */
+export async function addRecordHistory(entry: {
+  tournamentName: string;
+  displayName?: string;
+  winnerName?: string;
+  image?: string;
+}): Promise<RecordHistoryRow | null> {
+  const name = (entry.tournamentName || "").trim();
+  const image = entry.image || "";
+  const winner = entry.winnerName || "";
+  if (!name || (!image && !winner)) return null;
+
+  if (USE_LOCAL_STORE) return localStore.addRecordHistory({ ...entry, tournamentName: name });
+  if (!pool) throw new Error("Database not initialized");
+
+  const prev = await pool.query(
+    `SELECT image, winner_name FROM record_history
+      WHERE tournament_name = $1 ORDER BY saved_at DESC LIMIT 1`,
+    [name],
   );
-  return (result.rows || []).map((r: any) => ({
-    username: r.display_name || r.username,
-    wins: Number(r.total) || 0,
+  const last = prev.rows?.[0];
+  if (last && last.image === image && last.winner_name === winner) return null;
+
+  const res = await pool.query(
+    `INSERT INTO record_history (tournament_name, display_name, winner_name, image)
+     VALUES ($1, $2, $3, $4) RETURNING *`,
+    [name, entry.displayName || "", winner, image],
+  );
+  const r = res.rows[0];
+  return {
+    id: r.id,
+    tournamentName: r.tournament_name,
+    displayName: r.display_name,
+    winnerName: r.winner_name,
+    image: r.image,
+    savedAt: new Date(r.saved_at).toISOString(),
+  };
+}
+
+/** يجيب السجل مرتّباً من الأحدث. */
+export async function getRecordHistory(limit = 300): Promise<RecordHistoryRow[]> {
+  const n = Math.max(1, Math.min(1000, Math.floor(limit) || 300));
+  if (USE_LOCAL_STORE) return localStore.getRecordHistory(n);
+  if (!pool) throw new Error("Database not initialized");
+  const res = await pool.query(
+    `SELECT * FROM record_history ORDER BY saved_at DESC LIMIT $1`, [n],
+  );
+  return (res.rows || []).map((r: any) => ({
+    id: r.id,
+    tournamentName: r.tournament_name,
+    displayName: r.display_name,
+    winnerName: r.winner_name,
+    image: r.image,
+    savedAt: new Date(r.saved_at).toISOString(),
   }));
+}
+
+/** حذف لقطة من السجل (لا يمس الكرت نفسه). */
+export async function deleteRecordHistory(id: number): Promise<boolean> {
+  if (USE_LOCAL_STORE) return localStore.deleteRecordHistory(id);
+  if (!pool) throw new Error("Database not initialized");
+  const res = await pool.query(`DELETE FROM record_history WHERE id = $1`, [id]);
+  return (res.rowCount || 0) > 0;
 }
