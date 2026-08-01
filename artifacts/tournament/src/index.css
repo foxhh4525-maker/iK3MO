@@ -1093,7 +1093,17 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .obs-content{width:max-content}
 /* بوضع OBS ما نبي سكرول أفقي — نبي الحجم الطبيعي عشان التحجيم يحسبه صح */
 .obs-mode .bracket-scroll{overflow:visible;width:max-content;padding-bottom:0}
-.obs-mode .gate{max-width:900px}
+/* لوحة باب الانضمام أصغر بوضع OBS — ما تحتاج تملأ الشاشة */
+.obs-mode .gate{max-width:640px;padding:26px 24px 22px;gap:13px}
+.obs-mode .gate-ring{width:164px;height:164px}
+.obs-mode .gate-time{font-size:2.4rem}
+.obs-mode .gate-title{font-size:1.5rem}
+.obs-mode .gate-status{font-size:0.88rem;padding:8px 20px}
+.obs-mode .gate-hint{font-size:0.92rem}
+.obs-mode .gate.has-players{max-width:760px}
+.obs-mode .gate-players{grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
+.obs-mode .gate-player{min-height:46px;padding:7px 10px}
+.obs-mode .gate-avatar{width:30px;height:30px}
 
 /* ── 📺 وضع OBS (خلفية شفافة) ──
    الصفحة بلا خلفية عشان تنحط كمصدر متصفح فوق الفيديو مباشرة. لذلك كل
