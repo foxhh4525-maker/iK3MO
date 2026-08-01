@@ -98,3 +98,46 @@ export async function getCloudinaryStatus(): Promise<StorageStatus> {
     };
   }
 }
+
+export interface CloudImage {
+  url: string;
+  publicId: string;
+  createdAt: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+}
+
+/**
+ * 📜 يسرد كل الصور المرفوعة داخل مجلد معيّن مع تاريخ رفع كل وحدة.
+ * المصدر Cloudinary نفسه — فما نحتاج جدول سجل بقاعدة البيانات، وأي رفعة
+ * (يدوية أو من زر نقل الصور القديمة) تدخل السجل تلقائياً بتاريخها.
+ */
+export async function listCloudinaryImages(folder = "kemo/records", max = 300): Promise<CloudImage[]> {
+  if (!isCloudinaryConfigured) throw new Error("Cloudinary غير مهيّأ");
+  const out: CloudImage[] = [];
+  let cursor: string | undefined;
+  // نلف على الصفحات (100 بالمرة) لين نجمع العدد المطلوب
+  do {
+    const res: any = await cloudinary.api.resources({
+      type: "upload",
+      prefix: folder,
+      max_results: Math.min(100, max - out.length),
+      next_cursor: cursor,
+    });
+    for (const r of res?.resources || []) {
+      out.push({
+        url: r.secure_url,
+        publicId: r.public_id,
+        createdAt: r.created_at,
+        bytes: r.bytes || 0,
+        width: r.width,
+        height: r.height,
+      });
+    }
+    cursor = res?.next_cursor;
+  } while (cursor && out.length < max);
+  // الأحدث أولاً
+  out.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return out;
+}
