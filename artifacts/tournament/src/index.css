@@ -751,7 +751,6 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   --g0:12px;
   --conn:15px;
   --head-h:150px;
-  --crown-h:96px;               /* ارتفاع صندوق الكأس/اسم الفائز */               /* مساحة رأس العمود المحجوزة — ثابتة للكل */
   /* 🔴 مسارات الشجرة (الجذور) — حمراء */
   --line:rgba(239,68,68,0.5);
   --line-hot:rgba(255,82,82,0.95);
@@ -967,6 +966,9 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
   pointer-events:none;
 }
 .final-crown > *{position:absolute;inset:auto 0 0;text-align:center}
+/* 🛡️ حماية: لو نسخة أقدم من المكوّن لسا تحط فاصلاً داخل الخانة، نخفيه —
+   وجوده كعنصر flex بارتفاع ثابت يسحق شرائح اللاعبين وتختفي الشجرة. */
+.final-spacer{display:none !important}
 
 /* 🏆 حركة عضوية غير منتظمة — ارتفاعات وميلان مختلفة بكل دورة فما تحس
    إنها متكررة زي البندول. */
