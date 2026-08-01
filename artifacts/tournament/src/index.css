@@ -1,224 +1,1431 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { defaultState, type TournamentState } from "@/lib/types";
-import { getState, useSSE } from "@/lib/api";
-import BracketDisplay from "@/components/BracketDisplay";
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
 
-// 🌳 صفحة "شجرة البطولة فقط" — بدون شات ولا سايدبار ولا أدوات تحكم.
-//
-// 📺 مصمّمة لـ OBS: الصفحة **بدون خلفية** افتراضياً، فتنحط كمصدر متصفح
-// (Browser Source) فوق الفيديو مباشرة وتظهر الشجرة وحدها بدون أي مستطيل
-// خلفها — ما تحتاج فلتر Chroma Key ولا شاشة خضراء.
-//
-// الوضعان:
-// 1) شفافة → /bracket              (الافتراضي — لـ OBS)
-// 2) داكنة → /bracket?dark=1       (للمعاينة بمتصفح عادي فقط، لأن المتصفح
-//    ما يعرض الشفافية فتطلع بيضاء)
-//
-// 🔒 زر التبديل شفافيته 6% وما يبين إلا لما تحرّك عليه الماوس، فما يظهر
-// بالبث. ولو تبغى تخفيه نهائياً حط ‎?clean=1‎ بالرابط.
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
-const STORE_KEY = "ik3mo.bracketBg";
+:root{
+  --bg:       #060d1a;
+  --surface:  rgba(255,255,255,0.035);
+  --surface2: rgba(255,255,255,0.06);
+  --border:   rgba(0,191,255,0.18);
+  --border2:  rgba(0,191,255,0.38);
+  --blue:     #29b6f6;
+  --blue2:    #00bfff;
+  --glow:     rgba(41,182,246,0.45);
+  --gold:     #ffd700;
+  --kick:     #53fc18;
+  --text:     #e8f4ff;
+  --muted:    #6a90aa;
+  --sidebar-w: 320px;
+}
 
-type Mode = "transparent" | "dark";
+html { font-size: 16px; }
 
-const MODES: { id: Mode; label: string }[] = [
-  { id: "transparent", label: "شفافة" },
-  { id: "dark", label: "داكنة" },
-];
+body{
+  font-family:'Cairo',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  overflow-x:hidden;
+}
 
-export default function BracketOnlyPage() {
-  const [st, setSt] = useState<TournamentState>(defaultState());
-  // 🔄 جلب الحالة مرة عند الفتح — SSE يبث عند الاتصال، لكن لو تأخر أو
-  // انقطع (Render cold start / إعادة تشغيل الخادم / إغلاق مصدر OBS وفتحه)
-  // تظل الصفحة على الحالة الافتراضية وتقول "البطولة لسا ما بدأت" وهي بادية.
-  // هذا الطلب المباشر يضمن الحالة الصحيحة فوراً.
-  useEffect(() => {
-    getState().then((s) => { if (s) setSt(s); }).catch(() => {});
-  }, []);
+/* ── Background ── */
+#bg{
+  position:fixed;inset:0;z-index:0;
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  filter:brightness(0.22) saturate(1.3) blur(1px);
+  transform:scale(1.04);
+}
+#bg-grad{
+  position:fixed;inset:0;z-index:1;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%,rgba(0,120,255,0.13) 0%,transparent 70%),
+    linear-gradient(180deg,rgba(6,13,26,0.3) 0%,rgba(6,13,26,0.75) 100%);
+}
 
-  useSSE((data) => setSt(data));
+/* ── Shell layout ── */
+.shell{
+  position:relative;z-index:2;
+  display:flex;
+  height:100dvh;
+  overflow:hidden;
+  flex-direction:row-reverse;
+}
+/* السايدبار (الشات) انحذف من لوحة الأدمن — المحتوى صار يملأ العرض كامل،
+   مع سقف عرض عشان ما تتمدد الكروت بشكل غريب على الشاشات العريضة جداً. */
+.main > div{max-width:1600px;margin-inline:auto}
+.main{
+  flex:1;
+  overflow-y:auto;
+  overflow-x:hidden;
+  padding:24px 16px 80px;
+  scrollbar-width:thin;
+  scrollbar-color:var(--border) transparent;
+  min-width:0;
+}
+.main::-webkit-scrollbar{width:4px}
+.main::-webkit-scrollbar-track{background:transparent}
+.main::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
 
-  // ⏱️ نبضة كل ثانية عشان عدّاد البوابة يتحدّث
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (!st.joinDeadline) return;
-    const id = setInterval(() => setTick(t => t + 1), 1000);
-    return () => clearInterval(id);
-  }, [st.joinDeadline]);
+/* ── Sidebar ── */
+.sidebar{
+  width: var(--sidebar-w);
+  flex-shrink:0;
+  border-left:1px solid var(--border);
+  background:rgba(4,10,22,0.82);
+  backdrop-filter:blur(18px);
+  display:flex;
+  flex-direction:column;
+  height:100dvh;
+  transition: width 0.28s cubic-bezier(0.4,0,0.2,1),
+              opacity 0.22s ease,
+              border-color 0.22s ease;
+  overflow:hidden;
+  position:relative;
+  z-index:50;
+}
+.sidebar.sidebar-hidden{
+  width:0;
+  border-color:transparent;
+  opacity:0;
+  pointer-events:none;
+}
 
-  // المدة الكلية للبوابة — تُلتقط أول ما تُفتح، لحساب نسبة الحلقة
-  const [joinTotal, setJoinTotal] = useState(0);
-  useEffect(() => {
-    if (!st.joinDeadline) { setJoinTotal(0); return; }
-    setJoinTotal(Math.max(1, Math.ceil((st.joinDeadline - Date.now()) / 1000)));
-  }, [st.joinDeadline]);
+/* ── Sidebar toggle button ── */
+.sidebar-toggle{
+  position:fixed;
+  bottom:20px;
+  left:20px;
+  width:44px;
+  height:44px;
+  border-radius:12px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--text);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  z-index:200;
+  transition:all 0.2s;
+  box-shadow:0 4px 16px rgba(0,0,0,0.4);
+  font-size:1.1rem;
+  backdrop-filter:blur(8px);
+}
+.sidebar-toggle:hover{
+  background:var(--surface2);
+  border-color:var(--blue2);
+  transform:translateY(-2px);
+  box-shadow:0 6px 20px rgba(0,0,0,0.5);
+}
+.sidebar-toggle.sb-active{
+  background:rgba(41,182,246,0.18);
+  border-color:var(--blue);
+  color:var(--blue);
+  box-shadow:0 0 14px var(--glow);
+}
 
-  const secsLeft = st.joinDeadline ? Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000)) : 0;
-  const gateOpen = !!st.joinDeadline && secsLeft > 0;
+.sidebar-head{
+  padding:14px 16px;
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:10px;
+  flex-shrink:0;
+  white-space:nowrap;
+  overflow:hidden;
+}
+.kick-badge{
+  width:34px;height:34px;border-radius:8px;
+  display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;overflow:hidden;
+}
+.sidebar-title{font-size:0.92rem;font-weight:700;overflow:hidden;text-overflow:ellipsis}
+.live-pill{
+  margin-right:auto;padding:3px 10px;border-radius:99px;
+  font-size:0.68rem;font-weight:700;white-space:nowrap;flex-shrink:0;
+}
+.pill-offline{background:rgba(255,255,255,0.07);color:var(--muted)}
+.pill-checking{background:rgba(255,195,0,0.12);color:#ffc300;animation:blink 1.2s infinite}
+.pill-live{background:rgba(83,252,24,0.14);color:var(--kick)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.4}}
 
-  // الرابط له الأولوية على المحفوظ: ‎?dark=1‎ للمعاينة، ‎?transparent=1‎ للشفافة.
-  const urlMode = useMemo<Mode | null>(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("transparent") === "1") return "transparent";
-      if (params.get("dark") === "1") return "dark";
-    } catch { /* ignore */ }
-    return null;
-  }, []);
+.chat-body{flex:1;overflow:hidden;display:flex;flex-direction:column;min-height:0}
+.chat-frame-container{flex:2;position:relative;border-bottom:1px solid var(--border);min-height:0}
+.chat-frame-container iframe{width:100%;height:100%;border:none;display:block}
+.entry-log-container{flex:1;display:flex;flex-direction:column;background:rgba(0,0,0,0.2);min-height:120px}
+.entry-log-head{
+  padding:8px 14px;font-size:0.78rem;font-weight:700;color:var(--blue);
+  border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;
+  background:rgba(255,255,255,0.02);flex-shrink:0;
+}
+.entry-log-list{flex:1;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:4px;scrollbar-width:none}
+.entry-log-list::-webkit-scrollbar{display:none}
+.entry-item{
+  padding:5px 9px;background:rgba(255,255,255,0.05);border-radius:6px;
+  font-size:0.82rem;display:flex;align-items:center;gap:7px;
+  animation:slideIn 0.3s ease-out;flex-shrink:0;
+}
+@keyframes slideIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+.entry-item .time{font-size:0.68rem;color:var(--muted);margin-right:auto}
+.entry-item .user{font-weight:700;color:var(--text);white-space:normal;overflow-wrap:anywhere;word-break:break-word}
+.entry-item .status-dot{width:6px;height:6px;border-radius:50%;background:var(--kick);flex-shrink:0}
+.entry-item .avatar{width:20px;height:20px;border-radius:50%;object-fit:cover;flex-shrink:0;box-shadow:0 0 0 1px rgba(83,252,24,0.5)}
+.chat-offline{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:14px;padding:24px;text-align:center;
+}
+.chat-offline .ico{font-size:2.8rem;opacity:0.3}
+.chat-offline p{color:var(--muted);font-size:0.82rem;line-height:1.7}
+.chat-offline b{color:var(--blue)}
+.btn-check{
+  padding:8px 20px;border:none;border-radius:10px;cursor:pointer;
+  background:linear-gradient(135deg,var(--kick),#3ad00f);
+  color:#000;font-weight:800;font-family:inherit;font-size:0.82rem;
+  transition:all .25s;
+}
+.btn-check:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(83,252,24,0.3)}
 
-  const hideSwitch = useMemo(() => {
-    try {
-      return new URLSearchParams(window.location.search).get("clean") === "1";
-    } catch { return false; }
-  }, []);
+/* ── Site header ── */
+.site-header{text-align:center;margin-bottom:28px}
+.tag{
+  display:inline-block;padding:4px 16px;border-radius:99px;
+  border:1px solid rgba(41,182,246,0.35);
+  background:rgba(41,182,246,0.08);
+  font-size:0.7rem;font-weight:700;letter-spacing:3px;
+  color:var(--blue);text-transform:uppercase;margin-bottom:12px;
+}
+.site-header h1{
+  font-size:clamp(1.8rem,5vw,3.2rem);font-weight:900;line-height:1.1;margin-bottom:8px;
+  background:linear-gradient(100deg,#fff 20%,var(--blue) 55%,#fff 90%);
+  background-size:200% auto;
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+  animation:shine 4s linear infinite;
+}
+@keyframes shine{to{background-position:200% center}}
+.site-header p{color:var(--muted);font-size:clamp(0.78rem,2vw,0.92rem)}
 
-  const [mode, setMode] = useState<Mode>(() => {
-    if (urlMode) return urlMode;
-    try {
-      const saved = localStorage.getItem(STORE_KEY);
-      if (saved === "dark" || saved === "transparent") return saved;
-    } catch { /* ignore */ }
-    return "transparent";   // الافتراضي: بدون خلفية (جاهزة لـ OBS)
-  });
+/* ── Cards ── */
+.card{
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:16px;
+  backdrop-filter:blur(12px);
+  padding:22px 20px;
+  margin-bottom:18px;
+}
 
-  const pickMode = (next: Mode) => {
-    setMode(next);
-    try { localStorage.setItem(STORE_KEY, next); } catch { /* ignore */ }
-  };
+/* ── Setup: size pills ── */
+.size-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:center;margin-bottom:18px}
+.size-row label{font-weight:700;color:var(--blue);font-size:0.88rem}
+.pills{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.sz-pill{
+  padding:7px 17px;border-radius:99px;font-weight:700;font-family:inherit;
+  font-size:0.85rem;cursor:pointer;transition:all .2s;
+  border:1.5px solid var(--border);background:transparent;color:var(--text);
+}
+.sz-pill:hover{border-color:var(--blue);color:var(--blue);transform:translateY(-2px)}
+.sz-pill.on{
+  background:linear-gradient(135deg,var(--blue),var(--blue2));
+  border-color:transparent;color:#040e1c;
+  box-shadow:0 0 16px var(--glow);
+}
+.custom-n{
+  width:80px;padding:7px 10px;border-radius:99px;
+  border:1.5px solid var(--border);background:rgba(0,0,0,0.4);
+  color:var(--text);text-align:center;font-size:0.85rem;font-weight:700;font-family:inherit;outline:none;
+  transition:all .2s;
+}
+.custom-n:focus{border-color:var(--blue);box-shadow:0 0 10px var(--glow)}
+.info-note{text-align:center;color:var(--muted);font-size:0.8rem;margin-bottom:16px;min-height:18px}
+.info-note b{color:var(--blue)}
 
-  const pageBackground = mode === "transparent" ? "transparent" : "#060d1a";
+/* ── Names grid ── */
+.names-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+  gap:9px;margin-bottom:20px;
+}
+.n-wrapper{position:relative;display:flex;align-items:center}
+.n-input{
+  width:100%;padding:10px 32px 10px 12px;border-radius:10px;
+  border:1px solid var(--border);background:rgba(0,0,0,0.4);
+  color:var(--text);font-size:0.88rem;font-family:inherit;outline:none;transition:all .2s;
+}
+.n-input:focus{border-color:var(--blue);box-shadow:0 0 10px var(--glow)}
+.n-input::placeholder{color:var(--muted)}
+.btn-del{
+  position:absolute;left:7px;top:50%;transform:translateY(-50%);
+  width:20px;height:20px;border-radius:5px;border:none;
+  background:rgba(255,68,68,0.15);color:#ff4444;
+  font-size:0.65rem;cursor:pointer;display:flex;align-items:center;justify-content:center;
+  transition:all .2s;opacity:0;pointer-events:none;
+}
+.n-wrapper:hover .btn-del,.n-wrapper:focus-within .btn-del{opacity:1;pointer-events:all}
+.btn-del:hover{background:#ff4444;color:#fff}
 
-  // نطبّق خلفية الصفحة (body/html) حسب الوضع، وهو بهذي الصفحة بس، ونرجّعها
-  // لما نطلع منها.
-  useEffect(() => {
-    const prevBody = document.body.style.background;
-    const prevHtml = document.documentElement.style.background;
-    document.body.style.background = pageBackground;
-    document.documentElement.style.background = pageBackground;
-    return () => {
-      document.body.style.background = prevBody;
-      document.documentElement.style.background = prevHtml;
-    };
-  }, [pageBackground]);
+/* ── Teams toggle ── */
+.toggle-row{
+  display:flex;align-items:center;gap:12px;justify-content:center;
+  margin-bottom:18px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap;
+}
+.team-size-control{display:none;align-items:center;gap:8px;margin-right:12px;padding-right:12px;border-right:1px solid var(--border)}
+.team-size-control.show{display:flex}
+.team-size-control label{font-size:0.78rem;color:var(--muted)}
+.team-size-input{width:48px;padding:4px 6px;border-radius:6px;border:1px solid var(--border);background:rgba(0,0,0,0.3);color:var(--text);font-family:inherit;font-size:0.8rem;text-align:center}
+.team-size-input:focus{border-color:var(--blue);outline:none}
+.switch{position:relative;display:inline-block;width:42px;height:22px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:var(--surface2);border:1px solid var(--border);transition:.4s;border-radius:22px}
+.slider:before{position:absolute;content:"";height:14px;width:14px;left:3px;bottom:3px;background:var(--muted);transition:.4s;border-radius:50%}
+input:checked+.slider{background:rgba(41,182,246,0.18);border-color:var(--blue)}
+input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 
-  // 📐 تحجيم تلقائي ليملأ مساحة المصدر (1920×1080 بـ OBS) بالطول والعرض:
-  // نقيس الحجم الطبيعي للمحتوى ثم نحسب معامل تكبير/تصغير يخليه يملأ الشاشة
-  // بدون ما يُقص. القياس بـ offsetWidth/offsetHeight — قيم تخطيط ما تتأثر
-  // بالـ transform، فما يصير حلقة إعادة قياس لا نهائية.
-  const stageRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+/* ── Buttons ── */
+.action-row{display:flex;gap:9px;justify-content:center;flex-wrap:wrap}
+.btn{
+  padding:10px 22px;border:none;border-radius:10px;
+  font-weight:700;font-family:inherit;font-size:0.9rem;cursor:pointer;transition:all .25s;
+}
+.btn-primary{
+  background:linear-gradient(135deg,var(--blue),var(--blue2));
+  color:#040e1c;box-shadow:0 0 16px var(--glow);
+}
+.btn-primary:hover{transform:translateY(-3px);box-shadow:0 8px 26px var(--glow)}
+.btn-disabled{
+  background:#3a3f4b;color:#9aa1ad;box-shadow:none;cursor:not-allowed;opacity:0.7;
+}
+.btn-disabled:hover{transform:none;box-shadow:none}
+.btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.btn-ghost:hover{background:rgba(41,182,246,0.08);border-color:var(--blue)}
 
-  useLayoutEffect(() => {
-    const fit = () => {
-      const stage = stageRef.current;
-      const content = contentRef.current;
-      if (!stage || !content) return;
-      const pad = 28;
-      const aw = stage.clientWidth - pad;
-      const ah = stage.clientHeight - pad;
-      const cw = content.offsetWidth;
-      const ch = content.offsetHeight;
-      if (!cw || !ch || aw <= 0 || ah <= 0) return;
-      // الحد الأعلى 2.2 يمنع التكبير المبالغ فيه لو المحتوى صغير جداً
-      const next = Math.min(aw / cw, ah / ch, 2.2);
-      setScale(Number.isFinite(next) && next > 0 ? next : 1);
-    };
-    fit();
-    const ro = new ResizeObserver(fit);
-    if (contentRef.current) ro.observe(contentRef.current);
-    window.addEventListener("resize", fit);
-    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
-  }, [st, mode]);
+/* ── Toolbar ── */
+.toolbar{
+  display:flex;justify-content:space-between;align-items:center;
+  flex-wrap:wrap;gap:10px;margin-bottom:18px;
+  padding:12px 18px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:13px;backdrop-filter:blur(10px);position:relative;
+}
+.toolbar-info{color:var(--muted);font-size:0.85rem}
+.toolbar-info b{color:var(--blue)}
 
-  return (
-    <div
-      // 📺 وضع OBS دايماً: خلفيات صلبة بدون شفافية ولا بلور وخط أكبر — عشان
-      // الشجرة تُقرأ بوضوح فوق أي فيديو لما تنحط كمصدر متصفح بخلفية شفافة.
-      className="bracket-page obs-mode"
-      ref={stageRef}
-      style={{ background: pageBackground }}
-    >
-      <div className="obs-fit" style={{ transform: `scale(${scale})` }}>
-        <div className="obs-content" ref={contentRef}>
-            {st.phase === "setup" ? (
-        // 🟢 قبل بدء البطولة: نعرض بوابة الانضمام دايماً — عدّاد + أمر دخول
-        // + المشاركين. ما فيه أي تفعيل يدوي، الصفحة جاهزة للبث من بدري.
-        (
-          <div className={`gate${st.entryLog.length > 0 ? " has-players" : ""}${!st.joinDeadline ? "" : !gateOpen ? " is-closed" : secsLeft <= 10 ? " is-hot" : ""}`}>
-            {st.name && <div className="gate-title">🏆 {st.name}</div>}
 
-            {st.joinDeadline ? (
-              <>
-                <div className="gate-ring" style={{ ["--p" as any]: joinTotal ? Math.max(0, secsLeft / joinTotal) : 0 }}>
-                  <svg viewBox="0 0 120 120" aria-hidden="true">
-                    <circle className="gate-track" cx="60" cy="60" r="52" />
-                    <circle className="gate-bar" cx="60" cy="60" r="52" />
-                  </svg>
-                  <div className="gate-face">
-                    <div className="gate-time">
-                      {gateOpen
-                        ? `${String(Math.floor(secsLeft / 60)).padStart(2, "0")}:${String(secsLeft % 60).padStart(2, "0")}`
-                        : "00:00"}
-                    </div>
-                    <div className="gate-unit">{gateOpen ? "متبقي" : "انتهى"}</div>
-                  </div>
-                </div>
-                <div className="gate-status">
-                  <span className="gate-dot" />
-                  {gateOpen ? "باب الانضمام مفتوح" : "باب الانضمام مقفل"}
-                </div>
-                {gateOpen && <div className="gate-hint">اكتب <b>!دخول</b> بالشات عشان تنضم</div>}
-              </>
-            ) : (
-              <>
-                <div className="gate-wait" aria-hidden="true"><i /><i /><i /></div>
-                <div className="gate-status"><span className="gate-dot" />في انتظار بدء البطولة</div>
-              </>
-            )}
+/* ── 🖥️ شجرة الأدمن بعرض الشاشة كاملة (ما فيه فراغ باليمين) ── */
+.admin-shell .main{padding-left:10px;padding-right:10px}
+.admin-shell .main > div{max-width:none}
+.admin-shell .bracket-scroll{width:100%}
+.admin-shell .bracket{width:100%;justify-content:center}
+.admin-shell .round,
+.admin-shell .round.r-fwd,
+.admin-shell .round.r-left,
+.admin-shell .round.r-right,
+.admin-shell .round.r-center{max-width:none;flex:1 1 0}
 
-            {st.entryLog.length > 0 && (
-              <>
-                <div className="gate-count">👥 المنضمين <span>{st.entryLog.length}</span></div>
-                {/* 👥 المشاركين — نفس الشاشة تنتقل تلقائياً: انتظار ← بوابة
-                    مفتوحة مع المشاركين ← الشجرة، بمصدر جرين سكرين واحد. */}
-                <div className="gate-players">
-                  {st.entryLog.map((e, i) => (
-                    <div className="gate-player" key={i} style={{ animationDelay: `${Math.min(i, 20) * 0.035}s` }}>
-                      <span className="gate-avatar">
-                        {e.avatar
-                          ? <img src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
-                          : e.user.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="gate-pname">{e.user}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )
-      ) : (
-        <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
-      )}
+/* ── 🧰 شريط أدوات البطولة: تدفق طبيعي بدون تموضع مطلق ── */
+.toolbar.tb-flex{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:14px;flex-wrap:wrap;position:static;
+}
+.tb-side{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.tb-stats{flex:0 0 auto}
+.tb-title{
+  flex:1 1 200px;min-width:0;text-align:center;order:0;
+}
+.tb-title span{
+  display:inline-block;max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  color:var(--gold);font-weight:900;font-size:1.4rem;
+  text-shadow:0 0 12px rgba(255,215,0,0.6);
+}
+@media (max-width:900px){
+  .tb-title{flex-basis:100%;order:-1;margin-bottom:4px}
+  .tb-title span{font-size:1.15rem}
+}
 
-        </div>
-      </div>
+/* ⛔ زر إيقاف البطولة */
+.btn-stop{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:8px 16px;border-radius:10px;cursor:pointer;white-space:nowrap;
+  font-family:inherit;font-size:0.85rem;font-weight:900;
+  color:#fff;
+  background:linear-gradient(135deg,#ef4444,#b91c1c);
+  border:1px solid rgba(255,255,255,0.22);
+  box-shadow:0 4px 14px rgba(239,68,68,0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+  transition:transform .18s,filter .18s,box-shadow .18s;
+}
+.btn-stop:hover{
+  transform:translateY(-2px);filter:brightness(1.08);
+  box-shadow:0 8px 22px rgba(239,68,68,0.5), inset 0 1px 0 rgba(255,255,255,0.3);
+}
+.btn-stop:active{transform:translateY(0)}
 
-      {!hideSwitch && (
-        <div className="bg-switch" title="وضع الخلفية — يظهر لما تحرّك عليه الماوس فقط">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              aria-pressed={mode === m.id}
-              onClick={() => pickMode(m.id)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+/* ── 🎲 الماتش العشوائي مدموج بشريط الأدوات ── */
+.tb-sep{width:1px;height:22px;background:var(--border);margin:0 4px;flex-shrink:0}
+.pick-inline{
+  display:inline-flex;align-items:center;gap:7px;
+  padding:4px 10px;border-radius:9px;
+  background:rgba(0,0,0,0.28);border:1px solid var(--border);
+  font-size:0.82rem;font-weight:800;max-width:340px;
+}
+.pick-inline .pick-slot{
+  max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.pick-inline .pick-vs{color:var(--muted);font-size:0.7rem;flex-shrink:0}
+
+/* ── 🏆 نافذة اختيار كرت الفائز ── */
+.cardpick-overlay{
+  position:fixed;inset:0;z-index:1200;
+  display:flex;align-items:center;justify-content:center;padding:18px;
+  background:rgba(2,6,14,0.75);backdrop-filter:blur(6px);
+}
+.cardpick{
+  width:100%;max-width:460px;max-height:82vh;overflow-y:auto;
+  padding:20px;border-radius:18px;
+  background:linear-gradient(180deg,rgba(16,32,60,0.98),rgba(6,13,26,0.99));
+  border:1px solid rgba(41,182,246,0.32);
+  box-shadow:0 30px 70px rgba(0,0,0,0.7);
+}
+.cardpick-head{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  font-size:1.05rem;font-weight:900;margin-bottom:6px;
+}
+.cardpick-close{
+  width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;flex-shrink:0;
+  background:rgba(255,255,255,0.08);color:#fff;font-size:15px;line-height:1;
+}
+.cardpick-close:hover{background:rgba(255,255,255,0.18)}
+.cardpick-sub{font-size:0.83rem;color:var(--muted);line-height:1.8;margin-bottom:14px}
+.cardpick-sub b{color:var(--gold);font-weight:900}
+.cardpick-empty{text-align:center;padding:22px;color:var(--muted);font-size:0.86rem}
+.cardpick-list{display:flex;flex-direction:column;gap:8px}
+.cardpick-item{
+  display:flex;align-items:center;gap:10px;width:100%;
+  padding:12px 14px;border-radius:12px;cursor:pointer;text-align:start;
+  font-family:inherit;color:var(--text);
+  background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  transition:all .16s;
+}
+.cardpick-item:hover:not(:disabled){
+  background:rgba(41,182,246,0.14);border-color:var(--blue);transform:translateX(-3px);
+}
+.cardpick-item:disabled{opacity:0.45;cursor:not-allowed}
+.cardpick-name{flex:1;min-width:0;font-weight:800;font-size:0.98rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cardpick-cur{font-size:0.72rem;color:var(--muted);font-weight:700;flex-shrink:0}
+.cardpick-go{color:var(--blue);font-weight:900;flex-shrink:0}
+.cardpick-busy{margin-top:14px;text-align:center;font-size:0.85rem;font-weight:800;color:var(--blue)}
+
+
+/* ── 🧩 لوحتان جنب بعض (المستويات + نقاط التوب) ── */
+.panels-row{
+  display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;
+  margin-bottom:18px;   /* نفس تباعد .card عشان ما تلتصق باللي بعدها */
+}
+.panels-row > .panel-half{
+  flex:1 1 440px;min-width:0;margin-bottom:0;
+}
+
+/* ── 🎚️ قائمة نظام المستويات ── */
+.lvl-list{display:flex;flex-direction:column;gap:7px;margin-top:4px}
+.lvl-row{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 12px;border-radius:11px;
+  background:rgba(255,255,255,0.035);border:1px solid var(--border);
+  transition:border-color .16s;
+}
+.lvl-row:hover{border-color:rgba(41,182,246,0.4)}
+/* الصف كزر قابل للضغط (يفتح تفاصيل اللاعب) */
+.lvl-row.as-btn{
+  width:100%;cursor:pointer;text-align:start;font-family:inherit;color:var(--text);
+}
+.lvl-row.as-btn:hover:not(:disabled){background:rgba(41,182,246,0.12);transform:translateX(-3px)}
+.lvl-row.as-btn:disabled{opacity:0.5;cursor:not-allowed}
+.lvl-row.as-btn.on{border-color:var(--blue);background:rgba(41,182,246,0.14)}
+.lvl-rank{
+  flex-shrink:0;min-width:22px;text-align:center;
+  font-size:0.8rem;font-weight:900;color:var(--muted);
+}
+.lvl-go{flex-shrink:0;color:var(--blue);font-weight:900;font-size:0.9rem}
+
+/* رأس تفاصيل اللاعب المختار */
+.lvl-detail-head{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 12px;margin:14px 0 10px;border-radius:11px;
+  background:rgba(41,182,246,0.08);border:1px solid rgba(41,182,246,0.3);
+  font-size:0.9rem;font-weight:800;
+}
+.lvl-detail-head b{color:#7fd4ff}
+.lvl-detail-sum{flex:1;font-size:0.76rem;color:var(--muted);font-weight:700}
+.lvl-name{
+  flex:0 0 26%;min-width:0;font-weight:800;font-size:0.92rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lvl-badge{
+  flex-shrink:0;padding:3px 10px;border-radius:99px;
+  background:rgba(41,182,246,0.12);color:#7fd4ff;
+  font-size:0.76rem;font-weight:900;
+}
+.lvl-track{
+  flex:1;min-width:50px;height:7px;border-radius:99px;overflow:hidden;
+  background:rgba(255,255,255,0.1);position:relative;
+}
+.lvl-fill{
+  position:absolute;inset:0 auto 0 0;border-radius:99px;
+  background:linear-gradient(90deg,#1976e6,#39c4ff);
+  box-shadow:0 0 8px rgba(41,182,246,0.5);
+  transition:width .4s ease;
+}
+.lvl-wins{
+  flex-shrink:0;min-width:26px;text-align:center;
+  font-size:0.78rem;font-weight:900;color:var(--muted);
+}
+.lvl-ctrl{display:flex;gap:5px;flex-shrink:0}
+
+/* صف الإضافة اليدوية */
+.lvl-add{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 12px;margin:4px 0 10px;border-radius:11px;
+  background:rgba(255,255,255,0.03);border:1px dashed var(--border2);
+}
+.lvl-add .lb-name-input{flex:1 1 140px}
+.lvl-add .lb-select{flex:0 1 150px}
+
+/* ترقيم الصفحات */
+.lvl-pager{
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  flex-wrap:wrap;margin-top:12px;
+}
+.lvl-pg,.lvl-pg-nav{
+  min-width:30px;height:30px;padding:0 8px;border-radius:8px;cursor:pointer;
+  font-family:inherit;font-size:0.8rem;font-weight:800;
+  color:var(--text);background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);transition:all .16s;
+}
+.lvl-pg:hover:not(.on),.lvl-pg-nav:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.lvl-pg.on{background:var(--blue);border-color:var(--blue);color:#04121f}
+.lvl-pg-nav{font-size:1rem;line-height:1}
+.lvl-pg-nav:disabled{opacity:0.35;cursor:not-allowed}
+
+@media (max-width:640px){
+  .lvl-name{flex-basis:34%}
+  .lvl-track{display:none}
+}
+
+/* ── 🏆 لوحة نقاط الأكثر انتصاراً ── */
+.lb-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.lb-sub{font-size:0.75rem;color:var(--muted)}
+.lb-tools{margin-inline-start:auto;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.lb-select{
+  padding:7px 12px;border-radius:9px;font-family:inherit;font-size:0.8rem;font-weight:700;
+  background:rgba(0,0,0,0.3);color:var(--text);border:1px solid var(--border);cursor:pointer;
+}
+.lb-btn{
+  padding:7px 14px;border-radius:9px;cursor:pointer;white-space:nowrap;
+  font-family:inherit;font-size:0.8rem;font-weight:800;
+  color:var(--text);background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  transition:all .18s;
+}
+.lb-btn:hover:not(:disabled){border-color:var(--blue);color:var(--blue)}
+.lb-btn:disabled{opacity:0.4;cursor:not-allowed}
+.lb-btn.primary{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#04121f;border:none}
+.lb-btn.danger{color:#ff8b8b;border-color:rgba(239,68,68,0.35)}
+.lb-btn.danger:hover:not(:disabled){background:rgba(239,68,68,0.14);border-color:#ef4444;color:#ff8b8b}
+.lb-btn.sm{padding:5px 10px;font-size:0.74rem}
+.lb-msg{
+  padding:9px 13px;border-radius:9px;margin-bottom:10px;
+  font-size:0.82rem;font-weight:700;
+}
+.lb-msg.ok{background:rgba(74,222,128,0.10);border:1px solid rgba(74,222,128,0.3);color:#4ade80}
+.lb-msg.err{background:rgba(239,68,68,0.10);border:1px solid rgba(239,68,68,0.3);color:#ff8b8b}
+.lb-add{
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+  padding:10px 12px;margin-bottom:12px;border-radius:11px;
+  background:rgba(255,255,255,0.03);border:1px dashed var(--border2);
+}
+.lb-name-input{
+  flex:1;min-width:150px;padding:8px 12px;border-radius:9px;
+  font-family:inherit;font-size:0.88rem;font-weight:700;
+  background:rgba(0,0,0,0.3);color:var(--text);border:1px solid var(--border);
+}
+.lb-pts-input{
+  width:74px;padding:8px 6px;border-radius:9px;text-align:center;
+  font-family:inherit;font-size:0.9rem;font-weight:900;
+  background:rgba(0,0,0,0.3);color:var(--blue);border:1px solid var(--border);
+}
+.lb-unit{font-size:0.78rem;color:var(--muted);font-weight:700}
+.lb-list{display:flex;flex-direction:column;gap:7px}
+.lb-empty{text-align:center;padding:18px;color:var(--muted);font-size:0.85rem}
+.lb-row{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:9px 12px;border-radius:11px;
+  background:rgba(255,255,255,0.035);border:1px solid var(--border);
+}
+.lb-rank{
+  min-width:30px;text-align:center;font-weight:900;font-size:0.95rem;color:var(--muted);flex-shrink:0;
+}
+.lb-rank.r1,.lb-rank.r2,.lb-rank.r3{font-size:1.15rem}
+.lb-name{
+  flex:1;min-width:90px;font-weight:800;font-size:0.98rem;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lb-ctrl{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.lb-step{
+  width:32px;height:32px;border-radius:8px;cursor:pointer;flex-shrink:0;
+  font-family:inherit;font-size:1.05rem;font-weight:900;line-height:1;
+  color:var(--blue);background:rgba(41,182,246,0.10);border:1px solid var(--border);
+  transition:all .16s;
+}
+.lb-step:hover:not(:disabled){background:var(--blue);color:#04121f}
+.lb-step:disabled{opacity:0.35;cursor:not-allowed}
+
+/* ── 🎛️ أزرار رأس لوحة الأدمن (الصوت / تحقق / خروج) ── */
+.admin-actions{
+  position:absolute;top:0;right:0;z-index:5;
+  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+}
+.admin-act{
+  display:inline-flex;align-items:center;gap:7px;
+  text-decoration:none;
+  padding:8px 14px;border-radius:10px;cursor:pointer;
+  font-family:inherit;font-size:0.82rem;font-weight:800;
+  color:var(--text);background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  transition:background .18s,border-color .18s,transform .18s,color .18s;
+  white-space:nowrap;
+}
+.admin-act:hover{background:rgba(41,182,246,0.14);border-color:var(--blue);transform:translateY(-1px)}
+.admin-act.on{border-color:rgba(74,222,128,0.5)}
+.admin-act.danger:hover{background:rgba(239,68,68,0.14);border-color:#ef4444;color:#ff8b8b}
+.act-dot{
+  width:7px;height:7px;border-radius:50%;
+  background:#64748b;flex-shrink:0;
+}
+.act-dot.live{background:#4ade80}
+
+/* ── 🤖 أزرار بوتات التجربة ── */
+.bots-group{
+  display:inline-flex;align-items:center;gap:5px;flex-shrink:0;
+  padding:4px 5px 4px 11px;border-radius:10px;
+  background:rgba(255,255,255,0.04);border:1px dashed var(--border2);
+}
+.bots-label{font-size:0.76rem;font-weight:800;color:var(--muted);white-space:nowrap}
+.bots-btn{
+  min-width:36px;padding:5px 9px;border-radius:7px;cursor:pointer;
+  font-family:inherit;font-size:0.8rem;font-weight:900;
+  color:var(--blue);background:rgba(41,182,246,0.10);
+  border:1px solid var(--border);transition:all .16s;
+}
+.bots-btn:hover{background:var(--blue);color:#04121f;border-color:var(--blue)}
+
+/* ── 🎛️ لوحة إعداد البطولة (الاسم + مهلة الانضمام) ── */
+.setup-bar{
+  display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;
+  padding:16px 18px;margin-bottom:14px;border-radius:14px;
+  background:linear-gradient(135deg,rgba(41,182,246,0.09),rgba(0,191,255,0.02));
+  border:1px solid rgba(41,182,246,0.24);
+}
+.setup-field{display:flex;flex-direction:column;gap:7px;min-width:0}
+.setup-field > label{
+  font-size:0.7rem;font-weight:800;letter-spacing:1.4px;
+  color:var(--blue);text-transform:uppercase;
+}
+.setup-name{flex:1;min-width:220px}
+.setup-name .n-input{
+  width:100%;font-size:1.05rem;font-weight:800;padding:10px 14px;
+  text-align:start;max-width:none;
+}
+.setup-sep{width:1px;align-self:stretch;background:var(--border);margin:6px 0}
+.join-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.join-mins{
+  width:66px;padding:10px 8px;text-align:center;
+  font-family:inherit;font-size:1rem;font-weight:800;
+  border-radius:10px;border:1px solid var(--border);
+  background:rgba(0,0,0,0.3);color:var(--text);
+}
+.join-unit{font-size:0.8rem;color:var(--muted);font-weight:700}
+.join-btn{
+  padding:10px 16px;border:none;border-radius:10px;cursor:pointer;
+  font-family:inherit;font-size:0.82rem;font-weight:800;
+  background:linear-gradient(135deg,var(--blue),var(--blue2));color:#04121f;
+  transition:transform .18s,opacity .18s;white-space:nowrap;
+}
+.join-btn:hover{transform:translateY(-1px)}
+.join-btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.green-row,.teams-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.join-btn.is-off{background:rgba(255,255,255,0.06);color:var(--muted);cursor:not-allowed}
+.join-btn.is-off:hover{transform:none}
+.helpers-modal{max-width:720px}
+.green-open-btn{
+  padding:10px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;
+  font-family:inherit;font-size:0.8rem;font-weight:800;
+  color:var(--blue);background:rgba(41,182,246,0.10);
+  border:1px solid var(--border);transition:all .18s;
+}
+.green-open-btn:hover{background:var(--blue);color:#04121f;border-color:var(--blue)}
+.join-clock{
+  font-size:1.35rem;font-weight:900;color:var(--blue);
+  font-variant-numeric:tabular-nums;min-width:66px;
+}
+.join-clock.hot{color:#ef4444}
+.join-hint{font-size:0.78rem;color:var(--muted);font-weight:700}
+
+/* ── 👥 شريط المسجلين من الشات ── */
+.reg-head{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;margin-bottom:12px;border-radius:11px;
+  background:rgba(255,255,255,0.03);border:1px solid var(--border);
+}
+.reg-title{font-weight:800;font-size:0.92rem;color:var(--text);white-space:nowrap}
+.reg-hint{flex:1;font-size:0.75rem;color:var(--muted);min-width:120px}
+.reg-hint b{color:var(--blue)}
+.reg-count{
+  min-width:36px;text-align:center;padding:3px 11px;border-radius:99px;
+  background:var(--blue);color:#04121f;font-weight:900;font-size:0.9rem;
+}
+
+/* ── Pick bar ── */
+.pick-bar{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:14px 18px;
+  background:linear-gradient(135deg,rgba(41,182,246,0.07),rgba(0,191,255,0.03));
+  border:1px solid rgba(41,182,246,0.25);
+  border-radius:13px;margin-bottom:18px;
+}
+.pick-bar-label{font-size:0.85rem;font-weight:700;color:var(--blue);white-space:nowrap}
+.pick-result{flex:1;display:flex;align-items:center;gap:10px;min-width:0}
+.pick-slot{
+  flex:1;min-width:0;padding:9px 14px;border-radius:10px;
+  border:1.5px solid var(--border);background:rgba(0,0,0,0.35);
+  font-size:0.9rem;font-weight:700;text-align:center;
+  transition:all .3s;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  min-height:42px;display:flex;align-items:center;justify-content:center;
+  color:var(--muted);
+}
+.pick-slot.rolling{
+  border-color:var(--blue);box-shadow:0 0 14px var(--glow);color:var(--text);
+  animation:slotShake .09s ease-in-out infinite;
+}
+.pick-slot.locked-in{
+  border-color:var(--gold);
+  background:linear-gradient(135deg,rgba(255,215,0,0.12),rgba(255,165,0,0.05));
+  box-shadow:0 0 20px rgba(255,215,0,0.4);color:var(--gold);
+}
+@keyframes slotShake{
+  0%{transform:translateY(0) scale(1)}
+  30%{transform:translateY(-2px) scale(1.015)}
+  70%{transform:translateY(2px) scale(0.985)}
+  100%{transform:translateY(0) scale(1)}
+}
+.pick-vs{font-size:1rem;font-weight:900;color:var(--muted);flex-shrink:0}
+.btn-pick{
+  padding:9px 20px;border:none;border-radius:10px;cursor:pointer;flex-shrink:0;
+  background:linear-gradient(135deg,var(--blue),var(--blue2));
+  color:#040e1c;font-weight:800;font-family:inherit;font-size:0.85rem;
+  transition:all .25s;box-shadow:0 0 12px var(--glow);
+}
+.btn-pick:hover{transform:translateY(-2px);box-shadow:0 6px 20px var(--glow)}
+.btn-pick:active{transform:scale(0.97)}
+.btn-pick:disabled{opacity:0.45;cursor:not-allowed;transform:none;box-shadow:none}
+
+/* ── Bracket ── */
+.bracket-scroll{
+  width:100%;
+  overflow-x:auto;
+  overflow-y:visible;
+  padding-bottom:16px;
+  -webkit-overflow-scrolling:touch;
+}
+.bracket-scroll::-webkit-scrollbar{height:5px}
+.bracket-scroll::-webkit-scrollbar-track{background:transparent}
+.bracket-scroll::-webkit-scrollbar-thumb{background:var(--border2);border-radius:4px}
+
+/* 📐 كل مقاسات الشجرة من هنا:
+   --row  = طول شريحة اللاعب الواحد
+   --box  = طول خانة المباراة كاملة (شريحتين + الفاصل بينهم)
+   --g0   = الفراغ بين مباريات الجولة الأولى (اللي بعدها يتضاعف تلقائياً)
+   --conn = نص المسافة بين الأعمدة، وعليها تمشي خطوط الربط */
+.bracket{
+  --row:40px;
+  --vs:5px;
+  --pad:5px;                                   /* حشوة إطار الخانة */
+  --box:calc(var(--row) * 2 + var(--vs) + var(--pad) * 2 + 2px);
+  --g0:12px;
+  --conn:15px;
+  --head-h:150px;
+  /* 🔴 مسارات الشجرة (الجذور) — حمراء */
+  --line:rgba(239,68,68,0.5);
+  --line-hot:rgba(255,82,82,0.95);
+  --lw:2px;
+  --row-bg:rgba(255,255,255,0.045);
+  --row-br:rgba(255,255,255,0.09);
+  display:flex;
+  gap:calc(var(--conn) * 2);
+  align-items:stretch;
+  padding:10px 4px;
+  min-width:max-content;
+}
+
+/* 🔄 اتجاه الشجرة.
+   ‎.final-right‎ → نقلب اتجاه الأعمدة لـ LTR فتصير الجولة الأولى يسار
+   والنهائي آخر عمود على اليمين. ونرجّع الاتجاه RTL جوّا الشرائح والعناوين
+   عشان الأسماء والنصوص العربية تظهر صح. خطوط الربط تتعدّل لحالها لأنها
+   مبنية على الخصائص المنطقية (inset-inline-*). */
+.bracket.final-right{direction:ltr}
+.bracket.final-right .player,
+.bracket.final-right .round-title{direction:rtl}
+
+.round{
+  display:flex;flex-direction:column;
+  min-width:196px;flex:1;flex-shrink:0;
+}
+.round.r-fwd,.round.r-left,.round.r-right{min-width:196px;max-width:236px;flex-shrink:0}
+.round-head{
+  flex:0 0 var(--head-h);height:var(--head-h);
+  display:flex;flex-direction:column;align-items:center;justify-content:flex-end;
+  gap:0;margin-bottom:9px;
+}
+.round-title{
+  align-self:center;flex-shrink:0;
+  padding:5px 14px;
+  border-radius:99px;
+  background:rgba(41,182,246,0.06);
+  border:1px solid var(--border);
+  color:var(--blue);font-weight:700;
+  font-size:0.72rem;letter-spacing:1.6px;text-transform:uppercase;
+  white-space:nowrap;
+}
+/* عمود النهائي */
+/* عمود النهائي بنفس شكل بقية الأعمدة — بدون إطار مستطيل ولا عنوان مميّز */
+.round.r-center{min-width:224px;max-width:268px;flex-shrink:0}
+
+/* ── المباريات ── */
+/* المسافة تتضاعف كل دور (‎--k = 2^ri‎ تجي من BracketDisplay)، فيصير مركز كل
+   مباراة بالضبط بمنتصف المباراتين اللي قبلها = شجرة مضبوطة بدون طول زائد.
+   لو ما وصل ‎--k‎ لأي سبب نرجع للقيمة 1 بدل ما تنهار المسافات. */
+.matches{
+  display:flex;flex-direction:column;justify-content:center;flex:1;
+  gap:calc((var(--box) + var(--g0)) * var(--k,1) - var(--box));
+  --pitch:calc((var(--box) + var(--g0)) * var(--k,1));
+}
+/* 🖼️ كل خانة منافسين لها نفس الإطار — بما فيها النهائي */
+.match{
+  position:relative;
+  height:var(--box);min-height:var(--box);
+  display:flex;flex-direction:column;align-items:stretch;
+  flex:0 0 auto;
+  padding:var(--pad);
+  background:linear-gradient(180deg,rgba(16,30,54,0.72),rgba(8,16,32,0.78));
+  border:1.5px solid rgba(41,182,246,0.34);
+  border-radius:14px;
+  box-shadow:0 6px 18px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.06);
+  transition:border-color .2s,box-shadow .2s;
+}
+
+/* ── خطوط الربط ── */
+.conn{
+  position:absolute;top:50%;
+  width:var(--conn);height:var(--lw);
+  background:var(--line);
+  pointer-events:none;
+}
+/* الوصلة تطلع دايم باتجاه الجولة التالية — تنقلب لحالها مع اتجاه الشجرة */
+.r-fwd .conn,.r-left .conn{inset-inline-start:100%}
+.r-right .conn{inset-inline-end:100%}
+.match.solo .conn{width:calc(var(--conn) * 2)}
+.match.pair-top .conn::before{
+  content:"";position:absolute;top:0;
+  width:var(--lw);height:var(--pitch);background:var(--line);
+}
+.match.pair-top .conn::after{
+  content:"";position:absolute;top:calc(var(--pitch) / 2);
+  width:var(--conn);height:var(--lw);background:var(--line);
+}
+.r-fwd .match.pair-top .conn::before,
+.r-left .match.pair-top .conn::before{inset-inline-end:0}
+.r-fwd .match.pair-top .conn::after,
+.r-left .match.pair-top .conn::after{inset-inline-start:100%}
+.r-right .match.pair-top .conn::before{inset-inline-start:0}
+.r-right .match.pair-top .conn::after{inset-inline-end:100%}
+/* المباراة اللي خلصت تولّع وصلتها فيبين مسار الفائز */
+.match.done > .conn{background:var(--line-hot);box-shadow:0 0 9px rgba(255,82,82,0.65)}
+
+/* ── شريحة اللاعب ── */
+.player{
+  display:flex;align-items:center;gap:8px;
+  flex:0 0 auto;
+  width:100%;
+  height:var(--row);min-height:var(--row);
+  padding:0 10px;
+  white-space:nowrap;
+  position:relative;overflow:hidden;
+  background:linear-gradient(90deg,rgba(255,255,255,0.06),var(--row-bg));
+  border:1px solid var(--row-br);
+  border-inline-start:3px solid rgba(255,255,255,0.16);
+  border-radius:8px;
+  font-weight:700;cursor:pointer;user-select:none;
+  transition:background .18s,border-color .18s,color .18s,transform .18s;
+}
+.p-badge{
+  flex-shrink:0;width:24px;height:24px;border-radius:7px;
+  display:grid;place-items:center;
+  background:rgba(41,182,246,0.10);
+  color:var(--blue);font-size:0.78rem;font-weight:800;
+  transition:all .18s;
+}
+.p-name{
+  flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:1.06rem;font-weight:800;letter-spacing:-0.2px;line-height:1.15;
+}
+.p-mark{flex-shrink:0;font-size:0.9rem}
+.vs-line{height:var(--vs);min-height:var(--vs);flex:0 0 auto}
+.vs-line::before,.vs-line::after,.vs-line span{display:none}
+
+.player:hover:not(.empty):not(.locked):not(.bye-slot):not(.loser){
+  background:linear-gradient(90deg,rgba(41,182,246,0.22),rgba(41,182,246,0.06));
+  border-color:rgba(41,182,246,0.42);
+  border-inline-start-color:var(--blue2);
+}
+.player:hover:not(.empty):not(.locked):not(.bye-slot):not(.loser) .p-badge{
+  background:rgba(41,182,246,0.24);color:#fff;
+}
+/* الفائز */
+.player.winner{
+  background:linear-gradient(90deg,rgba(255,215,0,0.16),rgba(255,215,0,0.04));
+  border-color:rgba(255,215,0,0.3);
+  border-inline-start-color:var(--gold);
+  color:var(--gold);
+}
+.player.winner .p-badge{background:rgba(255,215,0,0.16);color:var(--gold)}
+/* الخاسر */
+.player.loser{
+  opacity:0.42;cursor:default;
+  border-inline-start-color:rgba(255,255,255,0.1);
+}
+.player.loser .p-name{text-decoration:line-through}
+/* بايب / خانة فاضية */
+.player.empty,.player.bye-slot{cursor:default;background:rgba(255,255,255,0.02)}
+.player.empty{color:var(--muted);border-style:dashed;border-inline-start-style:solid}
+.player.empty .p-badge{background:rgba(255,255,255,0.05);color:var(--muted)}
+.player.bye-slot{color:var(--blue);opacity:0.6;border-style:dashed;border-inline-start-style:solid}
+.player.empty .p-name,.player.bye-slot .p-name{font-size:0.86rem;font-weight:600;font-style:italic}
+.player.locked{cursor:default}
+
+/* ── حالات المباراة ── */
+.match.ready{
+  border-color:rgba(41,182,246,0.55);
+  background:rgba(41,182,246,0.07);
+  animation:rpulse 2.4s ease-in-out infinite;
+}
+.match.ready > .player:not(.empty):not(.bye-slot){border-color:rgba(41,182,246,0.4)}
+@keyframes rpulse{
+  0%,100%{box-shadow:0 0 10px rgba(41,182,246,0.16)}
+  50%{box-shadow:0 0 26px rgba(41,182,246,0.42)}
+}
+.match.done{opacity:0.9}
+.match.bye-match{opacity:0.5}
+/* النهائي: شرائح أطول شوي */
+.round.r-center .player{height:calc(var(--row) + 8px);min-height:calc(var(--row) + 8px);
+  border-inline-start-width:4px;border-radius:10px}
+.round.r-center .player .p-name{font-size:1.14rem}
+.round.r-center .match{height:calc((var(--row) + 8px) * 2 + var(--vs) + var(--pad) * 2 + 2px);
+  min-height:calc((var(--row) + 8px) * 2 + var(--vs) + var(--pad) * 2 + 2px)}
+.match.final-match > .player:not(.winner):not(.empty){
+  background:rgba(41,182,246,0.09);border-color:rgba(41,182,246,0.35);
+}
+/* 🔴 المباراة المسحوبة عشوائياً — ستروك أحمر ثابت حول الخانة (بدون توهّج
+   ولا نبض عشان ما يخرب الشاشة الخضراء / الكروما كي) */
+.match.picked-match{
+  border-color:#ff2d2d !important;
+  background:rgba(255,45,45,0.10) !important;
+  box-shadow:0 0 0 2px rgba(255,45,45,0.55) !important;
+  animation:none !important;
+}
+.match.picked-match > .player{border-color:rgba(255,45,45,0.45) !important}
+.match.picked-match > .player.winner{border-color:rgba(255,215,0,0.5) !important}
+
+/* شاشات صغيرة: نصغّر كل شي من متغيّر واحد */
+@media (max-width:700px){
+  .bracket{--row:34px;--g0:9px;--conn:12px}
+  .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:158px;max-width:190px}
+  .round.r-center{min-width:178px;padding:9px}
+  .p-badge{width:21px;height:21px;border-radius:6px;font-size:0.68rem}
+  .p-name{font-size:0.94rem}
+  .player{padding:0 8px;gap:7px}
+  .round-title{font-size:0.64rem;padding:4px 11px;margin-bottom:10px}
+}
+
+/* ── 🏆 الكأس فوق خانة النهائي — بدون أي إطار ── */
+/* الصندوق والفاصل بنفس الارتفاع، فمركز خانة النهائي يبقى بمنتصف العمود
+   تماماً وخط الربط مع آخر اسمين ما ينزاح. */
+/* 📍 خارج التدفق تماماً: ما ياخذ أي مساحة داخل الخانة، فالخانة تبقى
+   بمنتصف العمود بالضبط وخط الربط (الجذر) يوصلها بمكانه الصحيح.
+   الكأس وبطاقة الفائز متراكبان بنفس المكان، فالانتقال بينهما سلس. */
+.final-crown{
+  position:absolute;bottom:calc(100% + 26px);
+  left:0;right:0;height:104px;
+  pointer-events:none;
+}
+.final-crown > *{position:absolute;inset:auto 0 0;text-align:center}
+/* 🛡️ حماية: لو نسخة أقدم من المكوّن لسا تحط فاصلاً داخل الخانة، نخفيه —
+   وجوده كعنصر flex بارتفاع ثابت يسحق شرائح اللاعبين وتختفي الشجرة. */
+.final-spacer{display:none !important}
+
+/* 🏆 حركة عضوية غير منتظمة — ارتفاعات وميلان مختلفة بكل دورة فما تحس
+   إنها متكررة زي البندول. */
+.final-cup{
+  font-size:4.6rem;line-height:1;display:block;
+  filter:drop-shadow(0 0 16px rgba(255,215,0,0.45));
+  animation:cupIdle 7s ease-in-out infinite;
+  transform-origin:50% 85%;
+}
+@keyframes cupIdle{
+  0%{transform:translateY(0) rotate(0deg) scale(1)}
+  17%{transform:translateY(-8px) rotate(-3.5deg) scale(1.02)}
+  31%{transform:translateY(-2px) rotate(2deg) scale(1)}
+  49%{transform:translateY(-11px) rotate(1deg) scale(1.04)}
+  63%{transform:translateY(-4px) rotate(-2.5deg) scale(1.01)}
+  81%{transform:translateY(-7px) rotate(3deg) scale(1.02)}
+  100%{transform:translateY(0) rotate(0deg) scale(1)}
+}
+
+/* 💥 عند التتويج: الكأس يتحوّل أبيض وأسود ثم ينفجر */
+.final-crown.is-won .final-cup{
+  animation:cupBoom .8s cubic-bezier(.25,1.1,.4,1) forwards;
+}
+@keyframes cupBoom{
+  0%{
+    transform:scale(1) rotate(0deg);opacity:1;
+    filter:grayscale(0) brightness(1) drop-shadow(0 0 16px rgba(255,215,0,0.5));
+  }
+  22%{
+    transform:scale(1.28) rotate(-6deg);opacity:1;
+    filter:grayscale(1) contrast(1.5) brightness(1.5) drop-shadow(0 0 26px rgba(255,255,255,0.85));
+  }
+  48%{
+    transform:scale(1.62) rotate(5deg);opacity:0.95;
+    filter:grayscale(1) contrast(2.2) brightness(2.4) drop-shadow(0 0 46px rgba(255,255,255,1));
+  }
+  100%{
+    transform:scale(3.1) rotate(14deg);opacity:0;
+    filter:grayscale(1) brightness(3.4) blur(4px);
+  }
+}
+/* موجتان تتوسّعان: بيضاء حادة ثم رمادية أوسع */
+.final-crown.is-won::after,
+.final-crown.is-won::before{
+  content:"";position:absolute;bottom:14px;left:50%;
+  width:76px;height:76px;margin-left:-38px;border-radius:50%;
+  pointer-events:none;
+}
+.final-crown.is-won::after{
+  border:3px solid rgba(255,255,255,0.95);
+  animation:waveA .85s cubic-bezier(.2,.8,.3,1) .12s forwards;
+}
+.final-crown.is-won::before{
+  border:2px solid rgba(190,205,225,0.6);
+  animation:waveB 1s cubic-bezier(.2,.8,.3,1) .26s forwards;
+}
+@keyframes waveA{
+  0%{transform:scale(.3);opacity:0}
+  18%{opacity:1}
+  100%{transform:scale(3);opacity:0}
+}
+@keyframes waveB{
+  0%{transform:scale(.4);opacity:0}
+  22%{opacity:.8}
+  100%{transform:scale(4.2);opacity:0}
+}
+
+/* 🏅 بطاقة الفائز — تطلع بعد الانفجار */
+.champ-box{
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  opacity:0;
+  animation:champReveal .6s cubic-bezier(.22,1,.36,1) .55s forwards;
+}
+@keyframes champReveal{
+  from{opacity:0;transform:translateY(14px) scale(.9)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+.champ-label{
+  padding:3px 14px;border-radius:99px;
+  font-size:0.6rem;font-weight:900;letter-spacing:4px;
+  color:#2a1c00;background:linear-gradient(90deg,#c9960a,#ffd700 50%,#c9960a);
+  box-shadow:0 2px 10px rgba(0,0,0,0.45);
+}
+/* إطار نظيف: حدّ ذهبي متدرّج + داخل داكن + توهّج خفيف (بدون ميلان) */
+.champ-banner{
+  width:100%;padding:11px 14px;border-radius:14px;
+  display:flex;align-items:center;justify-content:center;overflow:hidden;
+  background:
+    linear-gradient(180deg,rgba(10,18,34,0.97),rgba(6,12,24,0.99)) padding-box,
+    linear-gradient(135deg,#ffd700,#a97400 45%,#ffe98a) border-box;
+  border:2px solid transparent;
+  box-shadow:0 10px 26px rgba(0,0,0,0.55), 0 0 24px rgba(255,215,0,0.2),
+             inset 0 1px 0 rgba(255,255,255,0.08);
+}
+.champ-winner{
+  display:inline-block;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:1.7rem;font-weight:900;line-height:1.25;letter-spacing:-0.2px;
+  background:linear-gradient(90deg,#ffffff,#00e5ff,#2979ff,#7c4dff,#ff2d8a,#ff5252,#00e5ff,#ffffff);
+  background-size:400% 100%;
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;color:transparent;
+  animation:champShine 3.2s linear infinite;
+}
+@keyframes champShine{
+  0%{background-position:0% 50%}
+  100%{background-position:400% 50%}
+}
+@media (prefers-reduced-motion: reduce){
+  .final-cup{animation:none}
+  .final-crown.is-won::after{display:none}
+}
+
+/* ── 📐 مسرح OBS: يملأ مقاس المصدر (1920×1080) بالكامل ── */
+.bracket-page.obs-mode{
+  width:100vw;height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  overflow:hidden;                 /* ما يطلع سكرول ولا شريط أبيض */
+  padding:0;margin:0;
+}
+.obs-fit{transform-origin:center center;will-change:transform}
+.obs-content{width:max-content}
+/* بوضع OBS ما نبي سكرول أفقي — نبي الحجم الطبيعي عشان التحجيم يحسبه صح */
+.obs-mode .bracket-scroll{overflow:visible;width:max-content;padding-bottom:0}
+.obs-mode .gate{max-width:900px}
+
+/* ── 📺 وضع OBS (خلفية شفافة) ──
+   الصفحة بلا خلفية عشان تنحط كمصدر متصفح فوق الفيديو مباشرة. لذلك كل
+   العناصر صلبة (بدون شفافية ولا backdrop-blur) وبحدود أوضح وظلال أقوى،
+   عشان تُقرأ فوق أي خلفية مهما كانت فاتحة أو مزحومة. */
+.obs-mode .bracket{
+  --row:52px;--g0:16px;--conn:20px;--lw:3px;
+  --row-bg:#0d1c34;--row-br:rgba(120,200,255,0.5);
+  --line:#ef4444;--line-hot:#ff5252;
+}
+.obs-mode .p-name{font-size:1.24rem;text-shadow:0 1px 3px rgba(0,0,0,0.9)}
+.obs-mode .p-badge{width:31px;height:31px;border-radius:9px;font-size:0.95rem;background:#12325a;color:#9fdcff}
+.obs-mode .round,.obs-mode .round.r-fwd{min-width:248px;max-width:300px}
+.obs-mode .round.r-center{min-width:282px;max-width:336px;background:none;border:none;padding:0}
+.obs-mode .round-title{
+  background:#0b2138;border-color:rgba(120,200,255,0.55);color:#9fdcff;
+  font-size:0.86rem;box-shadow:0 3px 10px rgba(0,0,0,0.5);
+}
+.obs-mode .match{
+  background:#0b1830;
+  border-color:rgba(120,200,255,0.42);
+  box-shadow:0 8px 22px rgba(0,0,0,0.65);
+  backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.obs-mode .match.final-match{background:#101a34;border-color:rgba(255,215,0,0.6)}
+.obs-mode .player{
+  background:#0d1c34;backdrop-filter:none;-webkit-backdrop-filter:none;
+}
+.obs-mode .player.winner{background:#2b2410;border-color:rgba(255,215,0,0.65);color:#ffd700}
+.obs-mode .player.loser{background:#0d1c34;opacity:0.48}
+.obs-mode .player.empty,.obs-mode .player.bye-slot{background:#0a1526}
+.obs-mode .match.done{opacity:1}
+.obs-mode .match.ready{border-color:#29b6f6 !important;background:#0d2540 !important;animation:none !important}
+.obs-mode .match.picked-match{
+  border-color:#ff2d2d !important;background:#2a1113 !important;
+  box-shadow:0 0 0 3px #ff2d2d !important;animation:none !important;
+}
+.obs-mode .final-cup{font-size:5rem;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.7))}
+.obs-mode .champ-winner{font-size:2.1rem}
+.obs-mode .champ-banner{
+  background:#101a34 padding-box, linear-gradient(135deg,#ffd700,#a97400 45%,#ffe98a) border-box;
+  box-shadow:0 8px 22px rgba(0,0,0,0.7);
+}
+.obs-mode .champ-label{box-shadow:0 2px 8px rgba(0,0,0,0.6)}
+/* لوحة البوابة كذلك صلبة */
+.obs-mode .gate{
+  background:#0b1830;backdrop-filter:none;-webkit-backdrop-filter:none;
+  box-shadow:0 12px 40px rgba(0,0,0,0.6);border-color:rgba(120,200,255,0.45);
+}
+.obs-mode .gate-player{background:#0d1c34;border-color:rgba(120,200,255,0.4);animation:none}
+.obs-mode .gate-pname{font-size:1.04rem}
+.obs-mode .gate-title{text-shadow:0 2px 6px rgba(0,0,0,0.8)}
+
+/* ── ⏳ لوحة بوابة الانضمام (تُستخدم بصفحة العرض وبالجرين سكرين) ── */
+.gate{
+  position:relative;overflow:hidden;
+  width:100%;max-width:720px;          /* لوحة عريضة بدل ما تنضغط على المحتوى */
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+  padding:34px 30px 28px;border-radius:24px;
+  background:linear-gradient(180deg,rgba(12,26,50,0.82),rgba(5,12,26,0.9));
+  border:1px solid rgba(41,182,246,0.28);
+  box-shadow:0 22px 60px rgba(0,0,0,0.5), 0 0 40px rgba(41,182,246,0.12);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+}
+.gate::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,transparent,var(--blue),var(--gold),var(--blue),transparent);
+  opacity:.85;
+}
+.gate.is-closed::before{background:linear-gradient(90deg,transparent,#ef4444,transparent)}
+.gate-title{
+  font-size:clamp(1.3rem,4vw,1.9rem);font-weight:900;color:var(--gold);
+  text-shadow:0 0 16px rgba(255,215,0,0.45);text-align:center;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+/* الحلقة: دائرة SVG تفرغ تدريجياً مع الوقت */
+.gate-ring{position:relative;width:200px;height:200px;flex-shrink:0}
+.gate-ring svg{width:100%;height:100%;transform:rotate(-90deg);display:block}
+.gate-ring circle{fill:none;stroke-width:8;stroke-linecap:round}
+.gate-track{stroke:rgba(255,255,255,0.09)}
+.gate-bar{
+  stroke:var(--blue);
+  stroke-dasharray:327;
+  stroke-dashoffset:calc(327 * (1 - var(--p,1)));
+  transition:stroke-dashoffset .95s linear, stroke .3s ease;
+  filter:drop-shadow(0 0 8px rgba(41,182,246,0.7));
+}
+.gate.is-hot .gate-bar{stroke:#ef4444;filter:drop-shadow(0 0 10px rgba(239,68,68,0.8))}
+.gate.is-closed .gate-bar{stroke:rgba(239,68,68,0.5);filter:none}
+.gate-face{
+  position:absolute;inset:0;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+}
+.gate-time{
+  font-size:3rem;font-weight:900;line-height:1;color:#fff;
+  font-variant-numeric:tabular-nums;letter-spacing:1px;
+}
+.gate.is-hot .gate-time{color:#ff6b6b}
+.gate-unit{font-size:0.66rem;font-weight:800;letter-spacing:4px;color:var(--muted);margin-top:3px}
+.gate-status{
+  display:inline-flex;align-items:center;gap:9px;
+  padding:9px 24px;border-radius:99px;
+  font-size:0.95rem;font-weight:900;letter-spacing:.3px;
+  background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.34);color:#4ade80;
+}
+.gate.is-closed .gate-status{background:rgba(239,68,68,0.1);border-color:rgba(239,68,68,0.34);color:#ff8b8b}
+.gate-dot{width:9px;height:9px;border-radius:50%;background:currentColor;animation:gateBlink 1.6s ease-in-out infinite}
+@keyframes gateBlink{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+.gate-hint{
+  width:100%;padding-top:14px;margin-top:2px;
+  border-top:1px solid var(--border);
+  font-size:1rem;color:var(--text);opacity:0.85;text-align:center;
+}
+.gate-hint b{
+  display:inline-block;margin:0 4px;
+  color:#04121f;font-weight:900;font-size:1.05rem;
+  background:linear-gradient(135deg,#39c4ff,#1976e6);
+  border-radius:8px;padding:4px 12px;
+  box-shadow:0 3px 10px rgba(25,118,230,0.35);
+}
+.gate-count{
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:0.9rem;font-weight:800;color:var(--text);
+}
+.gate-count{font-size:0.98rem}
+.gate-count span{
+  min-width:36px;text-align:center;padding:4px 13px;border-radius:99px;
+  background:var(--blue);color:#04121f;font-weight:900;
+}
+/* شاشة الانتظار قبل فتح البوابة — نقاط تتحرك بدل الرمز الدوّار */
+/* 👥 شبكة المشاركين داخل لوحة البوابة */
+.gate-players{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));
+  gap:9px;width:100%;margin-top:2px;
+}
+.gate-player{
+  display:flex;align-items:center;gap:9px;min-height:52px;
+  padding:8px 12px;border-radius:12px;
+  background:rgba(255,255,255,0.05);
+  border:1px solid var(--border);
+  animation:gatePop .38s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes gatePop{
+  from{opacity:0;transform:translateY(10px) scale(.94)}
+  to{opacity:1;transform:translateY(0) scale(1)}
+}
+.gate-avatar{
+  width:34px;height:34px;border-radius:50%;flex-shrink:0;overflow:hidden;
+  display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--blue),#0d4fb0);
+  color:#fff;font-weight:900;font-size:0.9rem;
+  border:2px solid rgba(41,182,246,0.45);
+}
+.gate-avatar img{width:100%;height:100%;object-fit:cover;display:block}
+/* 🔤 اسم المشارك كامل — يلتف بدل ما يتقصّ بنقاط */
+.gate-pname{
+  flex:1;min-width:0;font-weight:800;font-size:0.95rem;
+  white-space:normal;overflow-wrap:anywhere;word-break:break-word;
+  line-height:1.35;
+}
+.gate.has-players{max-width:900px}
+
+.gate-wait{display:flex;gap:9px;padding:6px 0}
+.gate-wait i{
+  width:11px;height:11px;border-radius:50%;background:var(--blue);
+  display:block;animation:waitBounce 1.3s ease-in-out infinite;
+}
+.gate-wait i:nth-child(2){animation-delay:.16s}
+.gate-wait i:nth-child(3){animation-delay:.32s}
+@keyframes waitBounce{
+  0%,100%{transform:translateY(0) scale(.75);opacity:.4}
+  50%{transform:translateY(-10px) scale(1);opacity:1}
+}
+@media (max-width:640px){
+  .gate{padding:24px 16px 20px;gap:13px;border-radius:20px}
+  .gate-ring{width:154px;height:154px}
+  .gate-time{font-size:2.25rem}
+  .gate-status{font-size:0.86rem;padding:8px 18px}
+  .gate-hint{font-size:0.9rem}
+}
+/* بالشاشة الخضراء: خلفيات صلبة بدون بلور ولا توهّج */
+.obs-mode .gate{
+  background:#0b1830;backdrop-filter:none;-webkit-backdrop-filter:none;
+  box-shadow:none;border-color:rgba(41,182,246,0.5);
+}
+.obs-mode .gate-bar,.obs-mode .gate-title{filter:none;text-shadow:none}
+.obs-mode .gate-player{background:#0a1526;border-color:rgba(41,182,246,0.4);animation:none}
+.obs-mode .gate-pname{font-size:1.02rem}
+.obs-mode .gate-avatar{width:36px;height:36px}
+
+/* ── أزرار وضع الخلفية بصفحة /bracket ── */
+/* شبه مخفية (شفافية 6%) عشان ما تبين بالبث، وتظهر كامل لما تحرّك عليها الماوس */
+.bg-switch{
+  position:fixed;bottom:14px;inset-inline-start:14px;z-index:400;
+  display:flex;gap:6px;padding:5px;border-radius:99px;
+  background:rgba(4,10,22,0.82);border:1px solid var(--border);
+  opacity:0.06;transition:opacity .25s;
+}
+.bg-switch:hover{opacity:1}
+.bg-switch button{
+  font-family:inherit;font-size:0.72rem;font-weight:700;cursor:pointer;
+  padding:5px 12px;border-radius:99px;
+  border:1px solid var(--border);background:transparent;color:var(--text);
+  transition:all .18s;
+}
+.bg-switch button:hover{border-color:var(--blue);color:var(--blue)}
+.bg-switch button[aria-pressed="true"]{background:var(--blue);border-color:var(--blue);color:#04121f}
+
+/* ── Viewer live badge ── */
+.viewer-badge{
+  position:fixed;top:14px;right:14px;z-index:300;
+  padding:5px 13px;border-radius:99px;
+  background:rgba(83,252,24,0.14);border:1px solid rgba(83,252,24,0.3);
+  color:var(--kick);font-size:0.72rem;font-weight:700;
+  display:flex;align-items:center;gap:6px;
+  animation:blink 2.5s ease-in-out infinite;
+  pointer-events:none;
+}
+.viewer-badge-dot{width:7px;height:7px;border-radius:50%;background:var(--kick);flex-shrink:0}
+
+/* ── Waiting screen ── */
+.waiting-screen{
+  text-align:center;padding:60px 20px;
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+}
+.waiting-icon{font-size:3.5rem;opacity:0.38;animation:spin 4s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.waiting-screen p{color:var(--muted);font-size:0.95rem}
+
+/* ── Admin login ── */
+.login-card{
+  max-width:380px;margin:0 auto;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:18px;backdrop-filter:blur(12px);
+  padding:38px 28px;text-align:center;
+}
+.login-card h2{font-size:1.35rem;font-weight:800;margin-bottom:7px}
+.login-card p{color:var(--muted);font-size:0.83rem;margin-bottom:26px}
+.login-input{
+  width:100%;padding:12px 14px;border-radius:10px;
+  border:1px solid var(--border);background:rgba(0,0,0,0.4);
+  color:var(--text);font-size:0.95rem;font-family:inherit;outline:none;
+  transition:all .2s;margin-bottom:14px;text-align:center;letter-spacing:3px;
+}
+.login-input:focus{border-color:var(--blue);box-shadow:0 0 10px var(--glow)}
+.login-error{color:#ff4444;font-size:0.82rem;margin-top:-6px;margin-bottom:10px}
+
+/* ── Sidebar bottom strip ── */
+.sidebar-footer{
+  padding:10px 14px;border-top:1px solid var(--border);
+  display:flex;gap:8px;flex-shrink:0;
+}
+
+/* ══════════════════════════════════
+   RESPONSIVE
+══════════════════════════════════ */
+
+/* Tablet */
+@media(max-width:1024px){
+  :root{ --sidebar-w: 280px; }
+}
+
+/* Mobile landscape & tablet portrait */
+@media(max-width:768px){
+  :root{ --sidebar-w: 100vw; }
+
+  .shell{
+    flex-direction:column-reverse; /* sidebar goes to bottom on mobile */
+    height:auto;
+    min-height:100dvh;
+  }
+  .main{
+    padding:16px 12px 100px; /* bottom padding for toggle btn */
+    overflow-y:visible;
+  }
+  .sidebar{
+    position:fixed;
+    bottom:0;left:0;right:0;
+    width:100% !important;
+    height:55vh;
+    border-left:none;
+    border-top:1px solid var(--border);
+    border-radius:18px 18px 0 0;
+    z-index:100;
+    transition:transform 0.3s cubic-bezier(0.4,0,0.2,1),
+               opacity 0.25s ease;
+    transform:translateY(0);
+    box-shadow:0 -8px 40px rgba(0,0,0,0.5);
+  }
+  .sidebar.sidebar-hidden{
+    transform:translateY(110%);
+    opacity:0;
+    width:100% !important;
+    border-color:var(--border);
+  }
+  .sidebar-toggle{
+    bottom:14px;
+    left:50%;
+    transform:translateX(-50%);
+    width:auto;
+    padding:8px 20px;
+    border-radius:99px;
+    gap:6px;
+    font-size:0.85rem;
+  }
+  .sidebar-toggle:hover{ transform:translateX(-50%) translateY(-2px); }
+  .sidebar-toggle.sb-active{
+    background:rgba(41,182,246,0.18);
+    border-color:var(--blue);
+    color:var(--blue);
+  }
+  .names-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+  .admin-actions{position:static;justify-content:center;margin-bottom:12px}
+  .bots-group{padding:5px 6px 5px 10px}
+  .setup-sep{display:none}
+  .setup-bar{gap:12px;padding:14px}
+  .setup-name{min-width:100%}
+  .pick-bar{flex-direction:column;align-items:stretch}
+  .pick-result{flex-direction:column}
+  .pick-vs{text-align:center}
+  .toolbar{flex-direction:column;align-items:flex-start;gap:6px}
+}
+
+/* Small mobile */
+@media(max-width:480px){
+  .site-header h1{font-size:1.7rem}
+  .card{padding:16px 14px}
+  .btn{padding:9px 18px;font-size:0.85rem}
+  .sz-pill{padding:6px 13px;font-size:0.82rem}
+  /* مقاسات الشجرة كلها من المتغيّرات فوق (--row / --g0 / --conn) */
+  .bracket{--row:32px;--g0:8px;--conn:11px;--head-h:96px}
+  .round,.round.r-fwd,.round.r-left,.round.r-right{min-width:146px;max-width:176px}
+  .round.r-center{min-width:162px;padding:8px}
+  .p-name{font-size:0.9rem}
 }
