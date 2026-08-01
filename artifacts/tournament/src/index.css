@@ -655,26 +655,43 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .join-btn.is-off:hover{transform:none}
 .helpers-modal{max-width:720px}
 
-/* ── 📜 سجل صور الكروت ── */
-.imglog{max-width:600px}
-.imglog-list{display:flex;flex-direction:column;gap:8px}
-.imglog-item{
-  display:flex;align-items:center;gap:12px;
-  padding:9px 12px;border-radius:12px;text-decoration:none;color:var(--text);
+/* ── 📜 سجل صور الكروت: مجموعات حسب التاريخ ── */
+.imglog{max-width:820px}
+.imglog-days{display:flex;flex-direction:column;gap:22px}
+.imglog-date-big{
+  font-size:1.15rem;font-weight:900;color:var(--gold);
+  text-align:center;padding-bottom:9px;margin-bottom:14px;
+  border-bottom:1px dashed rgba(255,215,0,0.35);
+  text-shadow:0 0 12px rgba(255,215,0,0.3);
+}
+.imglog-row{
+  display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fill,minmax(146px,1fr));
+}
+.imglog-card{
+  display:flex;flex-direction:column;align-items:center;gap:7px;
+  padding:10px;border-radius:13px;text-decoration:none;color:var(--text);
   background:rgba(255,255,255,0.04);border:1px solid var(--border);
   transition:all .16s;
 }
-.imglog-item:hover{background:rgba(41,182,246,0.12);border-color:var(--blue)}
-.imglog-thumb{
-  width:58px;height:44px;flex-shrink:0;border-radius:8px;object-fit:cover;
+.imglog-card:hover{
+  background:rgba(41,182,246,0.12);border-color:var(--blue);
+  transform:translateY(-3px);
+}
+.imglog-winner{
+  width:100%;text-align:center;font-size:0.88rem;font-weight:900;color:var(--gold);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.imglog-winner.none{color:var(--muted);font-weight:700;font-size:0.76rem}
+.imglog-pic{
+  width:100%;aspect-ratio:16/10;object-fit:cover;
+  border-radius:9px;display:block;
   background:rgba(0,0,0,0.35);border:1px solid var(--border);
 }
-.imglog-meta{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
-.imglog-meta b{font-size:0.92rem;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.imglog-meta b.muted{color:var(--muted);font-weight:700}
-.imglog-kind{font-size:0.72rem;color:var(--blue);font-weight:700}
-.imglog-date{font-size:0.7rem;color:var(--muted);font-variant-numeric:tabular-nums}
-.imglog-size{font-size:0.7rem;color:var(--muted);font-weight:700;flex-shrink:0}
+.imglog-game{
+  font-size:0.74rem;color:var(--muted);font-weight:700;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
 .green-open-btn{
   padding:10px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;
   font-family:inherit;font-size:0.8rem;font-weight:800;
