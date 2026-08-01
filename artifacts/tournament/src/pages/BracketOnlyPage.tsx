@@ -3,29 +3,27 @@ import { defaultState, type TournamentState } from "@/lib/types";
 import { getState, useSSE } from "@/lib/api";
 import BracketDisplay from "@/components/BracketDisplay";
 
-// 🌳 صفحة "شجرة البطولة فقط" — بدون شات، بدون سايدبار، بدون أي أدوات تحكم:
-// بس شجرة البطولة، متمركزة بنص الصفحة.
+// 🌳 صفحة "شجرة البطولة فقط" — بدون شات ولا سايدبار ولا أدوات تحكم.
 //
-// ثلاثة أوضاع للخلفية، وتقدر تبدّل بينها بزر جوّا الصفحة (تحت يمين/شمال) أو
-// من الرابط مباشرة:
-// 1) داكنة  → /bracket                  خلفية داكنة أنيقة (للمعاينة بمتصفح عادي).
-// 2) شفافة  → /bracket?transparent=1    شفافة بالكامل، لمصدر متصفح (Browser Source)
-//    بـ OBS/Streamlabs. المتصفح العادي ما يعرض شفافية حقيقية فيطلع أبيض — طبيعي.
-// 3) خضراء  → /bracket?green=1          شاشة خضراء (Chroma Key)، لو تلتقط النافذة
-//    عادي (Window Capture) وتحط فلتر Color Key بـ OBS.
+// 📺 مصمّمة لـ OBS: الصفحة **بدون خلفية** افتراضياً، فتنحط كمصدر متصفح
+// (Browser Source) فوق الفيديو مباشرة وتظهر الشجرة وحدها بدون أي مستطيل
+// خلفها — ما تحتاج فلتر Chroma Key ولا شاشة خضراء.
 //
-// 🔒 زر التبديل شفافيته 6% وما يبين إلا لما تحرّك عليه الماوس، فما يظهر بالبث.
-// ولو تبغى تخفيه نهائياً حط ‎?clean=1‎ بالرابط. الاختيار يُحفظ بالمتصفح
-// (localStorage) فيرجع نفس الوضع لما تفتح الصفحة مرة ثانية.
-const CHROMA_GREEN = "#00ff00";
+// الوضعان:
+// 1) شفافة → /bracket              (الافتراضي — لـ OBS)
+// 2) داكنة → /bracket?dark=1       (للمعاينة بمتصفح عادي فقط، لأن المتصفح
+//    ما يعرض الشفافية فتطلع بيضاء)
+//
+// 🔒 زر التبديل شفافيته 6% وما يبين إلا لما تحرّك عليه الماوس، فما يظهر
+// بالبث. ولو تبغى تخفيه نهائياً حط ‎?clean=1‎ بالرابط.
+
 const STORE_KEY = "ik3mo.bracketBg";
 
-type Mode = "dark" | "transparent" | "green";
+type Mode = "transparent" | "dark";
 
 const MODES: { id: Mode; label: string }[] = [
-  { id: "dark", label: "داكنة" },
-  { id: "green", label: "خضراء" },
   { id: "transparent", label: "شفافة" },
+  { id: "dark", label: "داكنة" },
 ];
 
 export default function BracketOnlyPage() {
@@ -58,11 +56,10 @@ export default function BracketOnlyPage() {
   const secsLeft = st.joinDeadline ? Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000)) : 0;
   const gateOpen = !!st.joinDeadline && secsLeft > 0;
 
-  // الرابط له الأولوية على المحفوظ: لو فتحت ‎?green=1‎ يشتغل أخضر مباشرة.
+  // الرابط له الأولوية على المحفوظ: ‎?dark=1‎ للمعاينة، ‎?transparent=1‎ للشفافة.
   const urlMode = useMemo<Mode | null>(() => {
     try {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("green") === "1") return "green";
       if (params.get("transparent") === "1") return "transparent";
       if (params.get("dark") === "1") return "dark";
     } catch { /* ignore */ }
@@ -79,9 +76,9 @@ export default function BracketOnlyPage() {
     if (urlMode) return urlMode;
     try {
       const saved = localStorage.getItem(STORE_KEY);
-      if (saved === "dark" || saved === "green" || saved === "transparent") return saved;
+      if (saved === "dark" || saved === "transparent") return saved;
     } catch { /* ignore */ }
-    return "dark";
+    return "transparent";   // الافتراضي: بدون خلفية (جاهزة لـ OBS)
   });
 
   const pickMode = (next: Mode) => {
@@ -89,8 +86,7 @@ export default function BracketOnlyPage() {
     try { localStorage.setItem(STORE_KEY, next); } catch { /* ignore */ }
   };
 
-  const pageBackground =
-    mode === "transparent" ? "transparent" : mode === "green" ? CHROMA_GREEN : "#060d1a";
+  const pageBackground = mode === "transparent" ? "transparent" : "#060d1a";
 
   // نطبّق خلفية الصفحة (body/html) حسب الوضع، وهو بهذي الصفحة بس، ونرجّعها
   // لما نطلع منها.
@@ -107,10 +103,9 @@ export default function BracketOnlyPage() {
 
   return (
     <div
-      // 🎨 بوضع الشاشة الخضراء نضيف كلاس ‎green-mode‎ — وهو يخلي الشجرة بخلفيات
-      // صلبة بدون شفافية ولا بلور ولا توهّج (التوهّج يخرب الـ Chroma Key)،
-      // ويكبّر الخط عشان الأسماء تبين واضحة وقت تكون الشجرة على عرض الشاشة.
-      className={mode === "green" ? "bracket-page green-mode" : "bracket-page"}
+      // 📺 وضع OBS دايماً: خلفيات صلبة بدون شفافية ولا بلور وخط أكبر — عشان
+      // الشجرة تُقرأ بوضوح فوق أي فيديو لما تنحط كمصدر متصفح بخلفية شفافة.
+      className="bracket-page obs-mode"
       style={{
         minHeight: "100vh",
         width: "100%",
