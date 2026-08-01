@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry } from "@/lib/api";
 import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
@@ -135,6 +135,34 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   // 🔁 نقل الصور القديمة (Base64) المخزّنة بقاعدة البيانات إلى Cloudinary — تشغيل يدوي.
   const [migrating, setMigrating] = useState(false);
   const [migrateResult, setMigrateResult] = useState<string>("");
+  // ── 📜 سجل صور الكروت (من Cloudinary مع تواريخ الرفع) ──
+  const [imgLogOpen, setImgLogOpen] = useState(false);
+  const [imgLog, setImgLog] = useState<CloudImageEntry[]>([]);
+  const [imgLogBusy, setImgLogBusy] = useState(false);
+  const [imgLogErr, setImgLogErr] = useState("");
+
+  async function openImagesLog() {
+    setImgLogOpen(true);
+    setImgLogBusy(true);
+    setImgLogErr("");
+    try {
+      setImgLog(await getImagesHistory(token));
+    } catch (e: any) {
+      setImgLogErr(e?.message || "تعذّر جلب السجل");
+    } finally {
+      setImgLogBusy(false);
+    }
+  }
+
+  // نربط كل صورة باللعبة اللي تستخدمها حالياً (بمطابقة الرابط بالسجلات)
+  function gameOfImage(url: string): { game: string; kind: string } | null {
+    for (const r of records) {
+      if (r.image === url) return { game: r.displayName || r.tournamentName, kind: "صورة الكرت" };
+      if (r.image2 === url) return { game: r.displayName || r.tournamentName, kind: "الخلفية" };
+    }
+    return null;
+  }
+
   async function handleMigrateImages() {
     if (migrating) return;
     setMigrating(true);
@@ -143,6 +171,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       const r = await migrateImages(token);
       setMigrateResult(`✅ تم نقل ${r.migrated} صورة (تجاوزنا ${r.skipped} كانت أصلاً روابط، وفشل ${r.failed})`);
       getStorageStatus(token).then(setStorageStatus);
+      if (imgLogOpen) openImagesLog();
     } catch (e: any) {
       setMigrateResult(`❌ ${e?.message || "فشل نقل الصور"}`);
     } finally {
@@ -1903,6 +1932,14 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   disabled={savingGame !== null}
                   onClick={handleAddGame}
                 >➕ إضافة كرت</button>
+                {/* 📜 سجل الصور — يفتح قائمة بكل صور الكروت وتواريخ رفعها */}
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
+                  onClick={openImagesLog}
+                  title="كل صور الكروت المرفوعة وتاريخ حفظ كل وحدة"
+                >📜 سجل الصور</button>
               </div>
 
               <div style={{ display: "grid", gap: "14px", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", marginTop: "12px" }}>
@@ -2533,6 +2570,59 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         </div>
 
       </div>
+
+      {/* 📜 سجل صور الكروت — كل صورة مع لعبتها وتاريخ رفعها */}
+      {imgLogOpen && (
+        <div className="cardpick-overlay" onClick={() => setImgLogOpen(false)}>
+          <div className="cardpick imglog" onClick={e => e.stopPropagation()}>
+            <div className="cardpick-head">
+              <span>📜 سجل صور الكروت</span>
+              <button className="cardpick-close" onClick={() => setImgLogOpen(false)} aria-label="إغلاق">✕</button>
+            </div>
+            <p className="cardpick-sub">
+              كل صورة مرفوعة لـ Cloudinary مرتّبة من الأحدث — مع اللعبة وتاريخ الحفظ.
+            </p>
+
+            {imgLogBusy && <div className="cardpick-busy">⏳ جارٍ جلب السجل...</div>}
+            {imgLogErr && <div className="lb-msg err">⚠️ {imgLogErr}</div>}
+
+            {!imgLogBusy && !imgLogErr && (
+              imgLog.length === 0 ? (
+                <div className="cardpick-empty">ما فيه صور مرفوعة بعد</div>
+              ) : (
+                <div className="imglog-list">
+                  {imgLog.map(img => {
+                    const g = gameOfImage(img.url);
+                    return (
+                      <a
+                        key={img.publicId}
+                        className="imglog-item"
+                        href={img.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="افتح الصورة بحجمها الكامل"
+                      >
+                        <img className="imglog-thumb" src={img.url} alt="" loading="lazy" />
+                        <span className="imglog-meta">
+                          <b className={g ? "" : "muted"}>{g ? g.game : "غير مرتبطة بكرت"}</b>
+                          <span className="imglog-kind">{g ? g.kind : "صورة قديمة أو محذوفة"}</span>
+                          <span className="imglog-date">
+                            {new Date(img.createdAt).toLocaleString("ar-SA", {
+                              year: "numeric", month: "2-digit", day: "2-digit",
+                              hour: "2-digit", minute: "2-digit",
+                            })}
+                          </span>
+                        </span>
+                        <span className="imglog-size">{Math.round(img.bytes / 1024)} KB</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              )
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 🏆 نافذة اختيار الكرت اللي يروح له اسم الفائز — بعد الاختيار
           ينحفظ الفائز بالكرت وتُقفل البطولة تلقائياً. */}
