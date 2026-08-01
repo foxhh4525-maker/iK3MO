@@ -16,6 +16,13 @@ import { rTitle } from "@/lib/tournament";
 const LAYOUT: "linear" | "mirror" = "linear";
 const FINAL_SIDE: "right" | "left" = "right";
 
+// 💥 اتجاهات تناثر الشظايا السوداء: [إزاحة أفقية، إزاحة رأسية، دوران]
+const SHARDS: [number, number, number][] = [
+  [-98, -60, -220], [98, -60, 210], [-120, -10, -160], [120, -10, 170],
+  [-64, -100, -260], [64, -100, 250], [-32, -122, -190], [32, -122, 200],
+  [-88, 34, -140], [88, 34, 150], [-26, 56, -110], [26, 56, 120],
+];
+
 interface BracketDisplayProps {
   st: TournamentState;
   isAdmin: boolean;
@@ -175,6 +182,20 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                             {/* الكأس موجود دايماً — عند التتويج ينفجر ويتلاشى
                                 وتطلع بطاقة الفائز مكانه بنفس اللحظة. */}
                             <span className="final-cup" aria-hidden="true">🏆</span>
+                            {/* 💥 شظايا سوداء تتناثر لحظة الانفجار */}
+                            <span className="boom-shards" aria-hidden="true">
+                              {SHARDS.map((sh, i) => (
+                                <i
+                                  key={i}
+                                  style={{
+                                    ["--dx" as any]: `${sh[0]}px`,
+                                    ["--dy" as any]: `${sh[1]}px`,
+                                    ["--rot" as any]: `${sh[2]}deg`,
+                                    animationDelay: `${i * 0.012}s`,
+                                  }}
+                                />
+                              ))}
+                            </span>
                             {champion && (
                               <div className="champ-box">
                                 <div className="champ-label">بطل البطولة</div>
