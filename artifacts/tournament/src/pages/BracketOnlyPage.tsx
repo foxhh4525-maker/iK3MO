@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { defaultState, type TournamentState } from "@/lib/types";
 import { getState, useSSE } from "@/lib/api";
 import BracketDisplay from "@/components/BracketDisplay";
@@ -101,21 +101,46 @@ export default function BracketOnlyPage() {
     };
   }, [pageBackground]);
 
+  // 📐 تحجيم تلقائي ليملأ مساحة المصدر (1920×1080 بـ OBS) بالطول والعرض:
+  // نقيس الحجم الطبيعي للمحتوى ثم نحسب معامل تكبير/تصغير يخليه يملأ الشاشة
+  // بدون ما يُقص. القياس بـ offsetWidth/offsetHeight — قيم تخطيط ما تتأثر
+  // بالـ transform، فما يصير حلقة إعادة قياس لا نهائية.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useLayoutEffect(() => {
+    const fit = () => {
+      const stage = stageRef.current;
+      const content = contentRef.current;
+      if (!stage || !content) return;
+      const pad = 28;
+      const aw = stage.clientWidth - pad;
+      const ah = stage.clientHeight - pad;
+      const cw = content.offsetWidth;
+      const ch = content.offsetHeight;
+      if (!cw || !ch || aw <= 0 || ah <= 0) return;
+      // الحد الأعلى 2.2 يمنع التكبير المبالغ فيه لو المحتوى صغير جداً
+      const next = Math.min(aw / cw, ah / ch, 2.2);
+      setScale(Number.isFinite(next) && next > 0 ? next : 1);
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    if (contentRef.current) ro.observe(contentRef.current);
+    window.addEventListener("resize", fit);
+    return () => { ro.disconnect(); window.removeEventListener("resize", fit); };
+  }, [st, mode]);
+
   return (
     <div
       // 📺 وضع OBS دايماً: خلفيات صلبة بدون شفافية ولا بلور وخط أكبر — عشان
       // الشجرة تُقرأ بوضوح فوق أي فيديو لما تنحط كمصدر متصفح بخلفية شفافة.
       className="bracket-page obs-mode"
-      style={{
-        minHeight: "100vh",
-        width: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: pageBackground,
-        padding: "20px",
-      }}
+      ref={stageRef}
+      style={{ background: pageBackground }}
     >
+      <div className="obs-fit" style={{ transform: `scale(${scale})` }}>
+        <div className="obs-content" ref={contentRef}>
             {st.phase === "setup" ? (
         // 🟢 قبل بدء البطولة: نعرض بوابة الانضمام دايماً — عدّاد + أمر دخول
         // + المشاركين. ما فيه أي تفعيل يدوي، الصفحة جاهزة للبث من بدري.
@@ -176,6 +201,9 @@ export default function BracketOnlyPage() {
       ) : (
         <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
       )}
+
+        </div>
+      </div>
 
       {!hideSwitch && (
         <div className="bg-switch" title="وضع الخلفية — يظهر لما تحرّك عليه الماوس فقط">
