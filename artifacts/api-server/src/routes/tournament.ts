@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { logger } from "../lib/logger";
-import { uploadImageToCloudinary, getCloudinaryStatus, isCloudinaryConfigured, listCloudinaryImages } from "../lib/cloudinary";
+import { uploadImageToCloudinary, getCloudinaryStatus, isCloudinaryConfigured, listCloudinaryImages, deleteCloudinaryImage } from "../lib/cloudinary";
 
 const router = Router();
 
@@ -423,6 +423,41 @@ router.get("/images/history", requireAdmin, requirePermission("records"), async 
   } catch (err: any) {
     logger.error({ err }, "Failed to list cloudinary images");
     res.status(500).json({ error: err?.message || "فشل جلب سجل الصور" });
+  }
+});
+
+// 🗑️ حذف صورة من مكتبة Cloudinary. لو كانت مستخدمة بكرت، ننظّف الحقل كمان
+// عشان ما يبقى الكرت مؤشراً على رابط ميت.
+router.post("/images/delete", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
+  const { publicId, url } = req.body as { publicId?: string; url?: string };
+  if (!publicId) {
+    res.status(400).json({ error: "معرّف الصورة مطلوب" });
+    return;
+  }
+  if (!isCloudinaryConfigured) {
+    res.status(400).json({ error: "Cloudinary غير مهيّأ" });
+    return;
+  }
+  try {
+    await deleteCloudinaryImage(publicId);
+    if (url) {
+      const records = await dbGetRecords();
+      for (const rec of records) {
+        if (rec.image === url || rec.image2 === url) {
+          await dbUpsertRecord({
+            tournamentName: rec.tournamentName,
+            winnerName: rec.winnerName,
+            image: rec.image === url ? "" : rec.image,
+            image2: rec.image2 === url ? "" : rec.image2,
+          });
+        }
+      }
+      broadcast();
+    }
+    res.json({ ok: true });
+  } catch (err: any) {
+    logger.error({ err, publicId }, "Failed to delete image");
+    res.status(500).json({ error: err?.message || "فشل حذف الصورة" });
   }
 });
 
