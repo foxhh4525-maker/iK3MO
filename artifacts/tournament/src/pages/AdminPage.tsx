@@ -155,11 +155,13 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   }
 
   // نربط كل صورة باللعبة اللي تستخدمها حالياً (بمطابقة الرابط بالسجلات)
-  function gameOfImage(url: string): { game: string; winner: string; kind: string } | null {
+  // 🏆 السجل يعرض صور البطولة فقط — نطابق على حقل image وحده، فالصور
+  // الإضافية (image2) وغير المرتبطة بأي كرت ما تدخل السجل.
+  function gameOfImage(url: string): { game: string; winner: string } | null {
     for (const r of records) {
-      const base = { game: r.displayName || r.tournamentName, winner: r.winnerName || "" };
-      if (r.image === url) return { ...base, kind: "صورة الكرت" };
-      if (r.image2 === url) return { ...base, kind: "الخلفية" };
+      if (r.image === url) {
+        return { game: r.displayName || r.tournamentName, winner: r.winnerName || "" };
+      }
     }
     return null;
   }
@@ -201,6 +203,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const imgLogDays = useMemo(() => {
     const map = new Map<string, { label: string; items: CloudImageEntry[] }>();
     for (const img of imgLog) {
+      if (!gameOfImage(img.url)) continue;   // 🏆 صور البطولة فقط
       const d = new Date(img.createdAt);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       if (!map.has(key)) {
@@ -214,7 +217,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       map.get(key)!.items.push(img);
     }
     return [...map.values()];
-  }, [imgLog]);
+  }, [imgLog, records]);
 
   async function handleMigrateImages() {
     if (migrating) return;
@@ -2035,6 +2038,22 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                           onBlur={() => handleWinnerBlur(game, rec?.image || "", rec?.winnerName || "")}
                         />
                       </div>
+                      {/* الصورة الإضافية (image2) — تظهر بالمربع الأصفر في الصفحة العامة */}
+                      <div style={{ padding: "8px 10px 0", fontSize: "0.72rem", fontWeight: 700, color: "#ffd27d", textAlign: "center" }}>🖼️ الصورة الإضافية</div>
+                      <div style={{ width: "100%", aspectRatio: "16/7", background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative", margin: "4px 0" }}>
+                        {rec?.image2 ? <img src={rec.image2} alt={`${game} إضافية`} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "1.8rem", opacity: 0.4 }}>➕</span>}
+                        {busy && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>...جارِ الحفظ</div>}
+                      </div>
+                      <div style={{ display: "flex", gap: "8px", padding: "0 12px 6px" }}>
+                        <label className="btn btn-primary" style={{ flex: 1, textAlign: "center", cursor: busy ? "default" : "pointer", fontSize: "0.75rem", padding: "6px 8px", opacity: busy ? 0.6 : 1 }}>
+                          {rec?.image2 ? "✏️ تغيير الإضافية" : "🖼️ إضافة إضافية"}
+                          <input type="file" accept="image/*" disabled={busy} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleGameImage2(game, f, winnerDrafts[game] ?? (rec?.winnerName || ""), rec?.image || ""); e.currentTarget.value = ""; }} />
+                        </label>
+                        {rec?.image2 && (
+                          <button className="btn btn-ghost" style={{ fontSize: "0.8rem", padding: "6px 10px" }} disabled={busy} onClick={() => handleClearGameImage2(game, winnerDrafts[game] ?? (rec?.winnerName || ""), rec?.image || "")} title="حذف الصورة الإضافية">🗑️</button>
+                        )}
+                      </div>
+
                       {/* صورة البطولة (image) — تظهر بالمربع الأخضر في الصفحة العامة */}
                       <div style={{ padding: "4px 10px 0", fontSize: "0.72rem", fontWeight: 700, color: "#8ef0a0", textAlign: "center" }}>🏆 صورة البطولة</div>
                       <div style={{ width: "100%", aspectRatio: "4/3", background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative", marginTop: "4px" }}>
@@ -2617,7 +2636,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               <button className="cardpick-close" onClick={() => setImgLogOpen(false)} aria-label="إغلاق">✕</button>
             </div>
             <p className="cardpick-sub">
-              كل صورة مرفوعة لـ Cloudinary مرتّبة من الأحدث — مع اللعبة وتاريخ الحفظ.
+              صور البطولات فقط — مرتّبة من الأحدث مع الفائز واللعبة وتاريخ الحفظ.
             </p>
 
             <div className="imglog-tools">
@@ -2639,7 +2658,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
             {!imgLogBusy && !imgLogErr && (
               imgLog.length === 0 ? (
-                <div className="cardpick-empty">ما فيه صور مرفوعة بعد</div>
+                <div className="cardpick-empty">ما فيه صور بطولات بعد</div>
               ) : (
                 <div className="imglog-days">
                   {imgLogDays.map((day, di) => (
@@ -2661,7 +2680,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                               >
                                 <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
                               </a>
-                              <span className="imglog-game">{g ? g.game : "غير مرتبطة بكرت"}</span>
+                              <span className="imglog-game">{g?.game}</span>
                               <button
                                 className="imglog-del"
                                 disabled={imgLogBusy}
