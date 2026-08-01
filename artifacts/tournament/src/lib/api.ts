@@ -88,6 +88,42 @@ export async function deleteImage(publicId: string, url: string, token: string):
   }
 }
 
+export interface RecordHistoryEntry {
+  id: number;
+  tournamentName: string;
+  displayName: string;
+  winnerName: string;
+  image: string;
+  savedAt: string;
+}
+
+// 📜 السجل التاريخي لكروت البطولات (لقطة عند كل حفظ).
+export async function getRecordHistory(token: string, limit = 300): Promise<RecordHistoryEntry[]> {
+  const res = await fetch(`${BASE}/records/history?limit=${limit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let msg = "فشل جلب السجل";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+// 🗑️ حذف لقطة من السجل.
+export async function deleteRecordHistory(id: number, token: string): Promise<void> {
+  const res = await fetch(`${BASE}/records/history/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) {
+    let msg = "فشل الحذف";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+}
+
 // 📜 سجل صور الكروت مع تواريخ رفعها (من Cloudinary مباشرة).
 export async function getImagesHistory(token: string): Promise<CloudImageEntry[]> {
   const res = await fetch(`${BASE}/images/history`, {
