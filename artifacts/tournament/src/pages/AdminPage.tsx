@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry } from "@/lib/api";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, getRecordHistory, deleteRecordHistory, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry, type RecordHistoryEntry } from "@/lib/api";
 import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
@@ -141,12 +141,18 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const [imgLogBusy, setImgLogBusy] = useState(false);
   const [imgLogErr, setImgLogErr] = useState("");
 
+  const [recLog, setRecLog] = useState<RecordHistoryEntry[]>([]);
+
   async function openImagesLog() {
     setImgLogOpen(true);
     setImgLogBusy(true);
     setImgLogErr("");
     try {
-      setImgLog(await getImagesHistory(token));
+      // 📜 المصدر: السجل التاريخي بقاعدة البيانات — كل لقطة تحفظ اللعبة
+      // والفائز والصورة ووقت الحفظ، فتبقى محفوظة حتى لو تغيّر الكرت بعدين.
+      setRecLog(await getRecordHistory(token, 300));
+      // نجيب مكتبة الصور كمان عشان خيار "اعرض كل الصور" (استرجاع صورة ضايعة)
+      try { setImgLog(await getImagesHistory(token)); } catch { /* اختياري */ }
     } catch (e: any) {
       setImgLogErr(e?.message || "تعذّر جلب السجل");
     } finally {
@@ -154,19 +160,50 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     }
   }
 
-  // نربط كل صورة باللعبة اللي تستخدمها حالياً (بمطابقة الرابط بالسجلات)
-  // 🏆 السجل يعرض صور البطولة فقط — نطابق على حقل image وحده، فالصور
-  // الإضافية (image2) وغير المرتبطة بأي كرت ما تدخل السجل.
-  function gameOfImage(url: string): { game: string; winner: string } | null {
-    for (const r of records) {
-      if (r.image === url) {
-        return { game: r.displayName || r.tournamentName, winner: r.winnerName || "" };
-      }
+  async function removeHistoryRow(id: number) {
+    if (imgLogBusy) return;
+    if (!confirm("حذف هذا السطر من السجل؟ الكرت والصورة ما يتأثرون.")) return;
+    setImgLogBusy(true);
+    try {
+      await deleteRecordHistory(id, token);
+      setRecLog(await getRecordHistory(token, 300));
+    } catch (e: any) {
+      setImgLogErr(e?.message || "تعذّر الحذف");
+    } finally {
+      setImgLogBusy(false);
     }
-    return null;
   }
 
-  // ➕ رفع صورة جديدة للسجل مباشرة (تظهر تحت تاريخ اليوم)
+  // 📂 عرض الصور غير المرتبطة بأي كرت — تفيد لاسترجاع صورة انحذفت من
+  // الكرت لكن ملفها لسا موجود بمكتبة Cloudinary.
+  const [imgLogShowAll, setImgLogShowAll] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<Record<string, string>>({});
+
+  // 🔗 يربط صورة موجودة بمكتبة Cloudinary بكرت — استرجاع بضغطة
+  async function linkImageToCard(url: string, tournamentName: string) {
+    if (!tournamentName || imgLogBusy) return;
+    setImgLogBusy(true);
+    setImgLogErr("");
+    try {
+      const rec = records.find(r => r.tournamentName === tournamentName);
+      await putRecord({
+        tournamentName,
+        displayName: rec?.displayName || undefined,
+        winnerName: rec?.winnerName || "",
+        image: url,
+        image2: rec?.image2 || undefined,
+      }, token);
+      refreshRecords();
+      setImgLog(await getImagesHistory(token));
+      setRecLog(await getRecordHistory(token, 300));
+    } catch (e: any) {
+      setImgLogErr(e?.message || "تعذّر ربط الصورة");
+    } finally {
+      setImgLogBusy(false);
+    }
+  }
+
+  // ➕ رفع صورة جديدة للمكتبة مباشرة (تظهر بقسم غير المرتبطة لين تربطها بكرت)
   async function addImageToLog(file: File) {
     if (imgLogBusy) return;
     setImgLogBusy(true);
@@ -175,6 +212,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       const processed = await processImage(file);
       await uploadImage(processed, token, "kemo/records");
       setImgLog(await getImagesHistory(token));
+      setImgLogShowAll(true);
     } catch (e: any) {
       setImgLogErr(e?.message || "تعذّر رفع الصورة");
     } finally {
@@ -182,10 +220,10 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     }
   }
 
-  // 🗑️ حذف صورة من السجل (ومن الكرت المرتبط بها)
+  // 🗑️ حذف صورة نهائياً من مكتبة Cloudinary (ومن الكرت لو مرتبطة)
   async function removeImageFromLog(publicId: string, url: string) {
     if (imgLogBusy) return;
-    if (!confirm("حذف هذي الصورة نهائياً من المكتبة؟ لو مستخدمة بكرت راح تنشال منه كمان.")) return;
+    if (!confirm("حذف هذي الصورة نهائياً من المكتبة؟ ما ترجع.")) return;
     setImgLogBusy(true);
     setImgLogErr("");
     try {
@@ -199,12 +237,12 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     }
   }
 
-  // 📅 نجمّع الصور حسب يوم الحفظ — كل يوم عنوان كبير وتحته صف الصور
+  // 📅 نجمّع لقطات السجل حسب يوم الحفظ — كل يوم عنوان كبير وتحته الصور
   const imgLogDays = useMemo(() => {
-    const map = new Map<string, { label: string; items: CloudImageEntry[] }>();
-    for (const img of imgLog) {
-      if (!gameOfImage(img.url)) continue;   // 🏆 صور البطولة فقط
-      const d = new Date(img.createdAt);
+    const map = new Map<string, { label: string; items: RecordHistoryEntry[] }>();
+    for (const row of recLog) {
+      if (!row.image) continue;
+      const d = new Date(row.savedAt);
       const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
       if (!map.has(key)) {
         map.set(key, {
@@ -214,10 +252,16 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           items: [],
         });
       }
-      map.get(key)!.items.push(img);
+      map.get(key)!.items.push(row);
     }
     return [...map.values()];
-  }, [imgLog, records]);
+  }, [recLog]);
+
+  // 📂 الصور الموجودة بالمكتبة وغير مستخدمة بأي كرت — للاسترجاع
+  const orphanImages = useMemo(
+    () => imgLog.filter(img => !records.some(r => r.image === img.url || r.image2 === img.url)),
+    [imgLog, records],
+  );
 
   async function handleMigrateImages() {
     if (migrating) return;
@@ -2636,7 +2680,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               <button className="cardpick-close" onClick={() => setImgLogOpen(false)} aria-label="إغلاق">✕</button>
             </div>
             <p className="cardpick-sub">
-              صور البطولات فقط — مرتّبة من الأحدث مع الفائز واللعبة وتاريخ الحفظ.
+              سجل دائم: كل حفظ لصورة بطولة أو فائز يُسجّل هنا بلقطته وتاريخه.
             </p>
 
             <div className="imglog-tools">
@@ -2651,50 +2695,96 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 />
               </label>
               <button className="lb-btn" onClick={openImagesLog} disabled={imgLogBusy}>🔄 تحديث</button>
+              <button
+                className={`lb-btn${imgLogShowAll ? " primary" : ""}`}
+                onClick={() => setImgLogShowAll(v => !v)}
+                title="يعرض الصور الموجودة بالمكتبة وغير المرتبطة بأي كرت — تقدر تربطها من جديد"
+              >{imgLogShowAll ? "🏆 صور البطولات فقط" : "📂 اعرض كل الصور"}</button>
             </div>
 
             {imgLogBusy && <div className="cardpick-busy">⏳ جارٍ العمل...</div>}
             {imgLogErr && <div className="lb-msg err">⚠️ {imgLogErr}</div>}
 
             {!imgLogBusy && !imgLogErr && (
-              imgLog.length === 0 ? (
-                <div className="cardpick-empty">ما فيه صور بطولات بعد</div>
-              ) : (
-                <div className="imglog-days">
-                  {imgLogDays.map((day, di) => (
-                    <div className="imglog-day" key={di}>
-                      <div className="imglog-date-big">{day.label}</div>
-                      <div className="imglog-row">
-                        {day.items.map(img => {
-                          const g = gameOfImage(img.url);
-                          return (
-                            <div className="imglog-card" key={img.publicId}>
-                              <span className={`imglog-winner${g?.winner ? "" : " none"}`}>
-                                {g?.winner ? `🏆 ${g.winner}` : "— بدون فائز —"}
+              <>
+                {imgLogDays.length === 0 ? (
+                  <div className="cardpick-empty">ما فيه سجل بعد — أي حفظ لصورة أو فائز ينسجّل هنا تلقائياً</div>
+                ) : (
+                  <div className="imglog-days">
+                    {imgLogDays.map((day, di) => (
+                      <div className="imglog-day" key={di}>
+                        <div className="imglog-date-big">{day.label}</div>
+                        <div className="imglog-row">
+                          {day.items.map(row => (
+                            <div className="imglog-card" key={row.id}>
+                              <span className={`imglog-winner${row.winnerName ? "" : " none"}`}>
+                                {row.winnerName ? `🏆 ${row.winnerName}` : "— بدون فائز —"}
                               </span>
-                              <a
-                                href={img.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title={`افتح بالحجم الكامل — ${Math.round(img.bytes / 1024)} KB`}
-                              >
-                                <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
+                              <a href={row.image} target="_blank" rel="noopener noreferrer" title="افتح الصورة بالحجم الكامل">
+                                <img className="imglog-pic" src={row.image} alt="" loading="lazy" />
                               </a>
-                              <span className="imglog-game">{g?.game}</span>
+                              <span className="imglog-game">{row.displayName || row.tournamentName}</span>
+                              <span className="imglog-time">
+                                {new Date(row.savedAt).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
+                              </span>
                               <button
                                 className="imglog-del"
                                 disabled={imgLogBusy}
-                                onClick={() => removeImageFromLog(img.publicId, img.url)}
-                                title="حذف هذي الصورة نهائياً"
-                              >🗑️ حذف</button>
+                                onClick={() => removeHistoryRow(row.id)}
+                                title="حذف هذا السطر من السجل (الكرت والصورة ما يتأثرون)"
+                              >🗑️ من السجل</button>
                             </div>
-                          );
-                        })}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )
+                    ))}
+                  </div>
+                )}
+
+                {/* 📂 استرجاع: صور موجودة بالمكتبة وغير مستخدمة بأي كرت */}
+                {imgLogShowAll && (
+                  <div className="imglog-day" style={{ marginTop: "22px" }}>
+                    <div className="imglog-date-big">📂 صور بالمكتبة غير مرتبطة بكرت</div>
+                    {orphanImages.length === 0 ? (
+                      <div className="cardpick-empty">ما فيه صور غير مرتبطة</div>
+                    ) : (
+                      <div className="imglog-row">
+                        {orphanImages.map(img => (
+                          <div className="imglog-card" key={img.publicId}>
+                            <span className="imglog-winner none">🔓 غير مرتبطة</span>
+                            <a href={img.url} target="_blank" rel="noopener noreferrer">
+                              <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
+                            </a>
+                            <div className="imglog-link">
+                              <select
+                                className="imglog-select"
+                                value={linkTarget[img.publicId] || ""}
+                                onChange={e => setLinkTarget(t => ({ ...t, [img.publicId]: e.target.value }))}
+                              >
+                                <option value="">اربطها بكرت...</option>
+                                {records.map(r => (
+                                  <option key={r.id} value={r.tournamentName}>{r.displayName || r.tournamentName}</option>
+                                ))}
+                              </select>
+                              <button
+                                className="imglog-linkbtn"
+                                disabled={imgLogBusy || !linkTarget[img.publicId]}
+                                onClick={() => linkImageToCard(img.url, linkTarget[img.publicId])}
+                              >🔗 ربط</button>
+                            </div>
+                            <button
+                              className="imglog-del"
+                              disabled={imgLogBusy}
+                              onClick={() => removeImageFromLog(img.publicId, img.url)}
+                              title="حذف الصورة نهائياً من المكتبة"
+                            >🗑️ حذف نهائي</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
