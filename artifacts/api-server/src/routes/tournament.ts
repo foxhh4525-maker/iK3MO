@@ -411,6 +411,21 @@ router.get("/storage/status", requireAdmin, async (_req: Request, res: Response)
 // 🔁 نقل الصور القديمة المخزّنة Base64 داخل قاعدة البيانات (سجل البطولات) إلى
 // التخزين الخارجي (Cloudinary) — يشتغل مرة وحدة عند الطلب من لوحة الأدمن، ويعيد
 // كتابة كل سجل قديم برابط بدل الصورة الكاملة، فيخفف حجم القاعدة تدريجياً.
+// 📜 سجل صور الكروت: كل الصور المرفوعة لـ Cloudinary مع تاريخ رفعها.
+router.get("/images/history", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
+  if (!isCloudinaryConfigured) {
+    res.status(400).json({ error: "Cloudinary غير مهيّأ" });
+    return;
+  }
+  try {
+    const images = await listCloudinaryImages("kemo/records", 300);
+    res.json(images);
+  } catch (err: any) {
+    logger.error({ err }, "Failed to list cloudinary images");
+    res.status(500).json({ error: err?.message || "فشل جلب سجل الصور" });
+  }
+});
+
 router.post("/migrate-images", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
   if (!isCloudinaryConfigured) {
     res.status(400).json({ error: "Cloudinary غير مهيّأ — أضف متغيرات البيئة أولاً" });
