@@ -74,6 +74,20 @@ export interface CloudImageEntry {
   height?: number;
 }
 
+// 🗑️ حذف صورة من السجل (ومن الكرت المرتبط بها لو وُجد).
+export async function deleteImage(publicId: string, url: string, token: string): Promise<void> {
+  const res = await fetch(`${BASE}/images/delete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ publicId, url }),
+  });
+  if (!res.ok) {
+    let msg = "فشل حذف الصورة";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+}
+
 // 📜 سجل صور الكروت مع تواريخ رفعها (من Cloudinary مباشرة).
 export async function getImagesHistory(token: string): Promise<CloudImageEntry[]> {
   const res = await fetch(`${BASE}/images/history`, {
