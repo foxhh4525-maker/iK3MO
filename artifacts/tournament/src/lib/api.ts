@@ -65,6 +65,28 @@ export async function getStorageStatus(token: string): Promise<StorageStatusResp
 export interface MigrateImagesResult { migrated: number; skipped: number; failed: number; total: number }
 
 // 🔁 ينقل الصور القديمة المخزّنة Base64 بقاعدة البيانات إلى Cloudinary (تشغيل يدوي لمرة وحدة).
+export interface CloudImageEntry {
+  url: string;
+  publicId: string;
+  createdAt: string;
+  bytes: number;
+  width?: number;
+  height?: number;
+}
+
+// 📜 سجل صور الكروت مع تواريخ رفعها (من Cloudinary مباشرة).
+export async function getImagesHistory(token: string): Promise<CloudImageEntry[]> {
+  const res = await fetch(`${BASE}/images/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let msg = "فشل جلب سجل الصور";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
 export async function migrateImages(token: string): Promise<MigrateImagesResult> {
   const res = await fetch(`${BASE}/migrate-images`, {
     method: "POST",
