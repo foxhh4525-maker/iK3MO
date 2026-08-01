@@ -1715,6 +1715,12 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       {s.ok
                         ? (s.usedPercent !== null ? `${s.usedPercent}% مستخدم` : "شغالة")
                         : (s.configured === false ? "غير مفعّلة" : "متوقفة")}
+                      {/* نعرض سبب التوقف الحقيقي لو رجّعه الخادم */}
+                      {(s as any).error && s.ok === false && (
+                        <span style={{ display: "block", fontSize: "0.72rem", color: "#ff8b8b", fontWeight: 700, marginTop: "2px" }}>
+                          ⚠️ {(s as any).error}
+                        </span>
+                      )}
                     </span>
                   </div>
                 ))}
