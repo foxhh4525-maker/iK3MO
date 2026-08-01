@@ -141,3 +141,10 @@ export async function listCloudinaryImages(folder = "kemo/records", max = 300): 
   out.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   return out;
 }
+
+/** 🗑️ يحذف صورة من Cloudinary بمعرّفها (public_id). */
+export async function deleteCloudinaryImage(publicId: string): Promise<boolean> {
+  if (!isCloudinaryConfigured) throw new Error("Cloudinary غير مهيّأ");
+  const res: any = await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
+  return res?.result === "ok" || res?.result === "not found";
+}
