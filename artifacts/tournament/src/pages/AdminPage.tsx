@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry } from "@/lib/api";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry } from "@/lib/api";
 import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
@@ -162,6 +162,39 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       if (r.image2 === url) return { ...base, kind: "الخلفية" };
     }
     return null;
+  }
+
+  // ➕ رفع صورة جديدة للسجل مباشرة (تظهر تحت تاريخ اليوم)
+  async function addImageToLog(file: File) {
+    if (imgLogBusy) return;
+    setImgLogBusy(true);
+    setImgLogErr("");
+    try {
+      const processed = await processImage(file);
+      await uploadImage(processed, token, "kemo/records");
+      setImgLog(await getImagesHistory(token));
+    } catch (e: any) {
+      setImgLogErr(e?.message || "تعذّر رفع الصورة");
+    } finally {
+      setImgLogBusy(false);
+    }
+  }
+
+  // 🗑️ حذف صورة من السجل (ومن الكرت المرتبط بها)
+  async function removeImageFromLog(publicId: string, url: string) {
+    if (imgLogBusy) return;
+    if (!confirm("حذف هذي الصورة نهائياً من المكتبة؟ لو مستخدمة بكرت راح تنشال منه كمان.")) return;
+    setImgLogBusy(true);
+    setImgLogErr("");
+    try {
+      await deleteImage(publicId, url, token);
+      setImgLog(await getImagesHistory(token));
+      refreshRecords();
+    } catch (e: any) {
+      setImgLogErr(e?.message || "تعذّر حذف الصورة");
+    } finally {
+      setImgLogBusy(false);
+    }
   }
 
   // 📅 نجمّع الصور حسب يوم الحفظ — كل يوم عنوان كبير وتحته صف الصور
@@ -2002,22 +2035,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                           onBlur={() => handleWinnerBlur(game, rec?.image || "", rec?.winnerName || "")}
                         />
                       </div>
-                      {/* الصورة الإضافية (image2) — تظهر بالمربع الأصفر في الصفحة العامة */}
-                      <div style={{ padding: "8px 10px 0", fontSize: "0.72rem", fontWeight: 700, color: "#ffd27d", textAlign: "center" }}>🖼️ الصورة الإضافية</div>
-                      <div style={{ width: "100%", aspectRatio: "16/7", background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative", margin: "4px 0" }}>
-                        {rec?.image2 ? <img src={rec.image2} alt={`${game} إضافية`} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: "1.8rem", opacity: 0.4 }}>➕</span>}
-                        {busy && <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>...جارِ الحفظ</div>}
-                      </div>
-                      <div style={{ display: "flex", gap: "8px", padding: "0 12px 6px" }}>
-                        <label className="btn btn-primary" style={{ flex: 1, textAlign: "center", cursor: busy ? "default" : "pointer", fontSize: "0.75rem", padding: "6px 8px", opacity: busy ? 0.6 : 1 }}>
-                          {rec?.image2 ? "✏️ تغيير الإضافية" : "🖼️ إضافة إضافية"}
-                          <input type="file" accept="image/*" disabled={busy} style={{ display: "none" }} onChange={e => { const f = e.target.files?.[0]; if (f) handleGameImage2(game, f, winnerDrafts[game] ?? (rec?.winnerName || ""), rec?.image || ""); e.currentTarget.value = ""; }} />
-                        </label>
-                        {rec?.image2 && (
-                          <button className="btn btn-ghost" style={{ fontSize: "0.8rem", padding: "6px 10px" }} disabled={busy} onClick={() => handleClearGameImage2(game, winnerDrafts[game] ?? (rec?.winnerName || ""), rec?.image || "")} title="حذف الصورة الإضافية">🗑️</button>
-                        )}
-                      </div>
-
                       {/* صورة البطولة (image) — تظهر بالمربع الأخضر في الصفحة العامة */}
                       <div style={{ padding: "4px 10px 0", fontSize: "0.72rem", fontWeight: 700, color: "#8ef0a0", textAlign: "center" }}>🏆 صورة البطولة</div>
                       <div style={{ width: "100%", aspectRatio: "4/3", background: "rgba(0,0,0,0.35)", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", position: "relative", marginTop: "4px" }}>
@@ -2603,7 +2620,21 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               كل صورة مرفوعة لـ Cloudinary مرتّبة من الأحدث — مع اللعبة وتاريخ الحفظ.
             </p>
 
-            {imgLogBusy && <div className="cardpick-busy">⏳ جارٍ جلب السجل...</div>}
+            <div className="imglog-tools">
+              <label className={`lb-btn primary${imgLogBusy ? " is-off" : ""}`}>
+                ➕ أضف صورة
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={imgLogBusy}
+                  style={{ display: "none" }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) addImageToLog(f); e.currentTarget.value = ""; }}
+                />
+              </label>
+              <button className="lb-btn" onClick={openImagesLog} disabled={imgLogBusy}>🔄 تحديث</button>
+            </div>
+
+            {imgLogBusy && <div className="cardpick-busy">⏳ جارٍ العمل...</div>}
             {imgLogErr && <div className="lb-msg err">⚠️ {imgLogErr}</div>}
 
             {!imgLogBusy && !imgLogErr && (
@@ -2618,20 +2649,26 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         {day.items.map(img => {
                           const g = gameOfImage(img.url);
                           return (
-                            <a
-                              key={img.publicId}
-                              className="imglog-card"
-                              href={img.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={`${g ? g.game : "غير مرتبطة"} — ${Math.round(img.bytes / 1024)} KB`}
-                            >
+                            <div className="imglog-card" key={img.publicId}>
                               <span className={`imglog-winner${g?.winner ? "" : " none"}`}>
                                 {g?.winner ? `🏆 ${g.winner}` : "— بدون فائز —"}
                               </span>
-                              <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
+                              <a
+                                href={img.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={`افتح بالحجم الكامل — ${Math.round(img.bytes / 1024)} KB`}
+                              >
+                                <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
+                              </a>
                               <span className="imglog-game">{g ? g.game : "غير مرتبطة بكرت"}</span>
-                            </a>
+                              <button
+                                className="imglog-del"
+                                disabled={imgLogBusy}
+                                onClick={() => removeImageFromLog(img.publicId, img.url)}
+                                title="حذف هذي الصورة نهائياً"
+                              >🗑️ حذف</button>
+                            </div>
                           );
                         })}
                       </div>
