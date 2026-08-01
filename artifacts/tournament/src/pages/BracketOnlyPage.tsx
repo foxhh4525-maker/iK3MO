@@ -120,8 +120,10 @@ export default function BracketOnlyPage() {
       const cw = content.offsetWidth;
       const ch = content.offsetHeight;
       if (!cw || !ch || aw <= 0 || ah <= 0) return;
-      // الحد الأعلى 2.2 يمنع التكبير المبالغ فيه لو المحتوى صغير جداً
-      const next = Math.min(aw / cw, ah / ch, 2.2);
+      // سقف التكبير: الشجرة تملأ الشاشة (2.2)، أما لوحة باب الانضمام
+      // فسقفها أقل (1.25) عشان ما تطلع ضخمة بالبث — تظل بحجم مريح بالنص.
+      const maxScale = st.phase === "setup" ? 1.25 : 2.2;
+      const next = Math.min(aw / cw, ah / ch, maxScale);
       setScale(Number.isFinite(next) && next > 0 ? next : 1);
     };
     fit();
