@@ -155,13 +155,33 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   }
 
   // نربط كل صورة باللعبة اللي تستخدمها حالياً (بمطابقة الرابط بالسجلات)
-  function gameOfImage(url: string): { game: string; kind: string } | null {
+  function gameOfImage(url: string): { game: string; winner: string; kind: string } | null {
     for (const r of records) {
-      if (r.image === url) return { game: r.displayName || r.tournamentName, kind: "صورة الكرت" };
-      if (r.image2 === url) return { game: r.displayName || r.tournamentName, kind: "الخلفية" };
+      const base = { game: r.displayName || r.tournamentName, winner: r.winnerName || "" };
+      if (r.image === url) return { ...base, kind: "صورة الكرت" };
+      if (r.image2 === url) return { ...base, kind: "الخلفية" };
     }
     return null;
   }
+
+  // 📅 نجمّع الصور حسب يوم الحفظ — كل يوم عنوان كبير وتحته صف الصور
+  const imgLogDays = useMemo(() => {
+    const map = new Map<string, { label: string; items: CloudImageEntry[] }>();
+    for (const img of imgLog) {
+      const d = new Date(img.createdAt);
+      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+      if (!map.has(key)) {
+        map.set(key, {
+          label: d.toLocaleDateString("ar-SA", {
+            weekday: "long", year: "numeric", month: "long", day: "numeric",
+          }),
+          items: [],
+        });
+      }
+      map.get(key)!.items.push(img);
+    }
+    return [...map.values()];
+  }, [imgLog]);
 
   async function handleMigrateImages() {
     if (migrating) return;
@@ -2590,33 +2610,33 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               imgLog.length === 0 ? (
                 <div className="cardpick-empty">ما فيه صور مرفوعة بعد</div>
               ) : (
-                <div className="imglog-list">
-                  {imgLog.map(img => {
-                    const g = gameOfImage(img.url);
-                    return (
-                      <a
-                        key={img.publicId}
-                        className="imglog-item"
-                        href={img.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        title="افتح الصورة بحجمها الكامل"
-                      >
-                        <img className="imglog-thumb" src={img.url} alt="" loading="lazy" />
-                        <span className="imglog-meta">
-                          <b className={g ? "" : "muted"}>{g ? g.game : "غير مرتبطة بكرت"}</b>
-                          <span className="imglog-kind">{g ? g.kind : "صورة قديمة أو محذوفة"}</span>
-                          <span className="imglog-date">
-                            {new Date(img.createdAt).toLocaleString("ar-SA", {
-                              year: "numeric", month: "2-digit", day: "2-digit",
-                              hour: "2-digit", minute: "2-digit",
-                            })}
-                          </span>
-                        </span>
-                        <span className="imglog-size">{Math.round(img.bytes / 1024)} KB</span>
-                      </a>
-                    );
-                  })}
+                <div className="imglog-days">
+                  {imgLogDays.map((day, di) => (
+                    <div className="imglog-day" key={di}>
+                      <div className="imglog-date-big">{day.label}</div>
+                      <div className="imglog-row">
+                        {day.items.map(img => {
+                          const g = gameOfImage(img.url);
+                          return (
+                            <a
+                              key={img.publicId}
+                              className="imglog-card"
+                              href={img.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={`${g ? g.game : "غير مرتبطة"} — ${Math.round(img.bytes / 1024)} KB`}
+                            >
+                              <span className={`imglog-winner${g?.winner ? "" : " none"}`}>
+                                {g?.winner ? `🏆 ${g.winner}` : "— بدون فائز —"}
+                              </span>
+                              <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
+                              <span className="imglog-game">{g ? g.game : "غير مرتبطة بكرت"}</span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )
             )}
