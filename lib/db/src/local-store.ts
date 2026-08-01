@@ -18,12 +18,13 @@ interface Store {
   records: any[];
   helpers: any[];
   playerWins: any[];
+  recordHistory?: any[];
   playerMatchWins: any[];
-  seq: { winners: number; archives: number; records: number; helpers: number; playerWins: number; playerMatchWins: number };
+  seq: { winners: number; archives: number; records: number; helpers: number; playerWins: number; playerMatchWins: number; recordHistory: number };
 }
 
 function empty(): Store {
-  return { state: null, winners: [], archives: [], records: [], helpers: [], playerWins: [], playerMatchWins: [], seq: { winners: 0, archives: 0, records: 0, helpers: 0, playerWins: 0, playerMatchWins: 0 } };
+  return { state: null, winners: [], archives: [], records: [], helpers: [], playerWins: [], playerMatchWins: [], recordHistory: [], seq: { winners: 0, archives: 0, records: 0, helpers: 0, playerWins: 0, playerMatchWins: 0, recordHistory: 0 } };
 }
 
 let cache: Store | null = null;
@@ -187,18 +188,38 @@ export const localStore = {
   getPlayerWins(username: string) {
     return load().playerWins.filter((w) => w.username === username);
   },
-  // 📊 تجميع كل اللاعبين مع مجموع فوزاتهم (نظام المستويات)
-  getPlayerLevels(limit = 500) {
+  // ── 📜 سجل كروت البطولات ──
+  addRecordHistory(entry: { tournamentName: string; displayName?: string; winnerName?: string; image?: string }) {
     const s = load();
-    const map = new Map<string, { username: string; wins: number }>();
-    for (const w of s.playerWins || []) {
-      const n = Number(w.wins) || 0;
-      if (n <= 0) continue;
-      const cur = map.get(w.username);
-      if (cur) cur.wins += n;
-      else map.set(w.username, { username: w.displayName || w.username, wins: n });
-    }
-    return [...map.values()].sort((a, b) => b.wins - a.wins).slice(0, limit);
+    if (!s.recordHistory) s.recordHistory = [];
+    const image = entry.image || "";
+    const winner = entry.winnerName || "";
+    const last = [...s.recordHistory].reverse().find((h: any) => h.tournamentName === entry.tournamentName);
+    if (last && last.image === image && last.winnerName === winner) return null;
+    const row = {
+      id: ++s.seq.recordHistory,
+      tournamentName: entry.tournamentName,
+      displayName: entry.displayName || "",
+      winnerName: winner,
+      image,
+      savedAt: nowISO(),
+    };
+    s.recordHistory.push(row);
+    save(s);
+    return row;
+  },
+  getRecordHistory(limit = 300) {
+    const s = load();
+    return [...(s.recordHistory || [])]
+      .sort((a: any, b: any) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
+      .slice(0, limit);
+  },
+  deleteRecordHistory(id: number) {
+    const s = load();
+    const before = (s.recordHistory || []).length;
+    s.recordHistory = (s.recordHistory || []).filter((h: any) => h.id !== id);
+    save(s);
+    return s.recordHistory.length < before;
   },
   setPlayerWins(username: string, displayName: string, game: string, wins: number) {
     const s = load();
