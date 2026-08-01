@@ -177,7 +177,7 @@ export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: Br
                             <span className="final-cup" aria-hidden="true">🏆</span>
                             {champion && (
                               <div className="champ-box">
-                                <div className="champ-label">صاحب الكأس</div>
+                                <div className="champ-label">بطل البطولة</div>
                                 <div className="champ-banner">
                                   <span className="champ-winner">{champion}</span>
                                 </div>
