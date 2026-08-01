@@ -654,6 +654,27 @@ input:checked+.slider:before{transform:translateX(20px);background:var(--blue)}
 .join-btn.is-off{background:rgba(255,255,255,0.06);color:var(--muted);cursor:not-allowed}
 .join-btn.is-off:hover{transform:none}
 .helpers-modal{max-width:720px}
+
+/* ── 📜 سجل صور الكروت ── */
+.imglog{max-width:600px}
+.imglog-list{display:flex;flex-direction:column;gap:8px}
+.imglog-item{
+  display:flex;align-items:center;gap:12px;
+  padding:9px 12px;border-radius:12px;text-decoration:none;color:var(--text);
+  background:rgba(255,255,255,0.04);border:1px solid var(--border);
+  transition:all .16s;
+}
+.imglog-item:hover{background:rgba(41,182,246,0.12);border-color:var(--blue)}
+.imglog-thumb{
+  width:58px;height:44px;flex-shrink:0;border-radius:8px;object-fit:cover;
+  background:rgba(0,0,0,0.35);border:1px solid var(--border);
+}
+.imglog-meta{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.imglog-meta b{font-size:0.92rem;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imglog-meta b.muted{color:var(--muted);font-weight:700}
+.imglog-kind{font-size:0.72rem;color:var(--blue);font-weight:700}
+.imglog-date{font-size:0.7rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.imglog-size{font-size:0.7rem;color:var(--muted);font-weight:700;flex-shrink:0}
 .green-open-btn{
   padding:10px 14px;border-radius:10px;cursor:pointer;white-space:nowrap;
   font-family:inherit;font-size:0.8rem;font-weight:800;
