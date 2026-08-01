@@ -5,9 +5,12 @@ import { logger } from "./logger";
 // قاعدة البيانات (اللي يخليها تكبر وتبطئ بسرعة)، نرفعها هنا ونحفظ بس الرابط.
 // المتغيرات الثلاثة لازم تكون موجودة فـ Environment Variables (Render):
 // CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
-const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
-const apiKey = process.env.CLOUDINARY_API_KEY;
-const apiSecret = process.env.CLOUDINARY_API_SECRET;
+// نشيل المسافات والاقتباسات الزايدة — أشهر سبب للفشل هو لصق القيمة
+// ومعها فراغ أو علامتا تنصيص من لوحة Render.
+const clean = (v?: string) => (v || "").trim().replace(/^["']|["']$/g, "");
+const cloudName = clean(process.env.CLOUDINARY_CLOUD_NAME);
+const apiKey = clean(process.env.CLOUDINARY_API_KEY);
+const apiSecret = clean(process.env.CLOUDINARY_API_SECRET);
 
 export const isCloudinaryConfigured = Boolean(cloudName && apiKey && apiSecret);
 
@@ -74,6 +77,24 @@ export async function getCloudinaryStatus(): Promise<StorageStatus> {
     };
   } catch (err: any) {
     logger.error({ err }, "Cloudinary usage check failed");
-    return { name: "cloudinary", configured: true, ok: false, usedPercent: null, error: "تعذّر الاتصال بـ Cloudinary" };
+    // 🔎 نمرّر رسالة Cloudinary الحقيقية بدل نص عام — بدونها ما تعرف هل
+    // المفتاح غلط ولا اسم الحساب ولا الشبكة، وتظل تخمّن.
+    const raw = String(err?.error?.message || err?.message || "").trim();
+    const code = err?.error?.http_code || err?.http_code;
+    let hint = raw || "تعذّر الاتصال بـ Cloudinary";
+    if (code === 401 || /invalid signature|unknown api_key|api_key/i.test(raw)) {
+      hint = "بيانات الدخول غلط — راجع API Key و API Secret";
+    } else if (code === 404 || /cloud_name|not found/i.test(raw)) {
+      hint = "اسم الحساب (Cloud Name) غلط";
+    } else if (code === 420 || code === 429) {
+      hint = "تجاوزت حد الطلبات المسموح مؤقتاً";
+    }
+    return {
+      name: "cloudinary",
+      configured: true,
+      ok: false,
+      usedPercent: null,
+      error: hint + (code ? ` (${code})` : ""),
+    };
   }
 }
