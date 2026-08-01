@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { logger } from "../lib/logger";
-import { uploadImageToCloudinary, getCloudinaryStatus, isCloudinaryConfigured } from "../lib/cloudinary";
+import { uploadImageToCloudinary, getCloudinaryStatus, isCloudinaryConfigured, listCloudinaryImages } from "../lib/cloudinary";
 
 const router = Router();
 
