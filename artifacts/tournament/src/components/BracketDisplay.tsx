@@ -1,223 +1,196 @@
-import type { CSSProperties } from "react";
-import { BYE, type Match, type TournamentState } from "@/lib/types";
-import { rTitle } from "@/lib/tournament";
+import { useEffect, useMemo, useState } from "react";
+import { defaultState, type TournamentState } from "@/lib/types";
+import { getState, useSSE } from "@/lib/api";
+import BracketDisplay from "@/components/BracketDisplay";
 
-/* ⚙️ إعداد شكل الشجرة — غيّر السطرين هذي بس:
- *
- * LAYOUT = "linear"  → شجرة باتجاه واحد: الجولة الأولى بأول الصفحة والنهائي
- *                      بآخرها. مع FINAL_SIDE="right" يطلع النهائي على اليمين.
- * LAYOUT = "mirror"  → الشكل القديم: نصف الشجرة يمين ونصفها يسار والنهائي بالنص
- *                      (أقصر بالطول، مناسب لو عدد اللاعبين كبير 32+).
- *
- * FINAL_SIDE يشتغل مع "linear" فقط:
- *   "right" → الجولة الأولى يسار ← والنهائي يمين
- *   "left"  → الجولة الأولى يمين ← والنهائي يسار (الترتيب العربي الطبيعي)
- */
-const LAYOUT: "linear" | "mirror" = "linear";
-const FINAL_SIDE: "right" | "left" = "right";
+// 🌳 صفحة "شجرة البطولة فقط" — بدون شات ولا سايدبار ولا أدوات تحكم.
+//
+// 📺 مصمّمة لـ OBS: الصفحة **بدون خلفية** افتراضياً، فتنحط كمصدر متصفح
+// (Browser Source) فوق الفيديو مباشرة وتظهر الشجرة وحدها بدون أي مستطيل
+// خلفها — ما تحتاج فلتر Chroma Key ولا شاشة خضراء.
+//
+// الوضعان:
+// 1) شفافة → /bracket              (الافتراضي — لـ OBS)
+// 2) داكنة → /bracket?dark=1       (للمعاينة بمتصفح عادي فقط، لأن المتصفح
+//    ما يعرض الشفافية فتطلع بيضاء)
+//
+// 🔒 زر التبديل شفافيته 6% وما يبين إلا لما تحرّك عليه الماوس، فما يظهر
+// بالبث. ولو تبغى تخفيه نهائياً حط ‎?clean=1‎ بالرابط.
 
-interface BracketDisplayProps {
-  st: TournamentState;
-  isAdmin: boolean;
-  pickedMatchId: string | null;
-  onWin?: (rIdx: number, mIdx: number, side: "a" | "b") => void;
-}
+const STORE_KEY = "ik3mo.bracketBg";
 
-// 🔤 أول حرف من الاسم — يطلع بمربع صغير جنب الاسم عشان الشريحة تبين أوضح
-// وأسرع للقراءة على البث.
-function initial(name: string): string {
-  const clean = name.trim().replace(/^[^\p{L}\p{N}]+/u, "");
-  return (clean[0] || name.trim()[0] || "?").toUpperCase();
-}
+type Mode = "transparent" | "dark";
 
-function PlayerRow({
-  name, match, side, rIdx, mIdx, cur, isAdmin, onWin, pickedMatchId,
-}: {
-  name: string | null;
-  match: Match;
-  side: "a" | "b";
-  rIdx: number;
-  mIdx: number;
-  cur: number;
-  isAdmin: boolean;
-  onWin?: (rIdx: number, mIdx: number, side: "a" | "b") => void;
-  pickedMatchId: string | null;
-}) {
-  const isBye = name === BYE;
-  const isEmpty = !name;
-  const isW = !!match.winner && match.winner === name && name !== BYE;
-  const isL = !!match.winner && match.winner !== name && !!name && name !== BYE;
-  // لو فيه ماتش محدد عشوائياً (إطار أصفر)، ما ينفع الضغط على فوز أي ماتش ثاني غيره
-  const isLockedByPick = !!pickedMatchId && pickedMatchId !== `${rIdx}-${mIdx}`;
-  const canClick =
-    isAdmin &&
-    rIdx === cur &&
-    !match.winner &&
-    name &&
-    name !== BYE &&
-    match.a &&
-    match.a !== BYE &&
-    match.b &&
-    match.b !== BYE &&
-    !isLockedByPick;
+const MODES: { id: Mode; label: string }[] = [
+  { id: "transparent", label: "شفافة" },
+  { id: "dark", label: "داكنة" },
+];
 
-  let cls = "player";
-  if (isW) cls += " winner";
-  else if (isL) cls += " loser";
-  if (isBye) cls += " bye-slot";
-  else if (isEmpty) cls += " empty";
-  else if (!canClick && !isW && !isL) cls += " locked";
+export default function BracketOnlyPage() {
+  const [st, setSt] = useState<TournamentState>(defaultState());
+  // 🔄 جلب الحالة مرة عند الفتح — SSE يبث عند الاتصال، لكن لو تأخر أو
+  // انقطع (Render cold start / إعادة تشغيل الخادم / إغلاق مصدر OBS وفتحه)
+  // تظل الصفحة على الحالة الافتراضية وتقول "البطولة لسا ما بدأت" وهي بادية.
+  // هذا الطلب المباشر يضمن الحالة الصحيحة فوراً.
+  useEffect(() => {
+    getState().then((s) => { if (s) setSt(s); }).catch(() => {});
+  }, []);
+
+  useSSE((data) => setSt(data));
+
+  // ⏱️ نبضة كل ثانية عشان عدّاد البوابة يتحدّث
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!st.joinDeadline) return;
+    const id = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [st.joinDeadline]);
+
+  // المدة الكلية للبوابة — تُلتقط أول ما تُفتح، لحساب نسبة الحلقة
+  const [joinTotal, setJoinTotal] = useState(0);
+  useEffect(() => {
+    if (!st.joinDeadline) { setJoinTotal(0); return; }
+    setJoinTotal(Math.max(1, Math.ceil((st.joinDeadline - Date.now()) / 1000)));
+  }, [st.joinDeadline]);
+
+  const secsLeft = st.joinDeadline ? Math.max(0, Math.ceil((st.joinDeadline - Date.now()) / 1000)) : 0;
+  const gateOpen = !!st.joinDeadline && secsLeft > 0;
+
+  // الرابط له الأولوية على المحفوظ: ‎?dark=1‎ للمعاينة، ‎?transparent=1‎ للشفافة.
+  const urlMode = useMemo<Mode | null>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("transparent") === "1") return "transparent";
+      if (params.get("dark") === "1") return "dark";
+    } catch { /* ignore */ }
+    return null;
+  }, []);
+
+  const hideSwitch = useMemo(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("clean") === "1";
+    } catch { return false; }
+  }, []);
+
+  const [mode, setMode] = useState<Mode>(() => {
+    if (urlMode) return urlMode;
+    try {
+      const saved = localStorage.getItem(STORE_KEY);
+      if (saved === "dark" || saved === "transparent") return saved;
+    } catch { /* ignore */ }
+    return "transparent";   // الافتراضي: بدون خلفية (جاهزة لـ OBS)
+  });
+
+  const pickMode = (next: Mode) => {
+    setMode(next);
+    try { localStorage.setItem(STORE_KEY, next); } catch { /* ignore */ }
+  };
+
+  const pageBackground = mode === "transparent" ? "transparent" : "#060d1a";
+
+  // نطبّق خلفية الصفحة (body/html) حسب الوضع، وهو بهذي الصفحة بس، ونرجّعها
+  // لما نطلع منها.
+  useEffect(() => {
+    const prevBody = document.body.style.background;
+    const prevHtml = document.documentElement.style.background;
+    document.body.style.background = pageBackground;
+    document.documentElement.style.background = pageBackground;
+    return () => {
+      document.body.style.background = prevBody;
+      document.documentElement.style.background = prevHtml;
+    };
+  }, [pageBackground]);
 
   return (
     <div
-      className={cls}
-      onClick={() => canClick && onWin?.(rIdx, mIdx, side)}
-      title={!isBye && !isEmpty && name ? name : undefined}
+      // 📺 وضع OBS دايماً: خلفيات صلبة بدون شفافية ولا بلور وخط أكبر — عشان
+      // الشجرة تُقرأ بوضوح فوق أي فيديو لما تنحط كمصدر متصفح بخلفية شفافة.
+      className="bracket-page obs-mode"
+      style={{
+        minHeight: "100vh",
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: pageBackground,
+        padding: "20px",
+      }}
     >
-      <span className="p-badge" aria-hidden="true">
-        {isBye ? "◇" : isEmpty ? "?" : initial(name as string)}
-      </span>
-      <span className="p-name">{isBye ? "بايب" : isEmpty ? "في الانتظار" : name}</span>
-      {isW && <span className="p-mark">👑</span>}
-    </div>
-  );
-}
+            {st.phase === "setup" ? (
+        // 🟢 قبل بدء البطولة: نعرض بوابة الانضمام دايماً — عدّاد + أمر دخول
+        // + المشاركين. ما فيه أي تفعيل يدوي، الصفحة جاهزة للبث من بدري.
+        (
+          <div className={`gate${st.entryLog.length > 0 ? " has-players" : ""}${!st.joinDeadline ? "" : !gateOpen ? " is-closed" : secsLeft <= 10 ? " is-hot" : ""}`}>
+            {st.name && <div className="gate-title">🏆 {st.name}</div>}
 
-export default function BracketDisplay({ st, isAdmin, pickedMatchId, onWin }: BracketDisplayProps) {
-  const { rounds, cur } = st;
-  const total = rounds.length;
-  const last = total - 1;
-
-  if (!rounds.length) return null;
-
-  // fwd = عمود عادي (الوصلة تطلع منه للأمام) · center = عمود النهائي
-  type Col = { side: "fwd" | "center" | "left" | "right"; ri: number; s: number; e: number };
-  const cols: Col[] = [];
-
-  if (LAYOUT === "linear") {
-    // كل جولة بعمود واحد كامل، والنهائي آخر عمود
-    for (let r = 0; r < last; r++) cols.push({ side: "fwd", ri: r, s: 0, e: rounds[r].length });
-    cols.push({ side: "center", ri: last, s: 0, e: rounds[last].length });
-  } else {
-    // الشكل القديم: نصف يمين + النهائي بالنص + نصف يسار
-    for (let r = 0; r < last; r++) {
-      const h = Math.floor(rounds[r].length / 2);
-      cols.push({ side: "left", ri: r, s: 0, e: h });
-    }
-    cols.push({ side: "center", ri: last, s: 0, e: rounds[last].length });
-    for (let r = last - 1; r >= 0; r--) {
-      const h = Math.floor(rounds[r].length / 2);
-      cols.push({ side: "right", ri: r, s: h, e: rounds[r].length });
-    }
-  }
-
-  const lr = rounds[rounds.length - 1];
-  const champion = lr.length === 1 && lr[0].winner && lr[0].winner !== BYE ? lr[0].winner : null;
-
-  const bracketCls =
-    LAYOUT === "linear"
-      ? `bracket linear ${FINAL_SIDE === "right" ? "final-right" : "final-left"}`
-      : "bracket mirror";
-
-  return (
-    <>
-      <div className="bracket-scroll">
-        <div className={bracketCls}>
-          {cols.map((col, ci) => {
-            const slice = rounds[col.ri].slice(col.s, col.e);
-            // 📐 مفتاح المحاذاة: المسافة بين مباريات كل جولة تتضاعف مع كل دور
-            // (‎2^ri‎)، فيصير مركز كل مباراة بالضبط بمنتصف المباراتين اللي
-            // قبلها — وهذا اللي يخلي خطوط الربط تطلع شجرة مستقيمة مضبوطة.
-            const matchesStyle = { "--k": String(2 ** col.ri) } as CSSProperties;
-
-            return (
-              <div key={ci} className={`round r-${col.side}`}>
-                {/* 📐 رأس موحّد لكل الأعمدة — عنوان الجولة فقط، فتطلع كل
-                    العناوين على نفس المستوى (النهائي = نصف النهائي = ...). */}
-                <div className="round-head">
-                  <div className="round-title">
-                    {col.side === "center" ? "النهائي" : rTitle(col.ri, total)}
+            {st.joinDeadline ? (
+              <>
+                <div className="gate-ring" style={{ ["--p" as any]: joinTotal ? Math.max(0, secsLeft / joinTotal) : 0 }}>
+                  <svg viewBox="0 0 120 120" aria-hidden="true">
+                    <circle className="gate-track" cx="60" cy="60" r="52" />
+                    <circle className="gate-bar" cx="60" cy="60" r="52" />
+                  </svg>
+                  <div className="gate-face">
+                    <div className="gate-time">
+                      {gateOpen
+                        ? `${String(Math.floor(secsLeft / 60)).padStart(2, "0")}:${String(secsLeft % 60).padStart(2, "0")}`
+                        : "00:00"}
+                    </div>
+                    <div className="gate-unit">{gateOpen ? "متبقي" : "انتهى"}</div>
                   </div>
                 </div>
-
-                <div className="matches" style={matchesStyle}>
-                  {slice.map((match, mi) => {
-                    const m = col.s + mi;
-                    const ready =
-                      col.ri === cur &&
-                      !match.winner &&
-                      match.a && match.a !== BYE &&
-                      match.b && match.b !== BYE;
-                    const isPicked = pickedMatchId === `${col.ri}-${m}`;
-                    let cls = "match";
-                    if (ready) cls += " ready";
-                    if (match.winner) cls += " done";
-                    if (match.isBye) cls += " bye-match";
-                    if (col.side === "center") cls += " final-match";
-                    if (isPicked) cls += " picked-match";
-                    // خطوط الربط: كل مباراة (غير النهائي) تطلع منها وصلة تجاه
-                    // الدور اللي بعده، وأعلى مباراة بكل زوج ترسم الخط العمودي
-                    // اللي يجمع الزوج.
-                    if (col.side !== "center") {
-                      if (slice.length === 1) cls += " solo";
-                      else if (m % 2 === 0) cls += " pair-top";
-                    }
-
-                    return (
-                      <div key={m} className={cls} data-r={col.ri} data-m={m}>
-                        {/* 🏆 فوق خانة النهائي مباشرة وبإطار مدموج معها:
-                            يعرض الكأس قبل التتويج، وأول ما يتحدد البطل يختفي
-                            الكأس ويطلع اسمه بنفس المكان. الفاصل السفلي
-                            الصندوق خارج التدفق (absolute) فما يزيح الخانة
-                            ولا يأثر على مكان خط الربط إطلاقاً. */}
-                        {col.side === "center" && (
-                          <div className={`final-crown${champion ? " is-won" : ""}`}>
-                            {/* الكأس موجود دايماً — عند التتويج ينفجر ويتلاشى
-                                وتطلع بطاقة الفائز مكانه بنفس اللحظة. */}
-                            <span className="final-cup" aria-hidden="true">🏆</span>
-                            {champion && (
-                              <div className="champ-box">
-                                <div className="champ-label">صاحب الكأس</div>
-                                <div className="champ-banner">
-                                  <span className="champ-winner">{champion}</span>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        <PlayerRow
-                          name={match.a}
-                          match={match}
-                          side="a"
-                          rIdx={col.ri}
-                          mIdx={m}
-                          cur={cur}
-                          isAdmin={isAdmin}
-                          onWin={onWin}
-                          pickedMatchId={pickedMatchId}
-                        />
-                        <div className="vs-line" aria-hidden="true"><span>VS</span></div>
-                        <PlayerRow
-                          name={match.b}
-                          match={match}
-                          side="b"
-                          rIdx={col.ri}
-                          mIdx={m}
-                          cur={cur}
-                          isAdmin={isAdmin}
-                          onWin={onWin}
-                          pickedMatchId={pickedMatchId}
-                        />
-                        {col.side !== "center" && <span className="conn" aria-hidden="true" />}
-                      </div>
-                    );
-                  })}
+                <div className="gate-status">
+                  <span className="gate-dot" />
+                  {gateOpen ? "باب الانضمام مفتوح" : "باب الانضمام مقفل"}
                 </div>
-              </div>
-            );
-          })}
+                {gateOpen && <div className="gate-hint">اكتب <b>!دخول</b> بالشات عشان تنضم</div>}
+              </>
+            ) : (
+              <>
+                <div className="gate-wait" aria-hidden="true"><i /><i /><i /></div>
+                <div className="gate-status"><span className="gate-dot" />في انتظار بدء البطولة</div>
+              </>
+            )}
+
+            {st.entryLog.length > 0 && (
+              <>
+                <div className="gate-count">👥 المنضمين <span>{st.entryLog.length}</span></div>
+                {/* 👥 المشاركين — نفس الشاشة تنتقل تلقائياً: انتظار ← بوابة
+                    مفتوحة مع المشاركين ← الشجرة، بمصدر جرين سكرين واحد. */}
+                <div className="gate-players">
+                  {st.entryLog.map((e, i) => (
+                    <div className="gate-player" key={i} style={{ animationDelay: `${Math.min(i, 20) * 0.035}s` }}>
+                      <span className="gate-avatar">
+                        {e.avatar
+                          ? <img src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
+                          : e.user.charAt(0).toUpperCase()}
+                      </span>
+                      <span className="gate-pname">{e.user}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )
+      ) : (
+        <BracketDisplay st={st} isAdmin={false} pickedMatchId={st.pickedMatchId ?? null} />
+      )}
+
+      {!hideSwitch && (
+        <div className="bg-switch" title="وضع الخلفية — يظهر لما تحرّك عليه الماوس فقط">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              type="button"
+              aria-pressed={mode === m.id}
+              onClick={() => pickMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
-      </div>
-    </>
+      )}
+    </div>
   );
 }
