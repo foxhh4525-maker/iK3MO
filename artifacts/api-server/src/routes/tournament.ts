@@ -94,6 +94,7 @@ const {
   getRecordHistory: dbGetRecordHistory,
   deleteRecordHistory: dbDeleteRecordHistory,
   setPlayerWins: dbSetPlayerWins,
+  resetAllPlayerWins: dbResetAllPlayerWins,
   incrementPlayerWin: dbIncrementPlayerWin,
   incrementPlayerMatchWin: dbIncrementPlayerMatchWin,
   setPlayerMatchWins: dbSetPlayerMatchWins,
@@ -666,14 +667,35 @@ router.get("/player/stats", async (req: Request, res: Response) => {
 // كل الألعاب. تستخدمه القائمة المنبثقة تحت أيقونة الكأس بالصفحة العامة.
 // 📊 قائمة نظام المستويات — كل اللاعبين ومجموع فوزاتهم من player_wins.
 // عامة للقراءة زي /player/stats و /player/leaderboard.
+// ⚠️ ملاحظة: كان هذا المسار يرجّع [] عند أي خطأ، فلما كانت getPlayerLevels
+// ناقصة من طبقة قاعدة البيانات كان الخطأ ينبلع وتظهر بالواجهة رسالة "ما فيه
+// لاعب له فوزات بعد" بدل رسالة عطل. الحين نرجّع 500 عشان الواجهة تفرّق بين
+// "القائمة فاضية فعلاً" و"فشل الجلب".
 router.get("/player/levels", async (req: Request, res: Response) => {
   try {
     const limit = Number(req.query.limit) || 500;
+    if (typeof dbGetPlayerLevels !== "function") {
+      throw new Error("getPlayerLevels غير موجودة في حزمة قاعدة البيانات");
+    }
     const rows = await dbGetPlayerLevels(limit);
     res.json(rows || []);
   } catch (err) {
     logger.error({ err }, "Failed to fetch player levels");
-    res.json([]);
+    res.status(500).json({ error: "فشل جلب قائمة المستويات" });
+  }
+});
+
+// 🧹 تصفير نظام المستويات لكل اللاعبين (بداية موسم جديد).
+// مستقل عن /player/match-wins/reset: هذا يمسح player_wins (لفل الكروت)،
+// وذاك يمسح player_match_wins (نقاط الأكثر انتصاراً).
+router.post("/player/wins/reset", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
+  try {
+    const out = await dbResetAllPlayerWins();
+    broadcast(); // عشان تتحدّث المستويات لحظياً عند كل المشاهدين
+    res.json(out || { cleared: 0 });
+  } catch (err) {
+    logger.error({ err }, "Failed to reset player wins");
+    res.status(500).json({ error: "فشل تصفير المستويات" });
   }
 });
 
