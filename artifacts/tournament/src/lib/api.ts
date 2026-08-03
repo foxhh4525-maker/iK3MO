@@ -518,14 +518,32 @@ export async function deleteRecord(id: number, token: string): Promise<void> {
 // ── إحصائيات اللاعبين (فوزات + لفل) ──
 // جلب فوزات لاعب معيّن لكل لعبة (عام، بدون توكن). يُستخدم للمسجّل بالصفحة العامة وللأدمن.
 // 📊 قائمة نظام المستويات: كل اللاعبين ومجموع فوزاتهم (من player_wins).
+// ⚠️ ترمي خطأ عند الفشل بدل ما ترجّع [] — عشان لوحة الأدمن تفرّق بين "ما فيه
+// لاعبين" و"تعذّر الجلب"، بدل ما تعرض رسالة القائمة الفاضية بالحالتين.
 export async function getPlayerLevels(limit = 500): Promise<LeaderboardEntry[]> {
-  try {
-    const res = await fetch(`${BASE}/player/levels?limit=${limit}`);
-    if (!res.ok) return [];
-    return res.json();
-  } catch {
-    return [];
+  const res = await fetch(`${BASE}/player/levels?limit=${limit}`);
+  if (!res.ok) {
+    let msg = "تعذّر جلب قائمة المستويات";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
   }
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
+}
+
+// 🧹 تصفير نظام المستويات لكل اللاعبين (يمسح فوزات كل الألعاب).
+export async function resetAllPlayerWins(token: string): Promise<number> {
+  const res = await fetch(`${BASE}/player/wins/reset`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    let msg = "فشل تصفير المستويات";
+    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    throw new Error(msg);
+  }
+  const data = await res.json().catch(() => ({}));
+  return Number(data?.cleared) || 0;
 }
 
 export async function getPlayerStats(username: string): Promise<PlayerStats | null> {
