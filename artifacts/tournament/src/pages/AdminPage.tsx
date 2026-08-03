@@ -310,6 +310,15 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const [lbDraft, setLbDraft] = useState<Record<string, string>>({});
   const [lbNewName, setLbNewName] = useState("");
   const [lbNewPts, setLbNewPts] = useState(1);
+  // 🔎 فلتر بالاسم — نفس فكرة فلتر نظام المستويات: يصفّي القائمة المحمّلة
+  // بدون ما يرجع للخادم، والترتيب والمراكز تبقى كما هي بالقائمة الأصلية.
+  const [lbQuery, setLbQuery] = useState("");
+  const lbFiltered = useMemo(() => {
+    const q = lbQuery.trim().toLowerCase();
+    // نحتفظ بالمركز الأصلي عشان 🥇🥈🥉 ما تتغيّر مع الفلترة
+    const withRank = lb.map((row, i) => ({ row, rank: i }));
+    return q ? withRank.filter(x => x.row.username.toLowerCase().includes(q)) : withRank;
+  }, [lb, lbQuery]);
 
   async function loadLeaderboard(limit = lbLimit) {
     setLbBusy(true);
@@ -2421,11 +2430,24 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   >✍️ تعيين</button>
                 </div>
 
+                {/* 🔎 فلتر اختياري بالاسم — نفس شكل فلتر نظام المستويات */}
+                <input
+                  type="text"
+                  className="n-input"
+                  style={{ width: "100%", padding: "9px 12px", margin: "8px 0 10px" }}
+                  placeholder="🔎 فلتر بالاسم (اختياري)"
+                  value={lbQuery}
+                  onChange={e => setLbQuery(e.target.value)}
+                />
+
                 <div className="lb-list">
-                  {lb.length === 0 && !lbBusy && (
-                    <div className="lb-empty">ما فيه نقاط مسجّلة بعد</div>
+                  {lbFiltered.length === 0 && !lbBusy && (
+                    <div className="lb-empty">
+                      {lbQuery.trim() ? "ما فيه اسم يطابق الفلتر" : "ما فيه نقاط مسجّلة بعد"}
+                    </div>
                   )}
-                  {lb.map((row, i) => {
+                  {lbFiltered.map(({ row, rank }) => {
+                    const i = rank;
                     const draft = lbDraft[row.username];
                     const shown = draft !== undefined ? draft : String(row.wins);
                     const changed = draft !== undefined && Number(draft) !== row.wins;
