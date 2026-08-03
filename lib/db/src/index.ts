@@ -450,6 +450,46 @@ export async function getPlayerWins(username: string) {
   });
 }
 
+// 📊 قائمة نظام المستويات: كل اللاعبين ومجموع فوزاتهم عبر كل الألعاب.
+// ⚠️ هذي الدالة كانت **ناقصة تماماً** من هذا الملف رغم إن مسار /player/levels
+// يستدعيها — فكان النداء يرمي TypeError، والمسار يبلعه ويرجّع [] بصمت، وتطلع
+// رسالة "ما فيه لاعب له فوزات بعد" حتى لو الجدول مليان لاعبين ومستويات.
+// نجمع حسب username المطبَّع (كل صف = لاعب + لعبة وحدة) عشان الرقم بالقائمة
+// يطابق "إجمالي الفوزات" الظاهر بتفاصيل نفس اللاعب.
+export async function getPlayerLevels(limit = 500) {
+  const n = Math.max(1, Math.min(2000, Math.floor(Number(limit) || 500)));
+  if (USE_LOCAL_STORE) return localStore.getPlayerLevels(n);
+  if (!db || !pool) throw new Error("Database not initialized");
+  const result = await pool.query(
+    `SELECT username,
+            MAX(NULLIF(BTRIM(display_name), '')) AS display_name,
+            SUM(wins)::int AS total
+       FROM player_wins
+      GROUP BY username
+     HAVING SUM(wins) > 0
+      ORDER BY total DESC, username ASC
+      LIMIT $1`,
+    [n],
+  );
+  return (result.rows || []).map((r: any) => ({
+    username: (r.display_name && String(r.display_name).trim()) || r.username,
+    wins: Number(r.total) || 0,
+  }));
+}
+
+// 🧹 تصفير نظام المستويات كامل: يمسح فوزات كل اللاعبين في كل الألعاب.
+// مستقل تماماً عن resetAllPlayerMatchWins (ذاك يخص نقاط "الأكثر انتصاراً").
+// نحسب عدد اللاعبين المتأثرين قبل المسح عشان الرسالة تطلع بعدد لاعبين مو صفوف.
+export async function resetAllPlayerWins() {
+  if (USE_LOCAL_STORE) return localStore.resetAllPlayerWins();
+  if (!db || !pool) throw new Error("Database not initialized");
+  const before = await pool.query(
+    `SELECT COUNT(DISTINCT username)::int AS n FROM player_wins WHERE wins > 0`,
+  );
+  await pool.query(`DELETE FROM player_wins`);
+  return { cleared: Number(before.rows?.[0]?.n) || 0 };
+}
+
 // تحديد قيمة فوزات محددة لـ (لاعب + لعبة) — يُستخدم لتصحيح الأدمن اليدوي.
 export async function setPlayerWins(username: string, displayName: string, game: string, wins: number) {
   const key = normalizePlayerName(username);
