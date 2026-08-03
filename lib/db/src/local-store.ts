@@ -188,6 +188,35 @@ export const localStore = {
   getPlayerWins(username: string) {
     return load().playerWins.filter((w) => w.username === username);
   },
+  // 📊 قائمة نظام المستويات: كل لاعب ومجموع فوزاته عبر كل الألعاب.
+  // نجمع صفوف playerWins حسب اللاعب (لأن كل صف = لاعب + لعبة وحدة)، عشان
+  // الرقم اللي يظهر بالقائمة يطابق "إجمالي الفوزات" اللي بتفاصيل نفس اللاعب.
+  getPlayerLevels(limit: number) {
+    const s = load();
+    const totals = new Map<string, { username: string; displayName: string; wins: number }>();
+    for (const w of s.playerWins || []) {
+      const cur = totals.get(w.username) || { username: w.username, displayName: "", wins: 0 };
+      cur.wins += w.wins || 0;
+      if (!cur.displayName && w.displayName) cur.displayName = String(w.displayName).trim();
+      totals.set(w.username, cur);
+    }
+    return [...totals.values()]
+      .filter((w) => w.wins > 0)
+      .sort((a, b) => b.wins - a.wins || a.username.localeCompare(b.username))
+      .slice(0, Math.max(1, limit))
+      .map((w) => ({ username: w.displayName || w.username, wins: w.wins }));
+  },
+  // 🧹 تصفير نظام المستويات كامل: يمسح فوزات كل اللاعبين في كل الألعاب.
+  // نرجّع عدد اللاعبين (مو عدد الصفوف) عشان الرسالة تكون مفهومة للأدمن.
+  resetAllPlayerWins() {
+    const s = load();
+    const players = new Set(
+      (s.playerWins || []).filter((w) => (w.wins || 0) > 0).map((w) => w.username),
+    );
+    s.playerWins = [];
+    save(s);
+    return { cleared: players.size };
+  },
   // ── 📜 سجل كروت البطولات ──
   addRecordHistory(entry: { tournamentName: string; displayName?: string; winnerName?: string; image?: string }) {
     const s = load();
