@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, getRecordHistory, deleteRecordHistory, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry, type RecordHistoryEntry } from "@/lib/api";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, resetAllPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, getRecordHistory, deleteRecordHistory, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry, type RecordHistoryEntry } from "@/lib/api";
 import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
@@ -371,10 +371,58 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   // مختلف تماماً عن اللي يُبنى عليه المستوى — فيطلع تعارض: رقم بالقائمة
   // ولفل مختلف بالكرت، والإضافة اليدوية ما تظهر.)
   const [lvlPlayers, setLvlPlayers] = useState<LeaderboardEntry[]>([]);
+  const [lvlBusy, setLvlBusy] = useState(false);
+  // ❗ خطأ الجلب ينحفظ لحاله: قبل كذا كان الفشل يُبلع بصمت (catch فاضي) فتظهر
+  // رسالة "ما فيه لاعب له فوزات بعد" حتى لو المشكلة عطل بالخادم مو قائمة فاضية.
+  const [lvlError, setLvlError] = useState("");
+  const [lvlMsg, setLvlMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const refreshLvlPlayers = useCallback(() => {
-    getPlayerLevels(500).then(rows => setLvlPlayers(rows || [])).catch(() => {});
+    getPlayerLevels(500)
+      .then(rows => { setLvlPlayers(rows || []); setLvlError(""); })
+      .catch(e => setLvlError(e?.message || "تعذّر جلب قائمة المستويات"));
   }, []);
   useEffect(() => { refreshLvlPlayers(); }, [refreshLvlPlayers]);
+
+  // 🧹 تصفير نظام المستويات كامل — نفس فكرة "تصفير الكل" بنقاط الأكثر انتصاراً،
+  // بس على جدول ثاني: هذا يمسح فوزات الكروت (اللفل)، وذاك يمسح نقاط الماتشات.
+  async function resetAllLevels() {
+    if (!token || lvlBusy) return;
+    if (!window.confirm("تصفير مستويات كل اللاعبين نهائياً؟ تُمسح فوزاتهم في كل الألعاب وما يمكن التراجع.")) return;
+    setLvlBusy(true);
+    setLvlMsg(null);
+    try {
+      const cleared = await resetAllPlayerWins(token);
+      setLvlMsg({ ok: true, text: `تم تصفير المستويات (${cleared} لاعب)` });
+      setStatsData(null);
+      setStatsSearched("");
+      setLvlPage(0);
+      refreshLvlPlayers();
+    } catch (e: any) {
+      setLvlMsg({ ok: false, text: e?.message || "فشل تصفير المستويات" });
+    } finally {
+      setLvlBusy(false);
+    }
+  }
+
+  // ↺ تصفير لاعب واحد: نصفّر فوزاته في كل لعبة عنده (بدون ما نلمس البقية).
+  async function resetOnePlayerLevel(name: string) {
+    if (!token || lvlBusy || !name) return;
+    if (!window.confirm(`تصفير مستويات "${name}" في كل الألعاب؟`)) return;
+    setLvlBusy(true);
+    setLvlMsg(null);
+    try {
+      const wins = (await getPlayerStats(name))?.wins || {};
+      const games = Object.keys(wins).filter(g => (wins[g] || 0) > 0);
+      for (const g of games) await setPlayerWins(name, g, 0, token);
+      setLvlMsg({ ok: true, text: `تم تصفير مستويات ${name}` });
+      if (statsSearched.toLowerCase() === name.toLowerCase()) setStatsData({ username: name, wins: {} });
+      refreshLvlPlayers();
+    } catch (e: any) {
+      setLvlMsg({ ok: false, text: e?.message || "فشل تصفير اللاعب" });
+    } finally {
+      setLvlBusy(false);
+    }
+  }
   const refreshLvlWinnersRef = useRef(refreshLvlPlayers);
   refreshLvlWinnersRef.current = refreshLvlPlayers;
 
@@ -2168,7 +2216,15 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   <span style={{ fontSize: "1.15rem" }}>🎚️</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نظام المستويات</h3>
                   <span className="lb-sub">— {WINS_PER_LEVEL} فوزات = مستوى واحد</span>
+                  <div className="lb-tools">
+                    <button className="lb-btn" onClick={refreshLvlPlayers} disabled={lvlBusy}>🔄 تحديث</button>
+                    <button className="lb-btn danger" onClick={resetAllLevels} disabled={lvlBusy}>🧹 تصفير الكل</button>
+                  </div>
                 </div>
+
+                {lvlMsg && (
+                  <div className={`lb-msg${lvlMsg.ok ? " ok" : " err"}`}>{lvlMsg.ok ? "✅" : "⚠️"} {lvlMsg.text}</div>
+                )}
 
                 {/* ➕ إضافة لاعب يدوياً: اسم + عدد فوزات + لعبة اختيارية */}
                 <div className="lvl-add">
@@ -2224,9 +2280,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                 <div className="lvl-list">
                   {lvlFiltered.length === 0 && (
                     <div className="lb-empty">
-                      {statsQuery.trim()
-                        ? "ما فيه اسم يطابق الفلتر"
-                        : "ما فيه لاعب له فوزات بعد — أضف اسماً من فوق أو خلّص بطولة"}
+                      {lvlError
+                        ? `⚠️ ${lvlError} — جرّب "🔄 تحديث"`
+                        : statsQuery.trim()
+                          ? "ما فيه اسم يطابق الفلتر"
+                          : "ما فيه لاعب له فوزات بعد — أضف اسماً من فوق أو خلّص بطولة"}
                     </div>
                   )}
                   {lvlFiltered.slice(lvlPage * LVL_PER_PAGE, lvlPage * LVL_PER_PAGE + LVL_PER_PAGE).map((pl, i) => {
@@ -2271,6 +2329,12 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       <span className="lvl-detail-sum">
                         إجمالي الفوزات: {Object.values(statsData.wins || {}).reduce((a, b) => a + b, 0)}
                       </span>
+                      <button
+                        className="lb-btn danger sm"
+                        disabled={lvlBusy}
+                        onClick={() => resetOnePlayerLevel(statsData.username)}
+                        title="تصفير فوزات هذا اللاعب في كل الألعاب"
+                      >↺ صفّر</button>
                       <button className="cardpick-close" onClick={() => { setStatsData(null); setStatsSearched(""); }} aria-label="إغلاق">✕</button>
                     </div>
                     <div className="lvl-list">
