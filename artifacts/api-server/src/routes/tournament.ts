@@ -78,6 +78,15 @@ const clients = new Set<Response>();
 // Load DB helpers at runtime to avoid TS build-order issues in the workspace
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const dbModule: any = require("@workspace/db");
+// جداول Drizzle — نحتاجها للخطة الاحتياطية بمسار /player/levels لو حزمة
+// قاعدة البيانات المنشورة قديمة وما فيها getPlayerLevels / resetAllPlayerWins.
+let dbSchemaModule: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  dbSchemaModule = require("@workspace/db/schema");
+} catch {
+  dbSchemaModule = null;
+}
 const { 
   initializeDatabase, 
   getTournamentState, 
@@ -667,35 +676,84 @@ router.get("/player/stats", async (req: Request, res: Response) => {
 // كل الألعاب. تستخدمه القائمة المنبثقة تحت أيقونة الكأس بالصفحة العامة.
 // 📊 قائمة نظام المستويات — كل اللاعبين ومجموع فوزاتهم من player_wins.
 // عامة للقراءة زي /player/stats و /player/leaderboard.
-// ⚠️ ملاحظة: كان هذا المسار يرجّع [] عند أي خطأ، فلما كانت getPlayerLevels
-// ناقصة من طبقة قاعدة البيانات كان الخطأ ينبلع وتظهر بالواجهة رسالة "ما فيه
-// لاعب له فوزات بعد" بدل رسالة عطل. الحين نرجّع 500 عشان الواجهة تفرّق بين
-// "القائمة فاضية فعلاً" و"فشل الجلب".
+//
+// 🩹 خطة احتياطية مهمة: لو نسخة @workspace/db المنشورة قديمة وما فيها
+// getPlayerLevels، نحسب التجميع هنا مباشرة من جدول player_wins بدل ما نفشل.
+// (بدونها كان النداء يرمي TypeError → 500 → تطلع القائمة فاضية بلوحة الأدمن
+// رغم إن الفوزات موجودة فعلاً وتظهر بشريط اللفل تحت الكروت بالصفحة العامة.)
+async function computePlayerLevels(limit: number) {
+  const n = Math.max(1, Math.min(2000, Math.floor(Number(limit) || 500)));
+  if (typeof dbGetPlayerLevels === "function") return await dbGetPlayerLevels(n);
+
+  logger.warn("getPlayerLevels مفقودة من @workspace/db — نستعمل الحساب الاحتياطي داخل المسار");
+  if (dbUsesLocalStore) {
+    throw new Error("getPlayerLevels مفقودة من حزمة قاعدة البيانات (وضع التخزين المحلي) — حدّث lib/db/src/index.ts");
+  }
+  const table = dbSchemaModule?.playerWinsTable;
+  if (!dbModule?.db || !table) {
+    throw new Error("تعذّر الوصول لجدول player_wins — حدّث lib/db/src/index.ts");
+  }
+  const rows = await dbModule.db.select().from(table);
+  const totals = new Map<string, { username: string; displayName: string; wins: number }>();
+  for (const r of rows || []) {
+    const key = String(r.username || "").trim();
+    if (!key) continue;
+    const cur = totals.get(key) || { username: key, displayName: "", wins: 0 };
+    cur.wins += Number(r.wins) || 0;
+    if (!cur.displayName && r.displayName) cur.displayName = String(r.displayName).trim();
+    totals.set(key, cur);
+  }
+  return [...totals.values()]
+    .filter((p) => p.wins > 0)
+    .sort((a, b) => b.wins - a.wins || a.username.localeCompare(b.username))
+    .slice(0, n)
+    .map((p) => ({ username: p.displayName || p.username, wins: p.wins }));
+}
+
 router.get("/player/levels", async (req: Request, res: Response) => {
   try {
-    const limit = Number(req.query.limit) || 500;
-    if (typeof dbGetPlayerLevels !== "function") {
-      throw new Error("getPlayerLevels غير موجودة في حزمة قاعدة البيانات");
-    }
-    const rows = await dbGetPlayerLevels(limit);
+    const rows = await computePlayerLevels(Number(req.query.limit) || 500);
     res.json(rows || []);
   } catch (err) {
     logger.error({ err }, "Failed to fetch player levels");
-    res.status(500).json({ error: "فشل جلب قائمة المستويات" });
+    // نرجّع سبب العطل الحقيقي مع الرد عشان لوحة الأدمن تعرضه بدل رسالة عامة
+    // ما تدل على شي — كذا يبان فوراً وش الناقص بدل التخمين.
+    res.status(500).json({
+      error: "فشل جلب قائمة المستويات",
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 });
 
 // 🧹 تصفير نظام المستويات لكل اللاعبين (بداية موسم جديد).
 // مستقل عن /player/match-wins/reset: هذا يمسح player_wins (لفل الكروت)،
 // وذاك يمسح player_match_wins (نقاط الأكثر انتصاراً).
+// نفس فكرة الخطة الاحتياطية فوق: يشتغل حتى لو resetAllPlayerWins مو موجودة.
 router.post("/player/wins/reset", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
   try {
-    const out = await dbResetAllPlayerWins();
-    broadcast(); // عشان تتحدّث المستويات لحظياً عند كل المشاهدين
-    res.json(out || { cleared: 0 });
+    if (typeof dbResetAllPlayerWins === "function") {
+      const out = await dbResetAllPlayerWins();
+      broadcast();
+      res.json(out || { cleared: 0 });
+      return;
+    }
+    const table = dbSchemaModule?.playerWinsTable;
+    if (dbUsesLocalStore || !dbModule?.db || !table) {
+      throw new Error("resetAllPlayerWins مفقودة من حزمة قاعدة البيانات — حدّث lib/db/src/index.ts");
+    }
+    const rows = await dbModule.db.select().from(table);
+    const players = new Set(
+      (rows || []).filter((r: any) => (Number(r.wins) || 0) > 0).map((r: any) => String(r.username)),
+    );
+    await dbModule.db.delete(table);
+    broadcast();
+    res.json({ cleared: players.size });
   } catch (err) {
     logger.error({ err }, "Failed to reset player wins");
-    res.status(500).json({ error: "فشل تصفير المستويات" });
+    res.status(500).json({
+      error: "فشل تصفير المستويات",
+      detail: err instanceof Error ? err.message : String(err),
+    });
   }
 });
 
