@@ -524,7 +524,11 @@ export async function getPlayerLevels(limit = 500): Promise<LeaderboardEntry[]> 
   const res = await fetch(`${BASE}/player/levels?limit=${limit}`);
   if (!res.ok) {
     let msg = "تعذّر جلب قائمة المستويات";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    try {
+      const d = await res.json();
+      // detail = سبب العطل الحقيقي من الخادم — نعرضه عشان يبان وش الناقص
+      msg = d.detail ? `${d.error || msg} (${d.detail})` : (d.error || msg);
+    } catch {}
     throw new Error(msg);
   }
   const data = await res.json();
@@ -539,7 +543,10 @@ export async function resetAllPlayerWins(token: string): Promise<number> {
   });
   if (!res.ok) {
     let msg = "فشل تصفير المستويات";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
+    try {
+      const d = await res.json();
+      msg = d.detail ? `${d.error || msg} (${d.detail})` : (d.error || msg);
+    } catch {}
     throw new Error(msg);
   }
   const data = await res.json().catch(() => ({}));
