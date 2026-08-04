@@ -35,9 +35,17 @@ export default function ModeratorAttendanceModal({ token }: Props) {
   };
 
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    void refresh();
+
+    const handleAttendanceUpdated = () => {
       void refresh();
-    }
+    };
+
+    window.addEventListener("moderator-attendance-updated", handleAttendanceUpdated);
+    return () => {
+      window.removeEventListener("moderator-attendance-updated", handleAttendanceUpdated);
+    };
   }, [open]);
 
   const records = useMemo(() => data.list || [], [data.list]);

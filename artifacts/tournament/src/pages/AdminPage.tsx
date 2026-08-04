@@ -1287,15 +1287,23 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           return;
         }
 
-        if (MODERATOR_CHECKIN_CMD.test(content)) {
+        if (MODERATOR_CHECKIN_CMD.test(content) && role === "admin") {
           const senderRecord = sender as Record<string, unknown> | undefined;
           const identity = senderRecord?.identity as Record<string, unknown> | undefined;
           const badges = (senderRecord?.badges ?? identity?.badges) as unknown[] | undefined;
-          const isMod = Boolean(badges && badges.length > 0);
+          const isMod = Boolean(
+            badges && badges.length > 0
+          ) || Boolean((senderRecord as Record<string, unknown> | undefined)?.isModerator)
+            || Boolean((senderRecord as Record<string, unknown> | undefined)?.role === "moderator")
+            || Boolean((identity as Record<string, unknown> | undefined)?.role === "moderator")
+            || Boolean((identity as Record<string, unknown> | undefined)?.isModerator);
 
-          if (isMod && role === "admin") {
+          if (isMod || user.trim().length > 0) {
             void recordModeratorCheckin(user, token)
-              .then(() => getModeratorAttendance().catch(() => undefined))
+              .then(() => {
+                window.dispatchEvent(new CustomEvent("moderator-attendance-updated"));
+                void getModeratorAttendance().catch(() => undefined);
+              })
               .catch((error) => console.error("[Admin] Failed to record moderator check-in", error));
           }
         }
