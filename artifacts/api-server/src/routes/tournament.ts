@@ -631,13 +631,18 @@ router.patch("/records/:id/visibility", requireAdmin, requirePermission("records
     const row = Array.isArray(result) ? result[0] : result;
     // 📜 لقطة للسجل التاريخي: اللعبة + الفائز + الصورة + وقت الحفظ.
     // تُكتب هنا (بالخادم) فتشمل أي مصدر حفظ، وتتجاهل التكرار لو ما تغيّر شي.
+    // ⚠️ إصلاح: كانت تستخدم متغيرات (tournamentName/displayName/winnerName/image)
+    // غير معرّفة أصلاً بهذا الـ handler (خطأ برمجي كان يمنع بناء المشروع بالكامل)
+    // — الصح إنها تاخذ القيم من `row` (السجل اللي رجع من dbSetRecordVisibility).
     try {
-      await dbAddRecordHistory({
-        tournamentName,
-        displayName: displayName ?? row?.displayName ?? "",
-        winnerName,
-        image,
-      });
+      if (row) {
+        await dbAddRecordHistory({
+          tournamentName: row.tournamentName,
+          displayName: row.displayName ?? "",
+          winnerName: row.winnerName,
+          image: row.image,
+        });
+      }
     } catch (hErr) {
       logger.error({ err: hErr }, "Failed to append record history");
     }
