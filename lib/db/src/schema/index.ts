@@ -58,6 +58,32 @@ export const insertTournamentRecordSchema = createInsertSchema(tournamentRecords
 export type InsertTournamentRecord = z.infer<typeof insertTournamentRecordSchema>;
 export type TournamentRecord = typeof tournamentRecordsTable.$inferSelect;
 
+// 🧑‍💼 جلسات تتبع حضور المشرفين: بداية/نصف/نهاية البث.
+export const moderatorSessionsTable = pgTable("moderator_sessions", {
+  id: serial("id").primaryKey(),
+  activePeriod: text("active_period", { enum: ["beginning", "middle", "ending", "none"] }).notNull().default("none"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertModeratorSessionSchema = createInsertSchema(moderatorSessionsTable).omit({ id: true, createdAt: true });
+export type InsertModeratorSession = z.infer<typeof insertModeratorSessionSchema>;
+export type ModeratorSession = typeof moderatorSessionsTable.$inferSelect;
+
+// 🧾 كل اسم مشرف موثّق في جلسة معينة مع الحضور في 3 فترات للبث.
+export const moderatorAttendanceTable = pgTable("moderator_attendance", {
+  id: serial("id").primaryKey(),
+  sessionId: integer("session_id").notNull().default(0),
+  moderatorName: text("moderator_name").notNull(),
+  beginningTime: text("beginning_time").default(""),
+  middleTime: text("middle_time").default(""),
+  endingTime: text("ending_time").default(""),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertModeratorAttendanceSchema = createInsertSchema(moderatorAttendanceTable).omit({ id: true, createdAt: true });
+export type InsertModeratorAttendance = z.infer<typeof insertModeratorAttendanceSchema>;
+export type ModeratorAttendanceRecord = typeof moderatorAttendanceTable.$inferSelect;
+
 export const tournamentArchivesTable = pgTable("tournament_archives", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),

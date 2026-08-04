@@ -2,14 +2,74 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, resetAllPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, getRecordHistory, deleteRecordHistory, getModerators, createModerator, deleteModerator, getModeratorAttendance, markModeratorAttendance, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry, type RecordHistoryEntry } from "@/lib/api";
-import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner, type Moderator, type AttendanceSlot, type ModeratorAttendanceRow } from "@/lib/types";
+import {
+  postState,
+  getState,
+  postArchive,
+  getRecords,
+  putRecord,
+  deleteRecord,
+  setRecordVisibility,
+  getPlayerStats,
+  getPlayerLevels,
+  setPlayerWins,
+  resetAllPlayerWins,
+  addMatchWin,
+  getLeaderboard,
+  getWinners,
+  postWinner,
+  setMatchWins,
+  resetAllMatchWins,
+  getHelpers,
+  createHelper,
+  updateHelperPermissions,
+  deleteHelper,
+  useSSE,
+  uploadImage,
+  getStorageStatus,
+  migrateImages,
+  getImagesHistory,
+  deleteImage,
+  getRecordHistory,
+  deleteRecordHistory,
+  getModerators,
+  createModerator,
+  deleteModerator,
+  getModeratorAttendance,
+  markModeratorAttendance,
+  recordModeratorCheckin,
+  type AdminHelper,
+  type AdminPermissions,
+  type StorageStatusResponse,
+  type CloudImageEntry,
+  type RecordHistoryEntry,
+} from "@/lib/api";
+import {
+  BYE,
+  defaultState,
+  levelFromWins,
+  progressWithinLevel,
+  WINS_PER_LEVEL,
+  WINNER_THEMES,
+  WINNER_EMOJIS,
+  type TournamentState,
+  type EntryLogItem,
+  type HistorySnapshot,
+  type TournamentRecord,
+  type PlayerStats,
+  type LeaderboardEntry,
+  type Winner,
+  type Moderator,
+  type AttendanceSlot,
+  type ModeratorAttendanceRow,
+} from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
   p2, buildBracket, doWin, setSize as stSetSize, getOpenMatches, rTitle,
 } from "@/lib/tournament";
 import { playMatchStart, playWin, playChampion, playStart, isSoundEnabled, toggleSound } from "@/lib/sounds";
 import BracketDisplay from "@/components/BracketDisplay";
+import ModeratorAttendanceModal from "@/components/ModeratorAttendanceModal";
 
 const CHANNEL_META: Record<string, { chatroomId: number }> = {
   ik3mo: { chatroomId: 5675989 },
@@ -49,6 +109,7 @@ type SlotState = "idle" | "rolling" | "locked";
 //   مثل "دخولي" أو "الدخول" — يعني الجملة العادية بالشات ما تُحسب انضمام.
 const JOIN_CMD = /^\s*!?(?:دخول|join)(?=$|\s|[^\p{L}\p{N}])/iu;
 const LEAVE_CMD = /^\s*!?(?:خروج|leave)(?=$|\s|[^\p{L}\p{N}])/iu;
+const MODERATOR_CHECKIN_CMD = /^\s*!?(?:حاضر)(?=$|\s|[^\p{L}\p{N}])/iu;
 
 // 📌 كلمة إثبات تواجد المشرفين — نفس منطق JOIN_CMD/LEAVE_CMD (تُقبل بعلامة !
 // أو بدونها، ولازم تنتهي الكلمة هنا عشان ما تنطبق على جملة عادية بالشات).
@@ -1226,6 +1287,19 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           return;
         }
 
+        if (MODERATOR_CHECKIN_CMD.test(content)) {
+          const senderRecord = sender as Record<string, unknown> | undefined;
+          const identity = senderRecord?.identity as Record<string, unknown> | undefined;
+          const badges = (senderRecord?.badges ?? identity?.badges) as unknown[] | undefined;
+          const isMod = Boolean(badges && badges.length > 0);
+
+          if (isMod && role === "admin") {
+            void recordModeratorCheckin(user, token)
+              .then(() => getModeratorAttendance().catch(() => undefined))
+              .catch((error) => console.error("[Admin] Failed to record moderator check-in", error));
+          }
+        }
+
         if (!JOIN_CMD.test(content)) return;
 
         let didAdd = false;
@@ -1957,7 +2031,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               {/* 🎛️ أزرار اللوحة — كانت متفرقة بالسايدبار، جمعناها هنا برأس
                   الصفحة عشان تكون واضحة وبمتناول اليد دايماً. */}
               <div className="admin-actions">
-                {/* 📌 زر جدول حضور المشرفين — أول زر بالشريط (الزاوية العلوية) حسب طلب التوضيح بالصورة */}
                 <button
                   className={`admin-act${attendanceWindow ? " on" : ""}`}
                   onClick={() => setModeratorsOpen(true)}
@@ -1966,6 +2039,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   📌 جدول المشرفين
                   {attendanceWindow && <span className="act-dot live" />}
                 </button>
+                <ModeratorAttendanceModal token={token} />
                 <button className="admin-act" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}>
                   {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
                 </button>

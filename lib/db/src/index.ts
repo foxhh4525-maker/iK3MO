@@ -364,6 +364,85 @@ export async function addArchive(archiveData: typeof schema.tournamentArchivesTa
 // 5. دوال سجل البطولات (Tournament Records)
 // ==========================================
 
+// ==========================================
+// 5.1 دوال تتبع حضور المشرفين (Moderator Attendance)
+// ==========================================
+
+export async function getModeratorSession() {
+  if (USE_LOCAL_STORE) return localStore.getModeratorSession();
+  if (!db) throw new Error("Database not initialized");
+  return await db.query.moderatorSessionsTable.findFirst({
+    orderBy: [desc(schema.moderatorSessionsTable.id)],
+  });
+}
+
+export async function setModeratorSessionPeriod(period: "beginning" | "middle" | "ending" | "none") {
+  if (USE_LOCAL_STORE) return localStore.setModeratorSessionPeriod(period);
+  if (!db) throw new Error("Database not initialized");
+  const existing = await db.query.moderatorSessionsTable.findFirst({
+    orderBy: [desc(schema.moderatorSessionsTable.id)],
+  });
+  if (existing) {
+    return await db.update(schema.moderatorSessionsTable)
+      .set({ activePeriod: period })
+      .where(eq(schema.moderatorSessionsTable.id, existing.id))
+      .returning();
+  }
+  return await db.insert(schema.moderatorSessionsTable)
+    .values({ activePeriod: period })
+    .returning();
+}
+
+export async function getModeratorAttendance() {
+  if (USE_LOCAL_STORE) return localStore.getModeratorAttendance();
+  if (!db) throw new Error("Database not initialized");
+  return await db.query.moderatorAttendanceTable.findMany({
+    orderBy: [desc(schema.moderatorAttendanceTable.createdAt)],
+  });
+}
+
+export async function recordModeratorAttendanceCheckin(moderatorName: string, period: "beginning" | "middle" | "ending") {
+  if (USE_LOCAL_STORE) return localStore.recordModeratorAttendanceCheckin(moderatorName, period);
+  if (!db) throw new Error("Database not initialized");
+  const session = await getModeratorSession();
+  if (!session || session.activePeriod === "none") return null;
+
+  const activePeriod = session.activePeriod as "beginning" | "middle" | "ending";
+  const existing = await db.query.moderatorAttendanceTable.findFirst({
+    where: eq(schema.moderatorAttendanceTable.moderatorName, moderatorName),
+  });
+  const timestamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
+  if (existing) {
+    const setData: Partial<typeof schema.moderatorAttendanceTable.$inferInsert> = {};
+    if (activePeriod === "beginning" && !existing.beginningTime) setData.beginningTime = timestamp;
+    if (activePeriod === "middle" && !existing.middleTime) setData.middleTime = timestamp;
+    if (activePeriod === "ending" && !existing.endingTime) setData.endingTime = timestamp;
+    if (!Object.keys(setData).length) return existing;
+    return await db.update(schema.moderatorAttendanceTable)
+      .set(setData)
+      .where(eq(schema.moderatorAttendanceTable.id, existing.id))
+      .returning();
+  }
+
+  return await db.insert(schema.moderatorAttendanceTable)
+    .values({
+      sessionId: session.id,
+      moderatorName,
+      beginningTime: activePeriod === "beginning" ? timestamp : "",
+      middleTime: activePeriod === "middle" ? timestamp : "",
+      endingTime: activePeriod === "ending" ? timestamp : "",
+    })
+    .returning();
+}
+
+export async function resetModeratorAttendance() {
+  if (USE_LOCAL_STORE) return localStore.resetModeratorAttendance();
+  if (!db) throw new Error("Database not initialized");
+  await db.delete(schema.moderatorAttendanceTable);
+  await db.delete(schema.moderatorSessionsTable);
+  return true;
+}
+
 export async function getTournamentRecords() {
   if (USE_LOCAL_STORE) return localStore.getRecords();
   if (!db) throw new Error("Database not initialized");

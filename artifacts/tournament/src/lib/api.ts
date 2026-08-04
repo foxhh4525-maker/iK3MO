@@ -2,6 +2,23 @@ import { useEffect, useRef, useState } from "react";
 import type { TournamentState, Winner, TournamentArchive, TournamentRecord, PlayerStats, LeaderboardEntry, Moderator, AttendanceSlot, ModeratorAttendanceRow } from "./types";
 
 const BASE = "/api/tournament";
+const MODERATOR_BASE = "/api/moderators";
+
+export interface ModeratorAttendanceRecord {
+  id: number;
+  sessionId: number;
+  moderatorName: string;
+  beginningTime: string | null;
+  middleTime: string | null;
+  endingTime: string | null;
+  createdAt: string;
+}
+
+export interface ModeratorAttendanceResponse {
+  activePeriod: "beginning" | "middle" | "ending" | "none";
+  sessionId: number | null;
+  list: ModeratorAttendanceRecord[];
+}
 
 export async function getState(): Promise<TournamentState> {
   const res = await fetch(`${BASE}/state`);
@@ -60,6 +77,50 @@ export async function getStorageStatus(token: string): Promise<StorageStatusResp
   } catch {
     return null;
   }
+}
+
+export async function getModeratorAttendance(): Promise<ModeratorAttendanceResponse>;
+export async function getModeratorAttendance(token: string, date?: string): Promise<ModeratorAttendanceRow[]>;
+export async function getModeratorAttendance(tokenOrDate?: string, date?: string): Promise<ModeratorAttendanceResponse | ModeratorAttendanceRow[]> {
+  if (typeof tokenOrDate === "undefined") {
+    const res = await fetch(`${MODERATOR_BASE}/attendance`);
+    if (!res.ok) throw new Error("Failed to fetch moderator attendance");
+    return res.json();
+  }
+
+  const token = tokenOrDate;
+  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  const res = await fetch(`${BASE}/moderators/attendance${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function setModeratorPeriod(period: "beginning" | "middle" | "ending" | "none", token: string): Promise<void> {
+  const res = await fetch(`${MODERATOR_BASE}/period`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ period }),
+  });
+  if (!res.ok) throw new Error("Failed to set moderator period");
+}
+
+export async function recordModeratorCheckin(moderatorName: string, token: string): Promise<void> {
+  const res = await fetch(`${MODERATOR_BASE}/checkin`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ moderatorName }),
+  });
+  if (!res.ok) throw new Error("Failed to record moderator check-in");
+}
+
+export async function resetModeratorAttendance(token: string): Promise<void> {
+  const res = await fetch(`${MODERATOR_BASE}/reset`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to reset moderator attendance");
 }
 
 export interface MigrateImagesResult { migrated: number; skipped: number; failed: number; total: number }
@@ -675,16 +736,6 @@ export async function deleteModerator(id: number, token: string): Promise<void> 
     method: "DELETE",
     headers: { Authorization: `Bearer ${token}` },
   });
-}
-
-// 📊 جدول حضور اليوم الحالي (أو تاريخ محدد بصيغة YYYY-MM-DD).
-export async function getModeratorAttendance(token: string, date?: string): Promise<ModeratorAttendanceRow[]> {
-  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-  const res = await fetch(`${BASE}/moderators/attendance${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  return res.json();
 }
 
 // ✅ يسجّل حضور مشرف لفترة معيّنة (يُستدعى تلقائياً عند رصد "حاضر" بشات كيك).

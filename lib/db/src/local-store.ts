@@ -21,15 +21,47 @@ interface Store {
   recordHistory?: any[];
   playerMatchWins: any[];
   moderators: any[];
+  moderatorSessions: any[];
   moderatorAttendance: any[];
-  seq: { winners: number; archives: number; records: number; helpers: number; playerWins: number; playerMatchWins: number; recordHistory: number; moderators: number; moderatorAttendance: number };
+  seq: {
+    winners: number;
+    archives: number;
+    records: number;
+    helpers: number;
+    playerWins: number;
+    playerMatchWins: number;
+    recordHistory: number;
+    moderators: number;
+    moderatorSessions: number;
+    moderatorAttendance: number;
+  };
 }
 
 function empty(): Store {
   return {
-    state: null, winners: [], archives: [], records: [], helpers: [], playerWins: [], playerMatchWins: [], recordHistory: [],
-    moderators: [], moderatorAttendance: [],
-    seq: { winners: 0, archives: 0, records: 0, helpers: 0, playerWins: 0, playerMatchWins: 0, recordHistory: 0, moderators: 0, moderatorAttendance: 0 },
+    state: null,
+    winners: [],
+    archives: [],
+    records: [],
+    helpers: [],
+    playerWins: [],
+    playerMatchWins: [],
+    recordHistory: [],
+    moderators: [],
+    moderatorSessions: [],
+    moderatorAttendance: [],
+    seq: {
+      winners: 0,
+      archives: 0,
+      records: 0,
+      helpers: 0,
+      playerWins: 0,
+      playerMatchWins: 0,
+      recordHistory: 0,
+      moderators: 0,
+      moderatorSessions: 0,
+      moderatorAttendance: 0,
+    },
   };
 }
 
@@ -188,10 +220,23 @@ export const localStore = {
     let row = s.moderatorAttendance.find((a) => a.moderatorName === moderatorName && a.sessionDate === sessionDate);
     const now = nowISO();
     if (!row) {
-      row = { id: ++s.seq.moderatorAttendance, moderatorName, displayName, sessionDate, startAt: null, halfAt: null, endAt: null, updatedAt: now };
+      row = {
+        id: ++s.seq.moderatorAttendance,
+        moderatorName,
+        displayName,
+        sessionDate,
+        startAt: null,
+        halfAt: null,
+        endAt: null,
+        updatedAt: now,
+        sessionId: 1,
+        beginningTime: "",
+        middleTime: "",
+        endingTime: "",
+        createdAt: now,
+      };
       s.moderatorAttendance.push(row);
     }
-    // ⚠️ ما نكتب فوق توقيت مسجّل من قبل لنفس الفترة — أول "حاضر" بالفترة هو اللي يُحتسب.
     if (slot === "start" && !row.startAt) row.startAt = now;
     else if (slot === "half" && !row.halfAt) row.halfAt = now;
     else if (slot === "end" && !row.endAt) row.endAt = now;
@@ -199,6 +244,60 @@ export const localStore = {
     row.updatedAt = now;
     save(s);
     return row;
+  },
+
+  getModeratorSession() {
+    const s = load();
+    return (s.moderatorSessions[0] || { id: 1, activePeriod: "none", createdAt: nowISO() });
+  },
+  setModeratorSessionPeriod(period: string) {
+    const s = load();
+    const row = { id: 1, activePeriod: period, createdAt: nowISO() };
+    s.moderatorSessions = [row];
+    save(s);
+    return row;
+  },
+  getModeratorAttendance() {
+    const s = load();
+    return [...s.moderatorAttendance].sort((a, b) => String(a.moderatorName).localeCompare(String(b.moderatorName)));
+  },
+  recordModeratorAttendanceCheckin(name: string, period: string) {
+    const s = load();
+    const normalized = String(name || "").trim();
+    if (!normalized) return null;
+    const session = s.moderatorSessions[0] || { id: 1, activePeriod: "none", createdAt: nowISO() };
+    let row = s.moderatorAttendance.find((x) => x.moderatorName === normalized);
+    if (!row) {
+      row = {
+        id: ++s.seq.moderatorAttendance,
+        sessionId: session.id ?? 1,
+        moderatorName: normalized,
+        displayName: normalized,
+        sessionDate: new Date().toISOString().slice(0, 10),
+        beginningTime: "",
+        middleTime: "",
+        endingTime: "",
+        startAt: null,
+        halfAt: null,
+        endAt: null,
+        updatedAt: nowISO(),
+        createdAt: nowISO(),
+      };
+      s.moderatorAttendance.push(row);
+    }
+    const timestamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
+    if (period === "beginning") row.beginningTime = row.beginningTime || timestamp;
+    if (period === "middle") row.middleTime = row.middleTime || timestamp;
+    if (period === "ending") row.endingTime = row.endingTime || timestamp;
+    save(s);
+    return row;
+  },
+  resetModeratorAttendance() {
+    const s = load();
+    s.moderatorAttendance = [];
+    s.moderatorSessions = [];
+    save(s);
+    return true;
   },
 
   getHelpers() {
