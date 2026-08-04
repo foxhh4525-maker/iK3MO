@@ -2,8 +2,8 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, resetAllPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, getRecordHistory, deleteRecordHistory, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry, type RecordHistoryEntry } from "@/lib/api";
-import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner } from "@/lib/types";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, getPlayerLevels, setPlayerWins, resetAllPlayerWins, addMatchWin, getLeaderboard, getWinners, postWinner, setMatchWins, resetAllMatchWins, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, getImagesHistory, deleteImage, getRecordHistory, deleteRecordHistory, getModerators, createModerator, deleteModerator, getModeratorAttendance, markModeratorAttendance, type AdminHelper, type AdminPermissions, type StorageStatusResponse, type CloudImageEntry, type RecordHistoryEntry } from "@/lib/api";
+import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type LeaderboardEntry, type Winner, type Moderator, type AttendanceSlot, type ModeratorAttendanceRow } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
   p2, buildBracket, doWin, setSize as stSetSize, getOpenMatches, rTitle,
@@ -49,6 +49,10 @@ type SlotState = "idle" | "rolling" | "locked";
 //   مثل "دخولي" أو "الدخول" — يعني الجملة العادية بالشات ما تُحسب انضمام.
 const JOIN_CMD = /^\s*!?(?:دخول|join)(?=$|\s|[^\p{L}\p{N}])/iu;
 const LEAVE_CMD = /^\s*!?(?:خروج|leave)(?=$|\s|[^\p{L}\p{N}])/iu;
+
+// 📌 كلمة إثبات تواجد المشرفين — نفس منطق JOIN_CMD/LEAVE_CMD (تُقبل بعلامة !
+// أو بدونها، ولازم تنتهي الكلمة هنا عشان ما تنطبق على جملة عادية بالشات).
+const PRESENT_CMD = /^\s*!?(?:حاضر|present)(?=$|\s|[^\p{L}\p{N}])/iu;
 
 // 🤖 بوتات التجربة تُسمّى "بوت 1"، "بوت 2"... — نستثنيها من كل السجلات
 // الدائمة (نظام المستويات ونقاط الأكثر انتصاراً) عشان ما تلوّث الإحصائيات.
@@ -563,6 +567,101 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     } catch {
       refreshHelpers();
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // 📌 مشرفو البث (Moderators) — تتبع تواجدهم أثناء البث المباشر
+  // ═══════════════════════════════════════════════════════════════
+  const [moderatorsOpen, setModeratorsOpen] = useState(false);
+  const [moderators, setModerators] = useState<Moderator[]>([]);
+  const [moderatorNameInput, setModeratorNameInput] = useState("");
+  const [moderatorError, setModeratorError] = useState("");
+  const [addingModerator, setAddingModerator] = useState(false);
+  const [attendanceRows, setAttendanceRows] = useState<ModeratorAttendanceRow[]>([]);
+  // 🚪 الفترة المفتوحة حالياً لتسجيل "حاضر" (null = مقفولة). حالة محلية بالجلسة
+  // فقط (ما تُحفظ بالخادم) — الأدمن يفتحها يدوياً بلحظة كل فترة من فترات البث.
+  const [attendanceWindow, setAttendanceWindow] = useState<AttendanceSlot | null>(null);
+  const attendanceWindowRef = useRef<AttendanceSlot | null>(null);
+  useEffect(() => { attendanceWindowRef.current = attendanceWindow; }, [attendanceWindow]);
+
+  const refreshModerators = useCallback(() => {
+    getModerators(token).then(setModerators).catch(() => {});
+  }, [token]);
+
+  const refreshAttendance = useCallback(() => {
+    getModeratorAttendance(token).then(setAttendanceRows).catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    refreshModerators();
+    refreshAttendance();
+  }, [refreshModerators, refreshAttendance]);
+
+  async function handleAddModerator() {
+    if (!moderatorNameInput.trim()) return;
+    setAddingModerator(true);
+    setModeratorError("");
+    try {
+      await createModerator(moderatorNameInput.trim(), token);
+      setModeratorNameInput("");
+      refreshModerators();
+    } catch (err: unknown) {
+      setModeratorError(err instanceof Error ? err.message : "فشل إضافة المشرف");
+    } finally {
+      setAddingModerator(false);
+    }
+  }
+
+  async function handleDeleteModerator(m: Moderator) {
+    setModerators((prev) => prev.filter((x) => x.id !== m.id));
+    try {
+      await deleteModerator(m.id, token);
+    } catch {
+      refreshModerators();
+    }
+  }
+
+  // ✅ يبحث عن صف حضور مشرف معيّن باليوم الحالي (بالاسم المطبَّع)
+  function findAttendanceRow(nameNormalized: string): ModeratorAttendanceRow | undefined {
+    return attendanceRows.find((r) => r.moderatorName === nameNormalized);
+  }
+
+  const slotLabels: Record<AttendanceSlot, string> = { start: "بداية البث", half: "نصف البث", end: "نهاية البث" };
+
+  // 📌 يتحقق هل اسم كاتب الرسالة موجود بقائمة المشرفين (مطابقة دقيقة مطبَّعة)
+  function findModeratorByChatName(user: string): Moderator | undefined {
+    const target = normalizeUsername(user);
+    return moderators.find((m) => normalizeUsername(m.name) === target);
+  }
+
+  // ✅ يسجّل حضور المشرف بالفترة المفتوحة حالياً (تحديث فوري بالواجهة + حفظ بالخادم)
+  async function handlePresentCommand(user: string) {
+    const slot = attendanceWindowRef.current;
+    if (!slot) return; // ما فيه فترة مفتوحة حالياً — نتجاهل "حاضر"
+    const mod = findModeratorByChatName(user);
+    if (!mod) return; // مو من قائمة المشرفين المسجّلين
+    const key = normalizeUsername(mod.name);
+    const already = findAttendanceRow(key);
+    const field: "startAt" | "halfAt" | "endAt" = slot === "start" ? "startAt" : slot === "half" ? "halfAt" : "endAt";
+    if (already && already[field]) return; // مسجّل مسبقاً بنفس الفترة
+    const nowISO = new Date().toISOString();
+    setAttendanceRows((prev) => {
+      const idx = prev.findIndex((r) => r.moderatorName === key);
+      if (idx >= 0) {
+        const next = [...prev];
+        if (!next[idx][field]) next[idx] = { ...next[idx], [field]: nowISO };
+        return next;
+      }
+      const row: ModeratorAttendanceRow = {
+        id: -Date.now(), moderatorName: key, displayName: user, sessionDate: nowISO.slice(0, 10),
+        startAt: slot === "start" ? nowISO : null,
+        halfAt: slot === "half" ? nowISO : null,
+        endAt: slot === "end" ? nowISO : null,
+      };
+      return [...prev, row];
+    });
+    const saved = await markModeratorAttendance(mod.name, slot, token, user);
+    if (saved) refreshAttendance();
   }
 
   // يقرأ الصورة ويصغّرها (حد أقصى 1000px، JPEG) ويرجّع Base64 data URL.
@@ -1097,6 +1196,13 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           (sender?.username as unknown) ?? (sender?.name as unknown) ?? (normalized?.username as unknown) ?? ""
         );
         if (!content || !user) return;
+
+        // 📌 كلمة إثبات تواجد المشرفين — تُفحص أولاً ولا تتعارض مع أوامر
+        // الانضمام/الانسحاب (لو كتب مشرف "حاضر" ما يُحسب دخول/خروج بالبطولة).
+        if (PRESENT_CMD.test(content)) {
+          handlePresentCommand(user);
+          return;
+        }
 
         // 🚪 أمر الانسحاب الذاتي: يخلي اللاعب يطلع نفسه من القائمة قبل بدء البطولة.
         // يُقبل بعلامة ! أو بدونها (خروج / !خروج / leave / !leave).
@@ -1844,6 +1950,15 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               {/* 🎛️ أزرار اللوحة — كانت متفرقة بالسايدبار، جمعناها هنا برأس
                   الصفحة عشان تكون واضحة وبمتناول اليد دايماً. */}
               <div className="admin-actions">
+                {/* 📌 زر جدول حضور المشرفين — أول زر بالشريط (الزاوية العلوية) حسب طلب التوضيح بالصورة */}
+                <button
+                  className={`admin-act${attendanceWindow ? " on" : ""}`}
+                  onClick={() => setModeratorsOpen(true)}
+                  title="تتبع تواجد المشرفين أثناء البث المباشر"
+                >
+                  📌 جدول المشرفين
+                  {attendanceWindow && <span className="act-dot live" />}
+                </button>
                 <button className="admin-act" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}>
                   {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
                 </button>
@@ -2053,6 +2168,133 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               </div>
             )}
 
+            {/* ═══════════════════════════════════════════════════════════
+                📌 مودال جدول المشرفين — تتبع تواجدهم أثناء البث المباشر
+               ═══════════════════════════════════════════════════════════ */}
+            {moderatorsOpen && (
+              <div className="cardpick-overlay" onClick={() => setModeratorsOpen(false)}>
+                <div className="cardpick helpers-modal" onClick={e => e.stopPropagation()}>
+                  <div className="cardpick-head">
+                    <span>📌 جدول المشرفين</span>
+                    <button className="cardpick-close" onClick={() => setModeratorsOpen(false)} aria-label="إغلاق">✕</button>
+                  </div>
+                  <p className="cardpick-sub">
+                    تتبّع تواجد المشرفين أثناء البث: افتح فترة، وكل مشرف يكتب <b>"حاضر"</b> بشات كيك يتسجّل تلقائياً بالخانة المناسبة.
+                  </p>
+
+                  {/* 🚪 التحكم بالفترة المفتوحة حالياً */}
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", padding: "12px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
+                    {(["start", "half", "end"] as AttendanceSlot[]).map((slot) => (
+                      <button
+                        key={slot}
+                        type="button"
+                        className={attendanceWindow === slot ? "btn btn-primary" : "btn btn-ghost"}
+                        style={{ padding: "9px 16px", fontSize: "0.85rem" }}
+                        onClick={() => setAttendanceWindow((prev) => (prev === slot ? null : slot))}
+                      >
+                        {attendanceWindow === slot ? "🟢 " : "▶️ "}
+                        {slotLabels[slot]}
+                      </button>
+                    ))}
+                    {attendanceWindow && (
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ padding: "9px 14px", fontSize: "0.82rem", color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
+                        onClick={() => setAttendanceWindow(null)}
+                      >⏹️ إقفال التسجيل</button>
+                    )}
+                  </div>
+                  {attendanceWindow ? (
+                    <div style={{ fontSize: "0.8rem", color: "var(--kick,#53fc18)", marginTop: "8px" }}>
+                      🟢 فترة "{slotLabels[attendanceWindow]}" مفتوحة الآن — أي مشرف يكتب "حاضر" بالشات يتسجّل فوراً.
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "8px" }}>
+                      ⏸️ ما فيه فترة مفتوحة حالياً — اضغط على فترة عشان تبدأ استقبال "حاضر".
+                    </div>
+                  )}
+
+                  {/* ➕ إضافة مشرف جديد للقائمة (الأدمن الرئيسي فقط) */}
+                  {role === "admin" && (
+                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", padding: "12px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", marginTop: "12px" }}>
+                      <input
+                        type="text"
+                        className="n-input"
+                        style={{ flex: 1, minWidth: "160px" }}
+                        placeholder="اسم المشرف كما يظهر بشات كيك"
+                        value={moderatorNameInput}
+                        onChange={(e) => setModeratorNameInput(e.target.value)}
+                        disabled={addingModerator}
+                      />
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
+                        disabled={addingModerator || !moderatorNameInput.trim()}
+                        onClick={handleAddModerator}
+                      >
+                        {addingModerator ? "..." : "➕ إضافة مشرف"}
+                      </button>
+                    </div>
+                  )}
+                  {moderatorError && <div style={{ color: "#ff4444", fontSize: "0.82rem", marginTop: "8px" }}>⚠️ {moderatorError}</div>}
+
+                  {/* 📊 جدول الحضور */}
+                  <div style={{ marginTop: "16px", overflowX: "auto" }}>
+                    {moderators.length === 0 ? (
+                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", textAlign: "center", padding: "16px 0" }}>
+                        ما فيه مشرفين مضافين لسا. أضف مشرف عشان يبدأ يظهر بالجدول.
+                      </div>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
+                        <thead>
+                          <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                            <th style={{ textAlign: "right", padding: "8px 10px" }}>المشرف</th>
+                            <th style={{ textAlign: "center", padding: "8px 10px" }}>بداية البث</th>
+                            <th style={{ textAlign: "center", padding: "8px 10px" }}>نصف البث</th>
+                            <th style={{ textAlign: "center", padding: "8px 10px" }}>نهاية البث</th>
+                            {role === "admin" && <th style={{ padding: "8px 10px" }} />}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {moderators.map((m) => {
+                            const row = findAttendanceRow(normalizeUsername(m.name));
+                            const cell = (val: string | null | undefined) =>
+                              val ? (
+                                <span style={{ color: "var(--kick,#53fc18)", fontWeight: 800 }}>
+                                  ✔️ {new Date(val).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                              ) : (
+                                <span style={{ color: "var(--muted)" }}>—</span>
+                              );
+                            return (
+                              <tr key={m.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                                <td style={{ padding: "8px 10px", fontWeight: 800 }}>{m.name}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "center" }}>{cell(row?.startAt)}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "center" }}>{cell(row?.halfAt)}</td>
+                                <td style={{ padding: "8px 10px", textAlign: "center" }}>{cell(row?.endAt)}</td>
+                                {role === "admin" && (
+                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost"
+                                      style={{ fontSize: "0.72rem", padding: "4px 8px", color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
+                                      onClick={() => handleDeleteModerator(m)}
+                                      title="حذف المشرف من القائمة"
+                                    >🗑️</button>
+                                  </td>
+                                )}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* ── سجل البطولات: تعديل صورة كل لعبة (كروت ديناميكية يضيف/يحذف منها الأدمن) ── */}
             {!canRecords ? (

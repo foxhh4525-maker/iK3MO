@@ -121,3 +121,34 @@ export const playerMatchWinsTable = pgTable("player_match_wins", {
 });
 
 export type PlayerMatchWin = typeof playerMatchWinsTable.$inferSelect;
+
+// 👮 مشرفو البث (Moderators) — قائمة يديرها الأدمن الرئيسي عشان نتتبع تواجدهم
+// أثناء البث المباشر. name = اسم حساب المشرف بشات كيك (يُقارن مطبَّعاً/lowercase).
+export const moderatorsTable = pgTable("moderators", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(), // اسم المشرف كما يُكتب بشات كيك
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertModeratorSchema = createInsertSchema(moderatorsTable).omit({ id: true, createdAt: true });
+export type InsertModerator = z.infer<typeof insertModeratorSchema>;
+export type Moderator = typeof moderatorsTable.$inferSelect;
+
+// ✅ تسجيل حضور المشرفين — صف واحد لكل (مشرف + يوم بث)، وفيه 3 أعمدة توقيت
+// لثلاث فترات إثبات تواجد (بداية / نصف / نهاية البث). يتسجل تلقائياً لما
+// يكتب المشرف كلمة "حاضر" بشات كيك أثناء ما نافذة تلك الفترة مفتوحة من
+// الأدمن (زر "افتح تسجيل" بلوحة الأدمن). المفتاح المنطقي: (moderatorName, sessionDate).
+export const moderatorAttendanceTable = pgTable("moderator_attendance", {
+  id: serial("id").primaryKey(),
+  moderatorName: text("moderator_name").notNull(),      // مطبَّع (lowercase/trim)
+  displayName: text("display_name").notNull().default(""), // الاسم كما ظهر بالشات
+  sessionDate: text("session_date").notNull(),           // "YYYY-MM-DD" بتوقيت الخادم
+  startAt: timestamp("start_at"),
+  halfAt: timestamp("half_at"),
+  endAt: timestamp("end_at"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertModeratorAttendanceSchema = createInsertSchema(moderatorAttendanceTable).omit({ id: true, updatedAt: true });
+export type InsertModeratorAttendance = z.infer<typeof insertModeratorAttendanceSchema>;
+export type ModeratorAttendance = typeof moderatorAttendanceTable.$inferSelect;

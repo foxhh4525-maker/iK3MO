@@ -20,11 +20,17 @@ interface Store {
   playerWins: any[];
   recordHistory?: any[];
   playerMatchWins: any[];
-  seq: { winners: number; archives: number; records: number; helpers: number; playerWins: number; playerMatchWins: number; recordHistory: number };
+  moderators: any[];
+  moderatorAttendance: any[];
+  seq: { winners: number; archives: number; records: number; helpers: number; playerWins: number; playerMatchWins: number; recordHistory: number; moderators: number; moderatorAttendance: number };
 }
 
 function empty(): Store {
-  return { state: null, winners: [], archives: [], records: [], helpers: [], playerWins: [], playerMatchWins: [], recordHistory: [], seq: { winners: 0, archives: 0, records: 0, helpers: 0, playerWins: 0, playerMatchWins: 0, recordHistory: 0 } };
+  return {
+    state: null, winners: [], archives: [], records: [], helpers: [], playerWins: [], playerMatchWins: [], recordHistory: [],
+    moderators: [], moderatorAttendance: [],
+    seq: { winners: 0, archives: 0, records: 0, helpers: 0, playerWins: 0, playerMatchWins: 0, recordHistory: 0, moderators: 0, moderatorAttendance: 0 },
+  };
 }
 
 let cache: Store | null = null;
@@ -152,6 +158,47 @@ export const localStore = {
     s.records[idx] = { ...s.records[idx], isHidden };
     save(s);
     return [s.records[idx]];
+  },
+
+  // ── 👮 مشرفو البث (Moderators) ──
+  getModerators() {
+    return [...load().moderators].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  },
+  addModerator(name: string) {
+    const s = load();
+    const row = { id: ++s.seq.moderators, name, createdAt: nowISO() };
+    s.moderators.push(row);
+    save(s);
+    return row;
+  },
+  deleteModerator(id: number) {
+    const s = load();
+    const idx = s.moderators.findIndex((m) => m.id === id);
+    const removed = idx >= 0 ? s.moderators.splice(idx, 1) : [];
+    save(s);
+    return removed[0] || null;
+  },
+
+  // ── ✅ حضور المشرفين (Moderator Attendance) ──
+  getAttendanceByDate(sessionDate: string) {
+    return load().moderatorAttendance.filter((a) => a.sessionDate === sessionDate);
+  },
+  markAttendance(moderatorName: string, displayName: string, sessionDate: string, slot: "start" | "half" | "end") {
+    const s = load();
+    let row = s.moderatorAttendance.find((a) => a.moderatorName === moderatorName && a.sessionDate === sessionDate);
+    const now = nowISO();
+    if (!row) {
+      row = { id: ++s.seq.moderatorAttendance, moderatorName, displayName, sessionDate, startAt: null, halfAt: null, endAt: null, updatedAt: now };
+      s.moderatorAttendance.push(row);
+    }
+    // ⚠️ ما نكتب فوق توقيت مسجّل من قبل لنفس الفترة — أول "حاضر" بالفترة هو اللي يُحتسب.
+    if (slot === "start" && !row.startAt) row.startAt = now;
+    else if (slot === "half" && !row.halfAt) row.halfAt = now;
+    else if (slot === "end" && !row.endAt) row.endAt = now;
+    row.displayName = displayName || row.displayName;
+    row.updatedAt = now;
+    save(s);
+    return row;
   },
 
   getHelpers() {

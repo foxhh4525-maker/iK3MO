@@ -178,3 +178,23 @@ export interface LeaderboardEntry {
 export interface PlayerSession {
   username: string; // اسم حساب كيك كما ظهر
 }
+
+// ── 📌 مشرفو البث (Moderators) + تتبع الحضور ──
+export interface Moderator {
+  id: number;
+  name: string; // اسم حساب المشرف بشات كيك
+  createdAt: string;
+}
+
+// الفترات الثلاث لإثبات التواجد أثناء البث
+export type AttendanceSlot = "start" | "half" | "end";
+
+export interface ModeratorAttendanceRow {
+  id: number;
+  moderatorName: string;  // مطبَّع (lowercase/trim)
+  displayName: string;    // الاسم كما ظهر بالشات
+  sessionDate: string;    // "YYYY-MM-DD"
+  startAt: string | null;
+  halfAt: string | null;
+  endAt: string | null;
+}

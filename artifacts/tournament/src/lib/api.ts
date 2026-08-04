@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { TournamentState, Winner, TournamentArchive, TournamentRecord, PlayerStats, LeaderboardEntry } from "./types";
+import type { TournamentState, Winner, TournamentArchive, TournamentRecord, PlayerStats, LeaderboardEntry, Moderator, AttendanceSlot, ModeratorAttendanceRow } from "./types";
 
 const BASE = "/api/tournament";
 
@@ -626,6 +626,64 @@ export async function setPlayerWins(username: string, game: string, wins: number
     let msg = "فشل تحديث الفوزات";
     try { const d = await res.json(); msg = d.error || msg; } catch {}
     throw new Error(msg);
+  }
+}
+
+// ── 📌 مشرفو البث (Moderators) + تتبع الحضور ──
+
+export async function getModerators(token: string): Promise<Moderator[]> {
+  const res = await fetch(`${BASE}/moderators`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function createModerator(name: string, token: string): Promise<Moderator> {
+  const res = await fetch(`${BASE}/moderators`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ name }),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.error || "فشل إضافة المشرف");
+  return data as Moderator;
+}
+
+export async function deleteModerator(id: number, token: string): Promise<void> {
+  await fetch(`${BASE}/moderators/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+// 📊 جدول حضور اليوم الحالي (أو تاريخ محدد بصيغة YYYY-MM-DD).
+export async function getModeratorAttendance(token: string, date?: string): Promise<ModeratorAttendanceRow[]> {
+  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
+  const res = await fetch(`${BASE}/moderators/attendance${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+// ✅ يسجّل حضور مشرف لفترة معيّنة (يُستدعى تلقائياً عند رصد "حاضر" بشات كيك).
+export async function markModeratorAttendance(
+  name: string,
+  slot: AttendanceSlot,
+  token: string,
+  displayName?: string,
+): Promise<ModeratorAttendanceRow | null> {
+  try {
+    const res = await fetch(`${BASE}/moderators/attendance/mark`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ name, displayName, slot }),
+    });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
   }
 }
 

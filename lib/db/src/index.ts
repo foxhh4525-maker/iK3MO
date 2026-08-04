@@ -431,6 +431,102 @@ export async function deleteAdminHelper(id: number) {
 }
 
 // ==========================================
+// 👮 دوال مشرفي البث (Moderators) + تتبع الحضور
+// ==========================================
+export function normalizeModeratorName(name: string): string {
+  return (name || "").normalize("NFKC").trim().toLowerCase();
+}
+
+export async function getModerators() {
+  if (USE_LOCAL_STORE) return localStore.getModerators();
+  if (!db) throw new Error("Database not initialized");
+  return await db.query.moderatorsTable.findMany({
+    orderBy: [schema.moderatorsTable.createdAt],
+  });
+}
+
+export async function addModerator(name: string) {
+  const clean = (name || "").trim();
+  if (!clean) return null;
+  if (USE_LOCAL_STORE) return localStore.addModerator(clean);
+  if (!db) throw new Error("Database not initialized");
+  const result = await db.insert(schema.moderatorsTable).values({ name: clean }).returning();
+  return result[0] || null;
+}
+
+export async function deleteModerator(id: number) {
+  if (USE_LOCAL_STORE) return localStore.deleteModerator(id);
+  if (!db) throw new Error("Database not initialized");
+  const result = await db.delete(schema.moderatorsTable)
+    .where(eq(schema.moderatorsTable.id, id))
+    .returning();
+  return result[0] || null;
+}
+
+// 📅 تاريخ اليوم الحالي بصيغة YYYY-MM-DD (بتوقيت الخادم) — يُستخدم كمفتاح جلسة الحضور.
+export function todaySessionDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// 📊 جدول حضور المشرفين ليوم معيّن (افتراضياً اليوم الحالي).
+export async function getModeratorAttendance(sessionDate?: string) {
+  const date = sessionDate || todaySessionDate();
+  if (USE_LOCAL_STORE) return localStore.getAttendanceByDate(date);
+  if (!db) throw new Error("Database not initialized");
+  return await db.query.moderatorAttendanceTable.findMany({
+    where: eq(schema.moderatorAttendanceTable.sessionDate, date),
+  });
+}
+
+// ✅ تسجيل حضور مشرف بفترة معيّنة (start/half/end) — أول "حاضر" بالفترة فقط
+// هو اللي يُحتسب (upsert بدون الكتابة فوق توقيت مسجّل مسبقاً لنفس الفترة).
+export async function markModeratorAttendance(
+  moderatorName: string,
+  displayName: string,
+  slot: "start" | "half" | "end",
+  sessionDate?: string,
+) {
+  const key = normalizeModeratorName(moderatorName);
+  if (!key) return null;
+  const date = sessionDate || todaySessionDate();
+  if (USE_LOCAL_STORE) return localStore.markAttendance(key, displayName || moderatorName, date, slot);
+  if (!db) throw new Error("Database not initialized");
+  const existing = await db.query.moderatorAttendanceTable.findFirst({
+    where: sql`${schema.moderatorAttendanceTable.moderatorName} = ${key} AND ${schema.moderatorAttendanceTable.sessionDate} = ${date}`,
+  });
+  const alreadySet = existing
+    ? (slot === "start" ? existing.startAt : slot === "half" ? existing.halfAt : existing.endAt)
+    : null;
+  if (existing && alreadySet) return existing; // مسجّل مسبقاً لنفس الفترة — ما نكتب فوقه
+
+  if (existing) {
+    const patch: Partial<typeof schema.moderatorAttendanceTable.$inferInsert> = {
+      displayName: displayName || existing.displayName,
+      updatedAt: new Date(),
+    };
+    if (slot === "start") patch.startAt = new Date();
+    else if (slot === "half") patch.halfAt = new Date();
+    else patch.endAt = new Date();
+    const result = await db.update(schema.moderatorAttendanceTable)
+      .set(patch)
+      .where(eq(schema.moderatorAttendanceTable.id, existing.id))
+      .returning();
+    return result[0] || null;
+  }
+
+  const values: typeof schema.moderatorAttendanceTable.$inferInsert = {
+    moderatorName: key,
+    displayName: displayName || moderatorName,
+    sessionDate: date,
+    startAt: slot === "start" ? new Date() : null,
+    halfAt: slot === "half" ? new Date() : null,
+    endAt: slot === "end" ? new Date() : null,
+  };
+  const result = await db.insert(schema.moderatorAttendanceTable).values(values).returning();
+  return result[0] || null;
+}
+
+// ==========================================
 // 7. دوال فوزات اللاعبين (Player Wins) — أساس اللفل وشريط التقدّم
 // ==========================================
 // تطبيع اسم اللاعب: يوحّد الأحرف ويشيل الفراغات الزايدة ويصغّر الحروف عشان

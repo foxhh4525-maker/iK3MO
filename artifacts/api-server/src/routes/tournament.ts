@@ -118,6 +118,11 @@ const {
   addAdminHelper: dbAddHelper,
   updateAdminHelperPermissions: dbUpdateHelperPermissions,
   deleteAdminHelper: dbDeleteHelper,
+  getModerators: dbGetModerators,
+  addModerator: dbAddModerator,
+  deleteModerator: dbDeleteModerator,
+  getModeratorAttendance: dbGetModeratorAttendance,
+  markModeratorAttendance: dbMarkModeratorAttendance,
   USE_LOCAL_STORE: dbUsesLocalStore,
 } = dbModule;
 
@@ -1008,6 +1013,81 @@ router.post("/admin/dev-login", (_req: Request, res: Response) => {
     res.json({ token: devPassword, role: "admin", permissions: { tournament: true, records: true } });
   } else {
     res.status(401).json({ error: "الأدمن التجريبي غير مفعّل (ملف dev-admin.txt غير موجود)" });
+  }
+});
+
+// ==========================================
+// 📌 مشرفو البث (Moderators) + تتبع الحضور أثناء البث المباشر
+// ==========================================
+
+// 👮 قائمة المشرفين — الأدمن الرئيسي فقط يديرها (إضافة/حذف)، وأي أدمن/مساعد
+// عنده صلاحية "tournament" يقدر يشوفها (يحتاجها عشان يفتح جدول الحضور).
+router.get("/moderators", requireAdmin, async (_req: Request, res: Response) => {
+  try {
+    const moderators = await dbGetModerators();
+    res.json(moderators || []);
+  } catch (err) {
+    logger.error({ err }, "Failed to fetch moderators");
+    res.status(500).json({ error: "فشل جلب قائمة المشرفين" });
+  }
+});
+
+router.post("/moderators", requireAdmin, requireFullAdmin, async (req: Request, res: Response) => {
+  try {
+    const { name } = req.body as { name: string };
+    if (!name || !name.trim()) {
+      res.status(400).json({ error: "اسم المشرف مطلوب" });
+      return;
+    }
+    const moderator = await dbAddModerator(name.trim());
+    res.json(moderator);
+  } catch (err) {
+    logger.error({ err }, "Failed to add moderator");
+    res.status(500).json({ error: "فشل إضافة المشرف" });
+  }
+});
+
+router.delete("/moderators/:id", requireAdmin, requireFullAdmin, async (req: Request, res: Response) => {
+  try {
+    const id = Number(req.params.id);
+    await dbDeleteModerator(id);
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "Failed to delete moderator");
+    res.status(500).json({ error: "فشل حذف المشرف" });
+  }
+});
+
+// 📊 جدول حضور المشرفين ليوم معيّن (افتراضياً اليوم الحالي بتوقيت الخادم).
+router.get("/moderators/attendance", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const date = typeof req.query.date === "string" && req.query.date ? req.query.date : undefined;
+    const rows = await dbGetModeratorAttendance(date);
+    res.json(rows || []);
+  } catch (err) {
+    logger.error({ err }, "Failed to fetch moderator attendance");
+    res.status(500).json({ error: "فشل جلب جدول الحضور" });
+  }
+});
+
+// ✅ تسجيل حضور مشرف بفترة معيّنة — يُستدعى تلقائياً من لوحة الأدمن لما تكتشف
+// كلمة "حاضر" بشات كيك من مشرف معروف أثناء ما نافذة الفترة مفتوحة.
+router.post("/moderators/attendance/mark", requireAdmin, requirePermission("tournament"), async (req: Request, res: Response) => {
+  try {
+    const { name, displayName, slot } = req.body as { name: string; displayName?: string; slot: "start" | "half" | "end" };
+    if (!name || !name.trim()) {
+      res.status(400).json({ error: "اسم المشرف مطلوب" });
+      return;
+    }
+    if (!["start", "half", "end"].includes(slot)) {
+      res.status(400).json({ error: "فترة غير صحيحة" });
+      return;
+    }
+    const row = await dbMarkModeratorAttendance(name.trim(), displayName || name.trim(), slot);
+    res.json(row);
+  } catch (err) {
+    logger.error({ err }, "Failed to mark moderator attendance");
+    res.status(500).json({ error: "فشل تسجيل الحضور" });
   }
 });
 
