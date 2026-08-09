@@ -140,77 +140,38 @@ async function ensureSchema() {
       -- مفتاح فريد على (اللاعب المطبَّع + اللعبة) عشان ما يتكرّر نفس اللاعب لنفس اللعبة.
       CREATE UNIQUE INDEX IF NOT EXISTS idx_player_wins_user_game ON player_wins (username, game);
 
-      -- 🏆 نقاط "الأكثر انتصاراً" (ماتشات مكسوبة) — جدول مستقل تماماً عن player_wins.
-      -- 🐞 هذا الجدول كان ناقصاً من ensureSchema رغم إنه معرّف بـ schema/tournaments.ts
-      -- ومستعمل بـ getLeaderboard / incrementPlayerMatchWin / setPlayerMatchWins.
-      -- النتيجة على Postgres: كل استعلام عليه يرمي
-      -- relation "player_match_wins" does not exist، ومسار /player/leaderboard
-      -- كان يبلع الخطأ ويرجّع [] → قائمة "نقاط الأكثر انتصاراً" بلوحة الأدمن تطلع
-      -- فاضية دايماً، وتسجيل النقاط عند كسب أي ماتش ما يشتغل أصلاً.
-      -- (بالتخزين المحلي كان يشتغل عادي، عشان كذا المشكلة تبان بالنشر فقط.)
+      -- 🏆 عدّاد الماتشات المكسوبة (توب الفائزين). مستقل تماماً عن player_wins:
+      -- ما فيه عمود game، وما يتصفّر مع البطولات الجديدة أبداً.
       CREATE TABLE IF NOT EXISTS player_match_wins (
         id serial PRIMARY KEY,
-        username text NOT NULL,
+        username text NOT NULL UNIQUE,
         display_name text NOT NULL DEFAULT '',
         wins integer NOT NULL DEFAULT 0,
         updated_at timestamp NOT NULL DEFAULT now(),
         created_at timestamp NOT NULL DEFAULT now()
       );
-      -- للجداول اللي اتخلقت بنسخة أقدم وناقصها أعمدة
-      ALTER TABLE player_match_wins ADD COLUMN IF NOT EXISTS display_name text NOT NULL DEFAULT '';
-      ALTER TABLE player_match_wins ADD COLUMN IF NOT EXISTS wins integer NOT NULL DEFAULT 0;
-      ALTER TABLE player_match_wins ADD COLUMN IF NOT EXISTS updated_at timestamp NOT NULL DEFAULT now();
-      ALTER TABLE player_match_wins ADD COLUMN IF NOT EXISTS created_at timestamp NOT NULL DEFAULT now();
+      CREATE INDEX IF NOT EXISTS idx_player_match_wins_wins ON player_match_wins (wins DESC);
 
-      -- 📜 سجل تاريخي لكروت البطولات: لقطة تُحفظ عند كل تغيير صورة أو فائز،
-      -- عشان يبقى تاريخ كل بطولة محفوظاً حتى لو تغيّر الكرت لاحقاً.
-      CREATE TABLE IF NOT EXISTS record_history (
+      -- 🛡️ نظام تتبع حضور المشرفين
+      CREATE TABLE IF NOT EXISTS moderators (
         id serial PRIMARY KEY,
-        tournament_name text NOT NULL,
+        username text NOT NULL UNIQUE,
         display_name text NOT NULL DEFAULT '',
-        winner_name text NOT NULL DEFAULT '',
-        image text NOT NULL DEFAULT '',
-        saved_at timestamp NOT NULL DEFAULT now()
+        stream_start_at timestamp,
+        mid_stream_at timestamp,
+        stream_end_at timestamp,
+        checked_in_count integer NOT NULL DEFAULT 0,
+        updated_at timestamp NOT NULL DEFAULT now(),
+        created_at timestamp NOT NULL DEFAULT now()
       );
-      CREATE INDEX IF NOT EXISTS idx_record_history_saved_at ON record_history (saved_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_moderators_created_at ON moderators (created_at ASC);
 
       CREATE INDEX IF NOT EXISTS idx_winners_date ON winners (date DESC);
       CREATE INDEX IF NOT EXISTS idx_archives_finished_at ON tournament_archives (finished_at DESC);
       CREATE INDEX IF NOT EXISTS idx_records_created_at ON tournament_records (created_at DESC);
     `);
-
-    // 🔑 مفتاح username الفريد بـ player_match_wins — منفصل عن الاستعلام فوق عن قصد:
-    // لو الجدول كان موجود من نشرة قديمة وفيه أسماء مكرّرة، إنشاء الفهرس يفشل ويطيّح
-    // كل ensureSchema معاه. فهنا ندمج المكرّر أولاً (نجمع نقاطه بصف واحد) وبعدها
-    // ننشئ الفهرس، وأي فشل هنا ما يمنع بقية الجداول من الاشتغال.
-    try {
-      await client.query(`
-        WITH ranked AS (
-          SELECT id, username, SUM(wins) OVER (PARTITION BY username) AS total,
-                 ROW_NUMBER() OVER (PARTITION BY username ORDER BY id ASC) AS rn
-            FROM player_match_wins
-        )
-        UPDATE player_match_wins p
-           SET wins = r.total
-          FROM ranked r
-         WHERE p.id = r.id AND r.rn = 1 AND p.wins <> r.total;
-      `);
-      await client.query(`
-        DELETE FROM player_match_wins a
-         USING player_match_wins b
-         WHERE a.username = b.username AND a.id > b.id;
-      `);
-      await client.query(
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_player_match_wins_user ON player_match_wins (username);`,
-      );
-    } catch (error) {
-      console.error("⚠️ تعذّر ضبط مفتاح player_match_wins الفريد:", error);
-    }
-
     console.log("✅ تم التأكد من وجود كل الجداول فـ قاعدة البيانات (schema sync)");
   } catch (error) {
-    // ⚠️ فشل هنا يعني جدول ناقص → مسارات كاملة ترجع فاضية بدون سبب واضح
-    // (نفس اللي صار مع player_match_wins). ما نطيّح الإقلاع، بس نصرخ باللوق.
     console.error("❌ فشل التأكد من الجداول (ensureSchema):", error);
   } finally {
     client.release();
@@ -364,85 +325,6 @@ export async function addArchive(archiveData: typeof schema.tournamentArchivesTa
 // 5. دوال سجل البطولات (Tournament Records)
 // ==========================================
 
-// ==========================================
-// 5.1 دوال تتبع حضور المشرفين (Moderator Attendance)
-// ==========================================
-
-export async function getModeratorSession() {
-  if (USE_LOCAL_STORE) return localStore.getModeratorSession();
-  if (!db) throw new Error("Database not initialized");
-  return await db.query.moderatorSessionsTable.findFirst({
-    orderBy: [desc(schema.moderatorSessionsTable.id)],
-  });
-}
-
-export async function setModeratorSessionPeriod(period: "beginning" | "middle" | "ending" | "none") {
-  if (USE_LOCAL_STORE) return localStore.setModeratorSessionPeriod(period);
-  if (!db) throw new Error("Database not initialized");
-  const existing = await db.query.moderatorSessionsTable.findFirst({
-    orderBy: [desc(schema.moderatorSessionsTable.id)],
-  });
-  if (existing) {
-    return await db.update(schema.moderatorSessionsTable)
-      .set({ activePeriod: period })
-      .where(eq(schema.moderatorSessionsTable.id, existing.id))
-      .returning();
-  }
-  return await db.insert(schema.moderatorSessionsTable)
-    .values({ activePeriod: period })
-    .returning();
-}
-
-export async function getModeratorAttendance() {
-  if (USE_LOCAL_STORE) return localStore.getModeratorAttendance();
-  if (!db) throw new Error("Database not initialized");
-  return await db.query.moderatorAttendanceTable.findMany({
-    orderBy: [desc(schema.moderatorAttendanceTable.createdAt)],
-  });
-}
-
-export async function recordModeratorAttendanceCheckin(moderatorName: string, period: "beginning" | "middle" | "ending") {
-  if (USE_LOCAL_STORE) return localStore.recordModeratorAttendanceCheckin(moderatorName, period);
-  if (!db) throw new Error("Database not initialized");
-  const session = await getModeratorSession();
-  if (!session || session.activePeriod === "none") return null;
-
-  const activePeriod = session.activePeriod as "beginning" | "middle" | "ending";
-  const existing = await db.query.moderatorAttendanceTable.findFirst({
-    where: eq(schema.moderatorAttendanceTable.moderatorName, moderatorName),
-  });
-  const timestamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
-  if (existing) {
-    const setData: Partial<typeof schema.moderatorAttendanceTable.$inferInsert> = {};
-    if (activePeriod === "beginning" && !existing.beginningTime) setData.beginningTime = timestamp;
-    if (activePeriod === "middle" && !existing.middleTime) setData.middleTime = timestamp;
-    if (activePeriod === "ending" && !existing.endingTime) setData.endingTime = timestamp;
-    if (!Object.keys(setData).length) return existing;
-    return await db.update(schema.moderatorAttendanceTable)
-      .set(setData)
-      .where(eq(schema.moderatorAttendanceTable.id, existing.id))
-      .returning();
-  }
-
-  return await db.insert(schema.moderatorAttendanceTable)
-    .values({
-      sessionId: session.id,
-      moderatorName,
-      beginningTime: activePeriod === "beginning" ? timestamp : "",
-      middleTime: activePeriod === "middle" ? timestamp : "",
-      endingTime: activePeriod === "ending" ? timestamp : "",
-    })
-    .returning();
-}
-
-export async function resetModeratorAttendance() {
-  if (USE_LOCAL_STORE) return localStore.resetModeratorAttendance();
-  if (!db) throw new Error("Database not initialized");
-  await db.delete(schema.moderatorAttendanceTable);
-  await db.delete(schema.moderatorSessionsTable);
-  return true;
-}
-
 export async function getTournamentRecords() {
   if (USE_LOCAL_STORE) return localStore.getRecords();
   if (!db) throw new Error("Database not initialized");
@@ -563,102 +445,6 @@ export async function deleteAdminHelper(id: number) {
 }
 
 // ==========================================
-// 👮 دوال مشرفي البث (Moderators) + تتبع الحضور
-// ==========================================
-export function normalizeModeratorName(name: string): string {
-  return (name || "").normalize("NFKC").trim().toLowerCase();
-}
-
-export async function getModerators() {
-  if (USE_LOCAL_STORE) return localStore.getModerators();
-  if (!db) throw new Error("Database not initialized");
-  return await db.query.moderatorsTable.findMany({
-    orderBy: [schema.moderatorsTable.createdAt],
-  });
-}
-
-export async function addModerator(name: string) {
-  const clean = (name || "").trim();
-  if (!clean) return null;
-  if (USE_LOCAL_STORE) return localStore.addModerator(clean);
-  if (!db) throw new Error("Database not initialized");
-  const result = await db.insert(schema.moderatorsTable).values({ name: clean }).returning();
-  return result[0] || null;
-}
-
-export async function deleteModerator(id: number) {
-  if (USE_LOCAL_STORE) return localStore.deleteModerator(id);
-  if (!db) throw new Error("Database not initialized");
-  const result = await db.delete(schema.moderatorsTable)
-    .where(eq(schema.moderatorsTable.id, id))
-    .returning();
-  return result[0] || null;
-}
-
-// 📅 تاريخ اليوم الحالي بصيغة YYYY-MM-DD (بتوقيت الخادم) — يُستخدم كمفتاح جلسة الحضور.
-export function todaySessionDate(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-// 📊 جدول حضور المشرفين ليوم معيّن (افتراضياً اليوم الحالي).
-export async function getModeratorAttendance(sessionDate?: string) {
-  const date = sessionDate || todaySessionDate();
-  if (USE_LOCAL_STORE) return localStore.getAttendanceByDate(date);
-  if (!db) throw new Error("Database not initialized");
-  return await db.query.moderatorAttendanceTable.findMany({
-    where: eq(schema.moderatorAttendanceTable.sessionDate, date),
-  });
-}
-
-// ✅ تسجيل حضور مشرف بفترة معيّنة (start/half/end) — أول "حاضر" بالفترة فقط
-// هو اللي يُحتسب (upsert بدون الكتابة فوق توقيت مسجّل مسبقاً لنفس الفترة).
-export async function markModeratorAttendance(
-  moderatorName: string,
-  displayName: string,
-  slot: "start" | "half" | "end",
-  sessionDate?: string,
-) {
-  const key = normalizeModeratorName(moderatorName);
-  if (!key) return null;
-  const date = sessionDate || todaySessionDate();
-  if (USE_LOCAL_STORE) return localStore.markAttendance(key, displayName || moderatorName, date, slot);
-  if (!db) throw new Error("Database not initialized");
-  const existing = await db.query.moderatorAttendanceTable.findFirst({
-    where: sql`${schema.moderatorAttendanceTable.moderatorName} = ${key} AND ${schema.moderatorAttendanceTable.sessionDate} = ${date}`,
-  });
-  const alreadySet = existing
-    ? (slot === "start" ? existing.startAt : slot === "half" ? existing.halfAt : existing.endAt)
-    : null;
-  if (existing && alreadySet) return existing; // مسجّل مسبقاً لنفس الفترة — ما نكتب فوقه
-
-  if (existing) {
-    const patch: Partial<typeof schema.moderatorAttendanceTable.$inferInsert> = {
-      displayName: displayName || existing.displayName,
-      updatedAt: new Date(),
-    };
-    if (slot === "start") patch.startAt = new Date();
-    else if (slot === "half") patch.halfAt = new Date();
-    else patch.endAt = new Date();
-    const result = await db.update(schema.moderatorAttendanceTable)
-      .set(patch)
-      .where(eq(schema.moderatorAttendanceTable.id, existing.id))
-      .returning();
-    return result[0] || null;
-  }
-
-  const values: typeof schema.moderatorAttendanceTable.$inferInsert = {
-    moderatorName: key,
-    displayName: displayName || moderatorName,
-    sessionDate: date,
-    startAt: slot === "start" ? new Date() : null,
-    halfAt: slot === "half" ? new Date() : null,
-    endAt: slot === "end" ? new Date() : null,
-  };
-  const result = await db.insert(schema.moderatorAttendanceTable).values(values).returning();
-  return result[0] || null;
-}
-
-// ==========================================
 // 7. دوال فوزات اللاعبين (Player Wins) — أساس اللفل وشريط التقدّم
 // ==========================================
 // تطبيع اسم اللاعب: يوحّد الأحرف ويشيل الفراغات الزايدة ويصغّر الحروف عشان
@@ -676,46 +462,6 @@ export async function getPlayerWins(username: string) {
   return await db.query.playerWinsTable.findMany({
     where: eq(schema.playerWinsTable.username, key),
   });
-}
-
-// 📊 قائمة نظام المستويات: كل اللاعبين ومجموع فوزاتهم عبر كل الألعاب.
-// ⚠️ هذي الدالة كانت **ناقصة تماماً** من هذا الملف رغم إن مسار /player/levels
-// يستدعيها — فكان النداء يرمي TypeError، والمسار يبلعه ويرجّع [] بصمت، وتطلع
-// رسالة "ما فيه لاعب له فوزات بعد" حتى لو الجدول مليان لاعبين ومستويات.
-// نجمع حسب username المطبَّع (كل صف = لاعب + لعبة وحدة) عشان الرقم بالقائمة
-// يطابق "إجمالي الفوزات" الظاهر بتفاصيل نفس اللاعب.
-export async function getPlayerLevels(limit = 500) {
-  const n = Math.max(1, Math.min(2000, Math.floor(Number(limit) || 500)));
-  if (USE_LOCAL_STORE) return localStore.getPlayerLevels(n);
-  if (!db || !pool) throw new Error("Database not initialized");
-  const result = await pool.query(
-    `SELECT username,
-            MAX(NULLIF(BTRIM(display_name), '')) AS display_name,
-            SUM(wins)::int AS total
-       FROM player_wins
-      GROUP BY username
-     HAVING SUM(wins) > 0
-      ORDER BY total DESC, username ASC
-      LIMIT $1`,
-    [n],
-  );
-  return (result.rows || []).map((r: any) => ({
-    username: (r.display_name && String(r.display_name).trim()) || r.username,
-    wins: Number(r.total) || 0,
-  }));
-}
-
-// 🧹 تصفير نظام المستويات كامل: يمسح فوزات كل اللاعبين في كل الألعاب.
-// مستقل تماماً عن resetAllPlayerMatchWins (ذاك يخص نقاط "الأكثر انتصاراً").
-// نحسب عدد اللاعبين المتأثرين قبل المسح عشان الرسالة تطلع بعدد لاعبين مو صفوف.
-export async function resetAllPlayerWins() {
-  if (USE_LOCAL_STORE) return localStore.resetAllPlayerWins();
-  if (!db || !pool) throw new Error("Database not initialized");
-  const before = await pool.query(
-    `SELECT COUNT(DISTINCT username)::int AS n FROM player_wins WHERE wins > 0`,
-  );
-  await pool.query(`DELETE FROM player_wins`);
-  return { cleared: Number(before.rows?.[0]?.n) || 0 };
 }
 
 // تحديد قيمة فوزات محددة لـ (لاعب + لعبة) — يُستخدم لتصحيح الأدمن اليدوي.
@@ -750,26 +496,53 @@ export async function setPlayerWins(username: string, displayName: string, game:
 export async function getLeaderboard(limit = 3) {
   const n = Math.max(1, Math.floor(Number(limit) || 3));
   if (USE_LOCAL_STORE) return localStore.getLeaderboard(n);
-  if (!db || !pool) throw new Error("Database not initialized");
-  // 🩹 شبكة أمان: لو الجدول ناقص (نشرة قديمة اشتغلت قبل إصلاح ensureSchema)
-  // ننشئه هنا فوراً بدل ما نرمي خطأ ونخلي القائمة فاضية للأبد.
-  await ensurePlayerMatchWinsTable();
-  // 🔧 المصدر = جدول player_match_wins (ماتشات مكسوبة) — نفس اللي يستخدمه
-  // المخزّن المحلي، وهو المقصود بـ"توب الفائزين" حسب تعليق مسار /player/match-win.
-  // (كان يقرأ من player_wins وهو خاص بلفل الكروت، فتطلع أرقام مختلفة عن المحلي
-  // ويصير التحكم اليدوي من لوحة الأدمن بلا أثر.)
+  if (!pool) throw new Error("Database not initialized");
+  // 🏆 المصدر الآن: player_match_wins (كل ماتش مكسوب = نقطة، بأي جولة وأي بطولة).
+  // قبل كان يقرأ من player_wins مقيّداً بكروت الألعاب — فكان يعرض بطولات مكسوبة
+  // مو ماتشات، ويتأثر بتقليم tournament_records.
   const result = await pool.query(
-    `SELECT username, display_name, wins::int AS total
+    `SELECT username, display_name, wins
        FROM player_match_wins
       WHERE wins > 0
-      ORDER BY total DESC, updated_at ASC
+      ORDER BY wins DESC, updated_at ASC
       LIMIT $1`,
     [n],
   );
   return (result.rows || []).map((r: any) => ({
     username: (r.display_name && String(r.display_name).trim()) || r.username,
-    wins: Number(r.total) || 0,
+    wins: Number(r.wins) || 0,
   }));
+}
+
+// 🏆 زيادة/إنقاص عدّاد الماتشات المكسوبة (delta = +1 عند كسب ماتش، -1 عند التراجع).
+// كانت هذي الدالة موجودة في local-store فقط وناقصة هنا، فكان راوت
+// /player/match-win يرمي "is not a function" في وضع Postgres ويفشل صامتاً.
+// نستخدم UPSERT ذري: لو نزلت فوزتين بنفس اللحظة ما تضيع وحدة.
+export async function incrementPlayerMatchWin(username: string, displayName: string, delta = 1) {
+  const key = normalizePlayerName(username);
+  const display = String(displayName || username || "").trim();
+  if (!key) return null;
+  if (USE_LOCAL_STORE) return localStore.incrementPlayerMatchWin(key, display, delta);
+  if (!pool) throw new Error("Database not initialized");
+  const result = await pool.query(
+    `INSERT INTO player_match_wins (username, display_name, wins)
+     VALUES ($1, $2, GREATEST(0, $3))
+     ON CONFLICT (username) DO UPDATE SET
+       wins = GREATEST(0, player_match_wins.wins + $3),
+       display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), player_match_wins.display_name),
+       updated_at = now()
+     RETURNING *`,
+    [key, display, delta],
+  );
+  return result.rows[0] || null;
+}
+
+// 🧹 تصفير عدّاد الماتشات بالكامل (للأدمن فقط — ما ينستدعى تلقائياً أبداً).
+export async function resetMatchWins() {
+  if (USE_LOCAL_STORE) return localStore.resetMatchWins?.();
+  if (!pool) throw new Error("Database not initialized");
+  await pool.query(`DELETE FROM player_match_wins`);
+  return true;
 }
 
 // زيادة (أو إنقاص) فوزات لاعب في لعبة بمقدار delta — الاحتساب التلقائي يستدعيها بـ +1.
@@ -796,175 +569,86 @@ export async function incrementPlayerWin(username: string, displayName: string, 
   return result[0] || null;
 }
 
-// ── 🏆 نقاط التوب (ماتشات مكسوبة) ──
-//
-// 🩹 ضمانة إضافية لوجود جدول player_match_wins.
-// السبب: الجدول كان ناقصاً من ensureSchema، فأي خادم منشور قبل هذا الإصلاح
-// عنده قاعدة بيانات بدون الجدول. أضفناه لـ ensureSchema (يشتغل عند الإقلاع)،
-// وهذي الدالة تغطّي الحالة اللي ما فيها إعادة تشغيل: أول نداء يلمس النقاط
-// ينشئ الجدول لو ناقص. تنفّذ مرة وحدة بالعملية (نخزّن الوعد) عشان ما نضرب
-// قاعدة البيانات باستعلام زيادة مع كل طلب.
-let matchWinsTableReady: Promise<void> | null = null;
-async function ensurePlayerMatchWinsTable() {
-  if (USE_LOCAL_STORE || !pool) return;
-  if (!matchWinsTableReady) {
-    matchWinsTableReady = (async () => {
-      await pool!.query(`
-        CREATE TABLE IF NOT EXISTS player_match_wins (
-          id serial PRIMARY KEY,
-          username text NOT NULL,
-          display_name text NOT NULL DEFAULT '',
-          wins integer NOT NULL DEFAULT 0,
-          updated_at timestamp NOT NULL DEFAULT now(),
-          created_at timestamp NOT NULL DEFAULT now()
-        );
-      `);
-      await pool!.query(
-        `CREATE UNIQUE INDEX IF NOT EXISTS idx_player_match_wins_user ON player_match_wins (username);`,
-      ).catch(() => { /* مكرّرات قديمة — ensureSchema يتكفّل بدمجها عند الإقلاع */ });
-    })().catch((error) => {
-      // لو فشل، نصفّر الكاش عشان المحاولة الجاية تعيد المحاولة بدل ما تعلق
-      matchWinsTableReady = null;
-      throw error;
-    });
-  }
-  return matchWinsTableReady;
+// ==========================================
+// 🛡️ نظام تتبع حضور المشرفين (Moderator Activity Tracker)
+// ==========================================
+// نفس منطق تطبيع الاسم المستخدم فـ playerWins (lowercase/trim) عشان مطابقة
+// يوزرنيم الشات بالمشرف المسجّل بالجدول تكون دقيقة 100%.
+export function normalizeModeratorUsername(name: string): string {
+  return (name || "").normalize("NFKC").trim().toLowerCase();
 }
 
-// ⚠️ كانت incrementPlayerMatchWin ناقصة من هذا الملف رغم إن مسار
-// /player/match-win يستدعيها — فكان العدّاد ما يزيد أبداً (الخطأ يُبلع بصمت
-// بالواجهة). هذي إضافتها + تحكم يدوي كامل من لوحة الأدمن.
-export async function incrementPlayerMatchWin(username: string, displayName: string, delta = 1) {
-  const key = normalizePlayerName(username);
-  if (!key) return null;
-  if (USE_LOCAL_STORE) return localStore.incrementPlayerMatchWin(key, displayName || username, delta);
+export async function getModerators() {
+  if (USE_LOCAL_STORE) return localStore.getModerators();
   if (!db) throw new Error("Database not initialized");
-  await ensurePlayerMatchWinsTable();
-  const existing = await db.query.playerMatchWinsTable.findFirst({
-    where: eq(schema.playerMatchWinsTable.username, key),
+  // نرجّع المشرفين مرتبين حسب ترتيب إضافتهم (الأقدم أولاً) عشان الجدول يبقى ثابت الترتيب.
+  return await db.query.moderatorsTable.findMany({
+    orderBy: [schema.moderatorsTable.createdAt],
   });
-  if (existing) {
-    const next = Math.max(0, (existing.wins || 0) + delta);
-    const result = await db.update(schema.playerMatchWinsTable)
-      .set({ wins: next, displayName: displayName || existing.displayName, updatedAt: new Date() })
-      .where(eq(schema.playerMatchWinsTable.id, existing.id))
-      .returning();
-    return result[0] || null;
-  }
-  const result = await db.insert(schema.playerMatchWinsTable)
-    .values({ username: key, displayName: displayName || username, wins: Math.max(0, delta) })
+}
+
+export async function addModerator(username: string, displayName: string) {
+  const key = normalizeModeratorUsername(username);
+  if (!key) throw new Error("اسم المشرف مطلوب");
+  if (USE_LOCAL_STORE) return localStore.addModerator(key, displayName || username);
+  if (!db) throw new Error("Database not initialized");
+  const existing = await db.query.moderatorsTable.findFirst({
+    where: eq(schema.moderatorsTable.username, key),
+  });
+  if (existing) return existing; // موجود مسبقاً — ما نكرّره
+  const result = await db.insert(schema.moderatorsTable)
+    .values({ username: key, displayName: displayName || username })
+    .returning();
+  return result[0];
+}
+
+export async function deleteModerator(id: number) {
+  if (USE_LOCAL_STORE) return localStore.deleteModerator(id);
+  if (!db) throw new Error("Database not initialized");
+  const result = await db.delete(schema.moderatorsTable)
+    .where(eq(schema.moderatorsTable.id, id))
     .returning();
   return result[0] || null;
 }
 
-// ✍️ تعيين قيمة صريحة لنقاط لاعب (تحكم يدوي من الأدمن).
-export async function setPlayerMatchWins(username: string, displayName: string, wins: number) {
-  const key = normalizePlayerName(username);
+// ✅ يسجّل حضور مشرف بالترتيب (بداية → منتصف → نهاية) لأول مرة يكتب فيها كلمة
+// الحضور بالشات. المرات اللي بعد الثالثة تُتجاهل بصمت (checkedInCount ثابت على 3)
+// عشان ما يعاود يكتب "حاضر" ويغيّر الوقت المسجّل غلط.
+export async function recordModeratorCheckIn(username: string) {
+  const key = normalizeModeratorUsername(username);
   if (!key) return null;
-  const value = Math.max(0, Math.floor(Number(wins) || 0));
-  if (USE_LOCAL_STORE) return localStore.setPlayerMatchWins(key, displayName || username, value);
+  if (USE_LOCAL_STORE) return localStore.recordModeratorCheckIn(key);
   if (!db) throw new Error("Database not initialized");
-  await ensurePlayerMatchWinsTable();
-  const existing = await db.query.playerMatchWinsTable.findFirst({
-    where: eq(schema.playerMatchWinsTable.username, key),
+  const existing = await db.query.moderatorsTable.findFirst({
+    where: eq(schema.moderatorsTable.username, key),
   });
-  if (existing) {
-    const result = await db.update(schema.playerMatchWinsTable)
-      .set({ wins: value, displayName: displayName || existing.displayName, updatedAt: new Date() })
-      .where(eq(schema.playerMatchWinsTable.id, existing.id))
-      .returning();
-    return result[0] || null;
-  }
-  const result = await db.insert(schema.playerMatchWinsTable)
-    .values({ username: key, displayName: displayName || username, wins: value })
+  if (!existing) return null; // مو مشرف مسجّل بالجدول — نتجاهل الرسالة
+  if ((existing.checkedInCount || 0) >= 3) return existing; // خلّص الثلاث مرات
+
+  const now = new Date();
+  const nextCount = (existing.checkedInCount || 0) + 1;
+  const patch: Record<string, any> = { checkedInCount: nextCount, updatedAt: now };
+  if (nextCount === 1) patch.streamStartAt = now;
+  else if (nextCount === 2) patch.midStreamAt = now;
+  else if (nextCount === 3) patch.streamEndAt = now;
+
+  const result = await db.update(schema.moderatorsTable)
+    .set(patch)
+    .where(eq(schema.moderatorsTable.id, existing.id))
     .returning();
   return result[0] || null;
 }
 
-// 🧹 تصفير نقاط التوب لكل اللاعبين.
-export async function resetAllPlayerMatchWins() {
-  if (USE_LOCAL_STORE) return localStore.resetAllPlayerMatchWins();
-  if (!db || !pool) throw new Error("Database not initialized");
-  await ensurePlayerMatchWinsTable();
-  const result = await pool.query(`DELETE FROM player_match_wins`);
-  return { cleared: result.rowCount || 0 };
-}
-
-// ── 📜 سجل كروت البطولات (لقطة عند كل حفظ) ──
-
-export interface RecordHistoryRow {
-  id: number;
-  tournamentName: string;
-  displayName: string;
-  winnerName: string;
-  image: string;
-  savedAt: string;
-}
-
-/**
- * يضيف لقطة جديدة للسجل. نتجاهل الإضافة لو آخر لقطة لنفس اللعبة تطابقها
- * (نفس الصورة ونفس الفائز) — عشان ما يتكرر السطر مع كل حفظ ما فيه تغيير.
- */
-export async function addRecordHistory(entry: {
-  tournamentName: string;
-  displayName?: string;
-  winnerName?: string;
-  image?: string;
-}): Promise<RecordHistoryRow | null> {
-  const name = (entry.tournamentName || "").trim();
-  const image = entry.image || "";
-  const winner = entry.winnerName || "";
-  if (!name || (!image && !winner)) return null;
-
-  if (USE_LOCAL_STORE) return localStore.addRecordHistory({ ...entry, tournamentName: name });
-  if (!pool) throw new Error("Database not initialized");
-
-  const prev = await pool.query(
-    `SELECT image, winner_name FROM record_history
-      WHERE tournament_name = $1 ORDER BY saved_at DESC LIMIT 1`,
-    [name],
-  );
-  const last = prev.rows?.[0];
-  if (last && last.image === image && last.winner_name === winner) return null;
-
-  const res = await pool.query(
-    `INSERT INTO record_history (tournament_name, display_name, winner_name, image)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [name, entry.displayName || "", winner, image],
-  );
-  const r = res.rows[0];
-  return {
-    id: r.id,
-    tournamentName: r.tournament_name,
-    displayName: r.display_name,
-    winnerName: r.winner_name,
-    image: r.image,
-    savedAt: new Date(r.saved_at).toISOString(),
-  };
-}
-
-/** يجيب السجل مرتّباً من الأحدث. */
-export async function getRecordHistory(limit = 300): Promise<RecordHistoryRow[]> {
-  const n = Math.max(1, Math.min(1000, Math.floor(limit) || 300));
-  if (USE_LOCAL_STORE) return localStore.getRecordHistory(n);
-  if (!pool) throw new Error("Database not initialized");
-  const res = await pool.query(
-    `SELECT * FROM record_history ORDER BY saved_at DESC LIMIT $1`, [n],
-  );
-  return (res.rows || []).map((r: any) => ({
-    id: r.id,
-    tournamentName: r.tournament_name,
-    displayName: r.display_name,
-    winnerName: r.winner_name,
-    image: r.image,
-    savedAt: new Date(r.saved_at).toISOString(),
-  }));
-}
-
-/** حذف لقطة من السجل (لا يمس الكرت نفسه). */
-export async function deleteRecordHistory(id: number): Promise<boolean> {
-  if (USE_LOCAL_STORE) return localStore.deleteRecordHistory(id);
-  if (!pool) throw new Error("Database not initialized");
-  const res = await pool.query(`DELETE FROM record_history WHERE id = $1`, [id]);
-  return (res.rowCount || 0) > 0;
+// 🔄 بدء بث جديد: يفرّغ الثلاث خانات لكل المشرفين بدون حذفهم من القائمة.
+export async function resetModeratorAttendance() {
+  if (USE_LOCAL_STORE) return localStore.resetModeratorAttendance();
+  if (!db) throw new Error("Database not initialized");
+  await db.update(schema.moderatorsTable).set({
+    streamStartAt: null,
+    midStreamAt: null,
+    streamEndAt: null,
+    checkedInCount: 0,
+    updatedAt: new Date(),
+  });
+  return getModerators();
 }

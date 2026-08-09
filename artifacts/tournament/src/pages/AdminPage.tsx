@@ -1,75 +1,16 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import PusherLib from "pusher-js";
 import bgImg from "@assets/ik3mo-bg-1280_1782771571176.jpg";
 import iconImg from "@assets/kemo1_1.icon_1782771567876.png";
-import {
-  postState,
-  getState,
-  postArchive,
-  getRecords,
-  putRecord,
-  deleteRecord,
-  setRecordVisibility,
-  getPlayerStats,
-  getPlayerLevels,
-  setPlayerWins,
-  resetAllPlayerWins,
-  addMatchWin,
-  getLeaderboard,
-  getWinners,
-  postWinner,
-  setMatchWins,
-  resetAllMatchWins,
-  getHelpers,
-  createHelper,
-  updateHelperPermissions,
-  deleteHelper,
-  useSSE,
-  uploadImage,
-  getStorageStatus,
-  migrateImages,
-  getImagesHistory,
-  deleteImage,
-  getRecordHistory,
-  deleteRecordHistory,
-  getModerators,
-  createModerator,
-  deleteModerator,
-  getModeratorAttendance,
-  markModeratorAttendance,
-  recordModeratorCheckin,
-  type AdminHelper,
-  type AdminPermissions,
-  type StorageStatusResponse,
-  type CloudImageEntry,
-  type RecordHistoryEntry,
-} from "@/lib/api";
-import {
-  BYE,
-  defaultState,
-  levelFromWins,
-  progressWithinLevel,
-  WINS_PER_LEVEL,
-  WINNER_THEMES,
-  WINNER_EMOJIS,
-  type TournamentState,
-  type EntryLogItem,
-  type HistorySnapshot,
-  type TournamentRecord,
-  type PlayerStats,
-  type LeaderboardEntry,
-  type Winner,
-  type Moderator,
-  type AttendanceSlot,
-  type ModeratorAttendanceRow,
-} from "@/lib/types";
+import { postState, getState, postArchive, getRecords, putRecord, deleteRecord, setRecordVisibility, getPlayerStats, setPlayerWins, addMatchWin, getHelpers, createHelper, updateHelperPermissions, deleteHelper, useSSE, uploadImage, getStorageStatus, migrateImages, sendModeratorChatEvent, type AdminHelper, type AdminPermissions, type StorageStatusResponse } from "@/lib/api";
+import ModeratorsSchedule from "@/pages/ModeratorsSchedule";
+import { BYE, defaultState, levelFromWins, progressWithinLevel, WINS_PER_LEVEL, WINNER_THEMES, WINNER_EMOJIS, type TournamentState, type EntryLogItem, type HistorySnapshot, type TournamentRecord, type PlayerStats, type Winner } from "@/lib/types";
 import WinnerHistoryBar from "@/components/WinnerHistoryBar";
 import {
   p2, buildBracket, doWin, setSize as stSetSize, getOpenMatches, rTitle,
 } from "@/lib/tournament";
-import { playMatchStart, playWin, playChampion, playStart, isSoundEnabled, toggleSound } from "@/lib/sounds";
+import { playTick, playLock, playWin, playChampion, playStart, isSoundEnabled, toggleSound } from "@/lib/sounds";
 import BracketDisplay from "@/components/BracketDisplay";
-import ModeratorAttendanceModal from "@/components/ModeratorAttendanceModal";
 
 const CHANNEL_META: Record<string, { chatroomId: number }> = {
   ik3mo: { chatroomId: 5675989 },
@@ -102,29 +43,11 @@ interface Props {
 
 type SlotState = "idle" | "rolling" | "locked";
 
-// ── 🗣️ أوامر الشات: تُقبل بعلامة ! أو بدونها ──
-// ^\s*!?  = تسمح بمسافات بالبداية وعلامة ! اختيارية
-// (?:...)  = الكلمة نفسها بالعربي أو الإنجليزي
-// (?=$|\s|[^\p{L}\p{N}]) = لازم ينتهي الأمر هنا، فما تنطبق على كلمة أطول
-//   مثل "دخولي" أو "الدخول" — يعني الجملة العادية بالشات ما تُحسب انضمام.
-const JOIN_CMD = /^\s*!?(?:دخول|join)(?=$|\s|[^\p{L}\p{N}])/iu;
-const LEAVE_CMD = /^\s*!?(?:خروج|leave)(?=$|\s|[^\p{L}\p{N}])/iu;
-const MODERATOR_CHECKIN_CMD = /^\s*!?(?:حاضر)(?=$|\s|[^\p{L}\p{N}])/iu;
-
-// 📌 كلمة إثبات تواجد المشرفين — نفس منطق JOIN_CMD/LEAVE_CMD (تُقبل بعلامة !
-// أو بدونها، ولازم تنتهي الكلمة هنا عشان ما تنطبق على جملة عادية بالشات).
-const PRESENT_CMD = /^\s*!?(?:حاضر|present)(?=$|\s|[^\p{L}\p{N}])/iu;
-
-// 🤖 بوتات التجربة تُسمّى "بوت 1"، "بوت 2"... — نستثنيها من كل السجلات
-// الدائمة (نظام المستويات ونقاط الأكثر انتصاراً) عشان ما تلوّث الإحصائيات.
-function isBotName(name: string): boolean {
-  return /^\s*بوت\s*\d+\s*$/.test(name || "");
-}
-
 export default function AdminPage({ token, role, permissions, onLogout }: Props) {
   const canTournament = role === "admin" || !!permissions?.tournament;
   const canRecords = role === "admin" || !!permissions?.records;
   const [st, setSt] = useState<TournamentState>(defaultState());
+  const [sidebarHidden, setSidebarHidden] = useState(false);
   const [CH, setCH] = useState("ik3mo");
   const [kLive, setKLive] = useState(false);
   const [chatStatus, setChatStatus] = useState<"offline" | "connecting" | "live">("offline");
@@ -135,6 +58,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const [pickRunning, setPickRunning] = useState(false);
   const [syncError, setSyncError] = useState("");
   const [soundOn, setSoundOn] = useState(true);
+  // 📋 يتحكم بإظهار/إخفاء صفحة "جدول المشرفين" (Moderator Activity Tracker)
+  const [showModerators, setShowModerators] = useState(false);
 
   // ⏱️ مدة نافذة الانضمام بالدقائق (يحددها الأدمن قبل ما يفتح الباب)
   const [joinDurationInput, setJoinDurationInput] = useState(1);
@@ -173,14 +98,13 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     if (autoStartedRef.current) return;
     if (Date.now() < st.joinDeadline) return;
     autoStartedRef.current = true;
-    // ⏯️ ما نبدأ تلقائياً إلا لو مفتاح "بدء تلقائي" مفعّل. لو مقفل (أو ما فيه
-    // لاعبين كفاية) نكتفي بإقفال باب الانضمام وننتظر ضغطة "ابدأ البطولة".
-    if (st.autoStart && !getStartBlockReason()) {
+    if (!getStartBlockReason()) {
       startTournament();
     } else {
+      // ما فيه لاعبين كفاية — نقفل باب الانضمام بس بدون ما نبدأ
       update({ ...st, joinDeadline: null });
     }
-  }, [st.joinDeadline, st.phase, st.players, st.autoStart, tick]);
+  }, [st.joinDeadline, st.phase, st.players, tick]);
 
   const [records, setRecords] = useState<TournamentRecord[]>([]);
   const [savingGame, setSavingGame] = useState<string | null>(null);
@@ -200,134 +124,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   // 🔁 نقل الصور القديمة (Base64) المخزّنة بقاعدة البيانات إلى Cloudinary — تشغيل يدوي.
   const [migrating, setMigrating] = useState(false);
   const [migrateResult, setMigrateResult] = useState<string>("");
-  // ── 📜 سجل صور الكروت (من Cloudinary مع تواريخ الرفع) ──
-  const [imgLogOpen, setImgLogOpen] = useState(false);
-  const [imgLog, setImgLog] = useState<CloudImageEntry[]>([]);
-  const [imgLogBusy, setImgLogBusy] = useState(false);
-  const [imgLogErr, setImgLogErr] = useState("");
-
-  const [recLog, setRecLog] = useState<RecordHistoryEntry[]>([]);
-
-  async function openImagesLog() {
-    setImgLogOpen(true);
-    setImgLogBusy(true);
-    setImgLogErr("");
-    try {
-      // 📜 المصدر: السجل التاريخي بقاعدة البيانات — كل لقطة تحفظ اللعبة
-      // والفائز والصورة ووقت الحفظ، فتبقى محفوظة حتى لو تغيّر الكرت بعدين.
-      setRecLog(await getRecordHistory(token, 300));
-      // نجيب مكتبة الصور كمان عشان خيار "اعرض كل الصور" (استرجاع صورة ضايعة)
-      try { setImgLog(await getImagesHistory(token)); } catch { /* اختياري */ }
-    } catch (e: any) {
-      setImgLogErr(e?.message || "تعذّر جلب السجل");
-    } finally {
-      setImgLogBusy(false);
-    }
-  }
-
-  async function removeHistoryRow(id: number) {
-    if (imgLogBusy) return;
-    if (!confirm("حذف هذا السطر من السجل؟ الكرت والصورة ما يتأثرون.")) return;
-    setImgLogBusy(true);
-    try {
-      await deleteRecordHistory(id, token);
-      setRecLog(await getRecordHistory(token, 300));
-    } catch (e: any) {
-      setImgLogErr(e?.message || "تعذّر الحذف");
-    } finally {
-      setImgLogBusy(false);
-    }
-  }
-
-  // 📂 عرض الصور غير المرتبطة بأي كرت — تفيد لاسترجاع صورة انحذفت من
-  // الكرت لكن ملفها لسا موجود بمكتبة Cloudinary.
-  const [imgLogShowAll, setImgLogShowAll] = useState(false);
-  const [linkTarget, setLinkTarget] = useState<Record<string, string>>({});
-
-  // 🔗 يربط صورة موجودة بمكتبة Cloudinary بكرت — استرجاع بضغطة
-  async function linkImageToCard(url: string, tournamentName: string) {
-    if (!tournamentName || imgLogBusy) return;
-    setImgLogBusy(true);
-    setImgLogErr("");
-    try {
-      const rec = records.find(r => r.tournamentName === tournamentName);
-      await putRecord({
-        tournamentName,
-        displayName: rec?.displayName || undefined,
-        winnerName: rec?.winnerName || "",
-        image: url,
-        image2: rec?.image2 || undefined,
-      }, token);
-      refreshRecords();
-      setImgLog(await getImagesHistory(token));
-      setRecLog(await getRecordHistory(token, 300));
-    } catch (e: any) {
-      setImgLogErr(e?.message || "تعذّر ربط الصورة");
-    } finally {
-      setImgLogBusy(false);
-    }
-  }
-
-  // ➕ رفع صورة جديدة للمكتبة مباشرة (تظهر بقسم غير المرتبطة لين تربطها بكرت)
-  async function addImageToLog(file: File) {
-    if (imgLogBusy) return;
-    setImgLogBusy(true);
-    setImgLogErr("");
-    try {
-      const processed = await processImage(file);
-      await uploadImage(processed, token, "kemo/records");
-      setImgLog(await getImagesHistory(token));
-      setImgLogShowAll(true);
-    } catch (e: any) {
-      setImgLogErr(e?.message || "تعذّر رفع الصورة");
-    } finally {
-      setImgLogBusy(false);
-    }
-  }
-
-  // 🗑️ حذف صورة نهائياً من مكتبة Cloudinary (ومن الكرت لو مرتبطة)
-  async function removeImageFromLog(publicId: string, url: string) {
-    if (imgLogBusy) return;
-    if (!confirm("حذف هذي الصورة نهائياً من المكتبة؟ ما ترجع.")) return;
-    setImgLogBusy(true);
-    setImgLogErr("");
-    try {
-      await deleteImage(publicId, url, token);
-      setImgLog(await getImagesHistory(token));
-      refreshRecords();
-    } catch (e: any) {
-      setImgLogErr(e?.message || "تعذّر حذف الصورة");
-    } finally {
-      setImgLogBusy(false);
-    }
-  }
-
-  // 📅 نجمّع لقطات السجل حسب يوم الحفظ — كل يوم عنوان كبير وتحته الصور
-  const imgLogDays = useMemo(() => {
-    const map = new Map<string, { label: string; items: RecordHistoryEntry[] }>();
-    for (const row of recLog) {
-      if (!row.image) continue;
-      const d = new Date(row.savedAt);
-      const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-      if (!map.has(key)) {
-        map.set(key, {
-          label: d.toLocaleDateString("ar-SA", {
-            weekday: "long", year: "numeric", month: "long", day: "numeric",
-          }),
-          items: [],
-        });
-      }
-      map.get(key)!.items.push(row);
-    }
-    return [...map.values()];
-  }, [recLog]);
-
-  // 📂 الصور الموجودة بالمكتبة وغير مستخدمة بأي كرت — للاسترجاع
-  const orphanImages = useMemo(
-    () => imgLog.filter(img => !records.some(r => r.image === img.url || r.image2 === img.url)),
-    [imgLog, records],
-  );
-
   async function handleMigrateImages() {
     if (migrating) return;
     setMigrating(true);
@@ -336,7 +132,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       const r = await migrateImages(token);
       setMigrateResult(`✅ تم نقل ${r.migrated} صورة (تجاوزنا ${r.skipped} كانت أصلاً روابط، وفشل ${r.failed})`);
       getStorageStatus(token).then(setStorageStatus);
-      if (imgLogOpen) openImagesLog();
     } catch (e: any) {
       setMigrateResult(`❌ ${e?.message || "فشل نقل الصور"}`);
     } finally {
@@ -367,189 +162,15 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     refreshRecords();
   }, [refreshRecords]);
 
-  // ── 🏆 نقاط "الأكثر انتصاراً" (تحكم يدوي كامل من الأدمن) ──
-  const [lb, setLb] = useState<LeaderboardEntry[]>([]);
-  const [lbLimit, setLbLimit] = useState(10);
-  const [lbBusy, setLbBusy] = useState(false);
-  const [lbMsg, setLbMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [lbDraft, setLbDraft] = useState<Record<string, string>>({});
-  // ❗ خطأ الجلب ينحفظ لحاله: قبل كذا كان الفشل يُبلع بصمت فتظهر رسالة
-  // "ما فيه نقاط مسجّلة بعد" حتى لو المشكلة عطل بالخادم مو قائمة فاضية.
-  const [lbError, setLbError] = useState("");
-  const [lbNewName, setLbNewName] = useState("");
-  const [lbNewPts, setLbNewPts] = useState(1);
-  // 🔎 فلتر بالاسم — نفس فكرة فلتر نظام المستويات: يصفّي القائمة المحمّلة
-  // بدون ما يرجع للخادم، والترتيب والمراكز تبقى كما هي بالقائمة الأصلية.
-  const [lbQuery, setLbQuery] = useState("");
-  const lbFiltered = useMemo(() => {
-    const q = lbQuery.trim().toLowerCase();
-    // نحتفظ بالمركز الأصلي عشان 🥇🥈🥉 ما تتغيّر مع الفلترة
-    const withRank = lb.map((row, i) => ({ row, rank: i }));
-    return q ? withRank.filter(x => x.row.username.toLowerCase().includes(q)) : withRank;
-  }, [lb, lbQuery]);
-
-  async function loadLeaderboard(limit = lbLimit) {
-    setLbBusy(true);
-    try {
-      const rows = await getLeaderboard(limit);
-      // 🤖 نخفي بوتات التجربة من قائمة الأكثر انتصاراً
-      setLb((rows || []).filter(r => !isBotName(r.username)));
-      setLbDraft({});
-      setLbError("");
-    } catch (e: any) {
-      setLb([]);
-      setLbError(e?.message || "تعذّر جلب نقاط الأكثر انتصاراً");
-    } finally {
-      setLbBusy(false);
-    }
-  }
-
-  // تعيين قيمة صريحة لنقاط لاعب (تشمل الصفر = تصفير فردي)
-  async function applyPoints(username: string, value: number) {
-    if (!token) return;
-    setLbBusy(true);
-    setLbMsg(null);
-    try {
-      await setMatchWins(username, Math.max(0, Math.floor(value)), token);
-      setLbMsg({ ok: true, text: `تم تحديث نقاط ${username} إلى ${Math.max(0, Math.floor(value))}` });
-      await loadLeaderboard();
-    } catch (err) {
-      setLbMsg({ ok: false, text: err instanceof Error ? err.message : "فشل التعديل" });
-    } finally {
-      setLbBusy(false);
-    }
-  }
-
-  async function resetAllPoints() {
-    if (!token) return;
-    if (!window.confirm("تصفير نقاط كل اللاعبين نهائياً؟ ما يمكن التراجع.")) return;
-    setLbBusy(true);
-    setLbMsg(null);
-    try {
-      const cleared = await resetAllMatchWins(token);
-      setLbMsg({ ok: true, text: `تم تصفير النقاط (${cleared} لاعب)` });
-      await loadLeaderboard();
-    } catch (err) {
-      setLbMsg({ ok: false, text: err instanceof Error ? err.message : "فشل التصفير" });
-    } finally {
-      setLbBusy(false);
-    }
-  }
-
-  useEffect(() => { if (token) loadLeaderboard(); /* eslint-disable-next-line */ }, [token]);
-
   // ── بحث إحصائيات اللاعبين (فوزات + لفل لكل لعبة) ──
   const [statsQuery, setStatsQuery] = useState("");
   const [statsData, setStatsData] = useState<PlayerStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsError, setStatsError] = useState("");
-  const [lvlPage, setLvlPage] = useState(0);   // صفحة قائمة المستويات (8 بالصفحة)
-  const LVL_PER_PAGE = 8;
   const [statsSearched, setStatsSearched] = useState("");
 
-  // 📋 قائمة نظام المستويات — المصدر: جدول player_wins نفسه عبر
-  // getPlayerLevels. (قبل كذا كان المصدر سجل الفائزين getWinners، وهو جدول
-  // مختلف تماماً عن اللي يُبنى عليه المستوى — فيطلع تعارض: رقم بالقائمة
-  // ولفل مختلف بالكرت، والإضافة اليدوية ما تظهر.)
-  const [lvlPlayers, setLvlPlayers] = useState<LeaderboardEntry[]>([]);
-  const [lvlBusy, setLvlBusy] = useState(false);
-  // ❗ خطأ الجلب ينحفظ لحاله: قبل كذا كان الفشل يُبلع بصمت (catch فاضي) فتظهر
-  // رسالة "ما فيه لاعب له فوزات بعد" حتى لو المشكلة عطل بالخادم مو قائمة فاضية.
-  const [lvlError, setLvlError] = useState("");
-  const [lvlMsg, setLvlMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const refreshLvlPlayers = useCallback(() => {
-    getPlayerLevels(500)
-      .then(rows => { setLvlPlayers(rows || []); setLvlError(""); })
-      .catch(e => setLvlError(e?.message || "تعذّر جلب قائمة المستويات"));
-  }, []);
-  useEffect(() => { refreshLvlPlayers(); }, [refreshLvlPlayers]);
-
-  // 🧹 تصفير نظام المستويات كامل — نفس فكرة "تصفير الكل" بنقاط الأكثر انتصاراً،
-  // بس على جدول ثاني: هذا يمسح فوزات الكروت (اللفل)، وذاك يمسح نقاط الماتشات.
-  async function resetAllLevels() {
-    if (!token || lvlBusy) return;
-    if (!window.confirm("تصفير مستويات كل اللاعبين نهائياً؟ تُمسح فوزاتهم في كل الألعاب وما يمكن التراجع.")) return;
-    setLvlBusy(true);
-    setLvlMsg(null);
-    try {
-      const cleared = await resetAllPlayerWins(token);
-      setLvlMsg({ ok: true, text: `تم تصفير المستويات (${cleared} لاعب)` });
-      setStatsData(null);
-      setStatsSearched("");
-      setLvlPage(0);
-      refreshLvlPlayers();
-    } catch (e: any) {
-      setLvlMsg({ ok: false, text: e?.message || "فشل تصفير المستويات" });
-    } finally {
-      setLvlBusy(false);
-    }
-  }
-
-  // ↺ تصفير لاعب واحد: نصفّر فوزاته في كل لعبة عنده (بدون ما نلمس البقية).
-  async function resetOnePlayerLevel(name: string) {
-    if (!token || lvlBusy || !name) return;
-    if (!window.confirm(`تصفير مستويات "${name}" في كل الألعاب؟`)) return;
-    setLvlBusy(true);
-    setLvlMsg(null);
-    try {
-      const wins = (await getPlayerStats(name))?.wins || {};
-      const games = Object.keys(wins).filter(g => (wins[g] || 0) > 0);
-      for (const g of games) await setPlayerWins(name, g, 0, token);
-      setLvlMsg({ ok: true, text: `تم تصفير مستويات ${name}` });
-      if (statsSearched.toLowerCase() === name.toLowerCase()) setStatsData({ username: name, wins: {} });
-      refreshLvlPlayers();
-    } catch (e: any) {
-      setLvlMsg({ ok: false, text: e?.message || "فشل تصفير اللاعب" });
-    } finally {
-      setLvlBusy(false);
-    }
-  }
-  const refreshLvlWinnersRef = useRef(refreshLvlPlayers);
-  refreshLvlWinnersRef.current = refreshLvlPlayers;
-
-  // ── ➕ إضافة لاعب يدوياً لنظام المستويات ──
-  // كل "فوز" = سجل فائز واحد بسجل البطولات، فالإضافة تكتب N سجلات.
-  // ولو حددت لعبة، نحدّث كمان فوزاته فيها عشان لفله بالكرت يتغيّر فعلاً.
-  const [addName, setAddName] = useState("");
-  const [addWins, setAddWins] = useState(1);
-  const [addGame, setAddGame] = useState("");
-  const [addBusy, setAddBusy] = useState(false);
-  const [addMsg, setAddMsg] = useState<{ ok: boolean; text: string } | null>(null);
-
-  async function addManualWinner() {
-    const name = addName.trim();
-    const game = addGame.trim();
-    const n = Math.max(1, Math.min(200, Math.floor(addWins) || 1));
-    if (!name || addBusy) return;
-    if (!game) { setAddMsg({ ok: false, text: "⚠️ اختر اللعبة — المستويات تُحسب لكل لعبة على حدة" }); return; }
-    setAddBusy(true);
-    setAddMsg(null);
-    try {
-      // نقرأ فوزاته الحالية باللعبة ونضيف عليها (ما نمسح القديم)
-      const cur = await getPlayerStats(name).catch(() => null);
-      const before = cur?.wins?.[game] ?? 0;
-      await setPlayerWins(name, game, before + n, token);
-      refreshLvlPlayers();
-      if (statsSearched.toLowerCase() === name.toLowerCase()) loadPlayerStats(name);
-      setAddMsg({ ok: true, text: `✅ ${name} صار عنده ${before + n} فوز في "${game}" — المستوى ${levelFromWins(before + n)}` });
-      setAddName("");
-      setAddWins(1);
-    } catch (e: any) {
-      setAddMsg({ ok: false, text: e?.message || "⚠️ تعذّرت الإضافة" });
-    } finally {
-      setAddBusy(false);
-    }
-  }
-
-  const lvlFiltered = useMemo(() => {
-    // نستثني: من ما عنده ولا فوز، وبوتات التجربة
-    const clean = lvlPlayers.filter(p => (p.wins || 0) > 0 && !isBotName(p.username));
-    const q = statsQuery.trim().toLowerCase();
-    return q ? clean.filter(p => p.username.toLowerCase().includes(q)) : clean;
-  }, [lvlPlayers, statsQuery]);
-
-  async function loadPlayerStats(nameArg?: string) {
-    const name = (nameArg ?? statsQuery).trim();
+  async function loadPlayerStats() {
+    const name = statsQuery.trim();
     if (!name) return;
     setStatsLoading(true);
     setStatsError("");
@@ -565,7 +186,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   }
 
   // تعديل يدوي (+1/-1) لفوزات لاعب في لعبة — تصحيح من الأدمن.
-  // (نحدّث قائمة المستويات بعده عشان الرقم بالقائمة يطابق التفاصيل فوراً)
   async function adjustPlayerWin(game: string, delta: number) {
     if (!statsSearched) return;
     const current = statsData?.wins?.[game] ?? 0;
@@ -580,10 +200,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
       const data = await getPlayerStats(statsSearched);
       if (data) setStatsData(data);
     }
-    refreshLvlPlayers();
   }
 
-  const [helpersOpen, setHelpersOpen] = useState(false);
   // ── إدارة المساعدين (الأدمن الرئيسي فقط) ──
   const [helpers, setHelpers] = useState<AdminHelper[]>([]);
   const [helperName, setHelperName] = useState("");
@@ -635,101 +253,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     } catch {
       refreshHelpers();
     }
-  }
-
-  // ═══════════════════════════════════════════════════════════════
-  // 📌 مشرفو البث (Moderators) — تتبع تواجدهم أثناء البث المباشر
-  // ═══════════════════════════════════════════════════════════════
-  const [moderatorsOpen, setModeratorsOpen] = useState(false);
-  const [moderators, setModerators] = useState<Moderator[]>([]);
-  const [moderatorNameInput, setModeratorNameInput] = useState("");
-  const [moderatorError, setModeratorError] = useState("");
-  const [addingModerator, setAddingModerator] = useState(false);
-  const [attendanceRows, setAttendanceRows] = useState<ModeratorAttendanceRow[]>([]);
-  // 🚪 الفترة المفتوحة حالياً لتسجيل "حاضر" (null = مقفولة). حالة محلية بالجلسة
-  // فقط (ما تُحفظ بالخادم) — الأدمن يفتحها يدوياً بلحظة كل فترة من فترات البث.
-  const [attendanceWindow, setAttendanceWindow] = useState<AttendanceSlot | null>(null);
-  const attendanceWindowRef = useRef<AttendanceSlot | null>(null);
-  useEffect(() => { attendanceWindowRef.current = attendanceWindow; }, [attendanceWindow]);
-
-  const refreshModerators = useCallback(() => {
-    getModerators(token).then(setModerators).catch(() => {});
-  }, [token]);
-
-  const refreshAttendance = useCallback(() => {
-    getModeratorAttendance(token).then(setAttendanceRows).catch(() => {});
-  }, [token]);
-
-  useEffect(() => {
-    refreshModerators();
-    refreshAttendance();
-  }, [refreshModerators, refreshAttendance]);
-
-  async function handleAddModerator() {
-    if (!moderatorNameInput.trim()) return;
-    setAddingModerator(true);
-    setModeratorError("");
-    try {
-      await createModerator(moderatorNameInput.trim(), token);
-      setModeratorNameInput("");
-      refreshModerators();
-    } catch (err: unknown) {
-      setModeratorError(err instanceof Error ? err.message : "فشل إضافة المشرف");
-    } finally {
-      setAddingModerator(false);
-    }
-  }
-
-  async function handleDeleteModerator(m: Moderator) {
-    setModerators((prev) => prev.filter((x) => x.id !== m.id));
-    try {
-      await deleteModerator(m.id, token);
-    } catch {
-      refreshModerators();
-    }
-  }
-
-  // ✅ يبحث عن صف حضور مشرف معيّن باليوم الحالي (بالاسم المطبَّع)
-  function findAttendanceRow(nameNormalized: string): ModeratorAttendanceRow | undefined {
-    return attendanceRows.find((r) => r.moderatorName === nameNormalized);
-  }
-
-  const slotLabels: Record<AttendanceSlot, string> = { start: "بداية البث", half: "نصف البث", end: "نهاية البث" };
-
-  // 📌 يتحقق هل اسم كاتب الرسالة موجود بقائمة المشرفين (مطابقة دقيقة مطبَّعة)
-  function findModeratorByChatName(user: string): Moderator | undefined {
-    const target = normalizeUsername(user);
-    return moderators.find((m) => normalizeUsername(m.name) === target);
-  }
-
-  // ✅ يسجّل حضور المشرف بالفترة المفتوحة حالياً (تحديث فوري بالواجهة + حفظ بالخادم)
-  async function handlePresentCommand(user: string) {
-    const slot = attendanceWindowRef.current;
-    if (!slot) return; // ما فيه فترة مفتوحة حالياً — نتجاهل "حاضر"
-    const mod = findModeratorByChatName(user);
-    if (!mod) return; // مو من قائمة المشرفين المسجّلين
-    const key = normalizeUsername(mod.name);
-    const already = findAttendanceRow(key);
-    const field: "startAt" | "halfAt" | "endAt" = slot === "start" ? "startAt" : slot === "half" ? "halfAt" : "endAt";
-    if (already && already[field]) return; // مسجّل مسبقاً بنفس الفترة
-    const nowISO = new Date().toISOString();
-    setAttendanceRows((prev) => {
-      const idx = prev.findIndex((r) => r.moderatorName === key);
-      if (idx >= 0) {
-        const next = [...prev];
-        if (!next[idx][field]) next[idx] = { ...next[idx], [field]: nowISO };
-        return next;
-      }
-      const row: ModeratorAttendanceRow = {
-        id: -Date.now(), moderatorName: key, displayName: user, sessionDate: nowISO.slice(0, 10),
-        startAt: slot === "start" ? nowISO : null,
-        halfAt: slot === "half" ? nowISO : null,
-        endAt: slot === "end" ? nowISO : null,
-      };
-      return [...prev, row];
-    });
-    const saved = await markModeratorAttendance(mod.name, slot, token, user);
-    if (saved) refreshAttendance();
   }
 
   // يقرأ الصورة ويصغّرها (حد أقصى 1000px، JPEG) ويرجّع Base64 data URL.
@@ -1191,9 +714,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   useSSE((data) => {
     if (typingRef.current) return; // ما نطبّق تحديث خارجي وهو يكتب حالياً
     setSt(data);
-    // 🔄 قائمة نظام المستويات مبنية على سجل الفائزين — نحدّثها مع كل بث
-    // عشان الفائز الجديد يظهر فوراً بعد إقفال البطولة بدون رفرش.
-    refreshLvlWinnersRef.current?.();
   });
 
   const sync = useCallback(async (newSt: TournamentState) => {
@@ -1265,16 +785,15 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         );
         if (!content || !user) return;
 
-        // 📌 كلمة إثبات تواجد المشرفين — تُفحص أولاً ولا تتعارض مع أوامر
-        // الانضمام/الانسحاب (لو كتب مشرف "حاضر" ما يُحسب دخول/خروج بالبطولة).
-        if (PRESENT_CMD.test(content)) {
-          handlePresentCommand(user);
-          return;
-        }
+        // 🛡️ نظام تتبع حضور المشرفين: أي رسالة تحتوي كلمة "حاضر"/"متواجد" (أو
+        // present/here) تُرسَل لسيرفر الـ API عشان يتحقق هل الكاتب مسجّل بجدول
+        // المشرفين، ولو كان كذلك يسجّل الوقت بالخانة المناسبة (بداية/منتصف/نهاية
+        // البث حسب ترتيب المرات). هذا يشتغل بالتوازي مع بقية أوامر الشات (!دخول
+        // إلخ) بدون ما يأثر عليها.
+        sendModeratorChatEvent(user, content);
 
-        // 🚪 أمر الانسحاب الذاتي: يخلي اللاعب يطلع نفسه من القائمة قبل بدء البطولة.
-        // يُقبل بعلامة ! أو بدونها (خروج / !خروج / leave / !leave).
-        if (LEAVE_CMD.test(content)) {
+        // 🚪 أمر الانسحاب الذاتي: يخلي اللاعب يطلع نفسه من القائمة قبل بدء البطولة
+        if (/!خروج|!leave/i.test(content)) {
           let didLeave = false;
           setSt(prev => {
             if (prev.phase !== "setup") return prev;
@@ -1287,28 +806,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           return;
         }
 
-        if (MODERATOR_CHECKIN_CMD.test(content) && role === "admin") {
-          const senderRecord = sender as Record<string, unknown> | undefined;
-          const identity = senderRecord?.identity as Record<string, unknown> | undefined;
-          const badges = (senderRecord?.badges ?? identity?.badges) as unknown[] | undefined;
-          const isMod = Boolean(
-            badges && badges.length > 0
-          ) || Boolean((senderRecord as Record<string, unknown> | undefined)?.isModerator)
-            || Boolean((senderRecord as Record<string, unknown> | undefined)?.role === "moderator")
-            || Boolean((identity as Record<string, unknown> | undefined)?.role === "moderator")
-            || Boolean((identity as Record<string, unknown> | undefined)?.isModerator);
-
-          if (isMod || user.trim().length > 0) {
-            void recordModeratorCheckin(user, token)
-              .then(() => {
-                window.dispatchEvent(new CustomEvent("moderator-attendance-updated"));
-                void getModeratorAttendance().catch(() => undefined);
-              })
-              .catch((error) => console.error("[Admin] Failed to record moderator check-in", error));
-          }
-        }
-
-        if (!JOIN_CMD.test(content)) return;
+        if (!/!دخول|!join/i.test(content)) return;
 
         let didAdd = false;
         setSt(prev => {
@@ -1587,7 +1085,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     const joined = st.players.filter(p => p).length;
     const MIN_PLAYERS = 2;
     if (joined === 0) {
-      return "⚠️ ما انضم ولا لاعب لسا! خلي المشاهدين يكتبوا دخول بالشات قبل ما تبدأ.";
+      return "⚠️ ما انضم ولا لاعب لسا! خلي المشاهدين يكتبوا !دخول بالشات قبل ما تبدأ.";
     }
     if (joined < MIN_PLAYERS) {
       const missing = MIN_PLAYERS - joined;
@@ -1642,35 +1140,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   const [autoCardBusy, setAutoCardBusy] = useState(false);
   const [autoCardStatus, setAutoCardStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // ── 🏆 اعتماد الفائز بكرت موجود ثم إقفال البطولة تلقائياً ──
-  const [cardPickOpen, setCardPickOpen] = useState(false);
-  const [cardPickBusy, setCardPickBusy] = useState(false);
-
-  async function assignWinnerToCard(rec: TournamentRecord) {
-    const champion = (st.champion || "").trim();
-    if (!champion || cardPickBusy) return;
-    setCardPickBusy(true);
-    setAutoCardStatus(null);
-    try {
-      // putRecord يحدّث الكرت الموجود بنفس الاسم — نحافظ على صوره واسم العرض
-      await putRecord({
-        tournamentName: rec.tournamentName,
-        displayName: rec.displayName || undefined,
-        winnerName: champion,
-        image: rec.image || "",
-        image2: rec.image2 || undefined,
-      }, token);
-      refreshRecords();
-      setCardPickOpen(false);
-      // 🔒 تُقفل البطولة تلقائياً بعد الاختيار (بدون سؤال تأكيد)
-      resetTournament(true);
-    } catch (e: any) {
-      setAutoCardStatus({ ok: false, msg: e?.message || "⚠️ تعذّر حفظ الفائز بالكرت" });
-    } finally {
-      setCardPickBusy(false);
-    }
-  }
-
   async function autoCreateWinnerCard() {
     setAutoCardStatus(null);
     const champion = (st.champion || "").trim();
@@ -1697,9 +1166,8 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     }
   }
 
-  // skipConfirm: يُستخدم عند الإقفال التلقائي بعد اعتماد الفائز بكرت
-  function resetTournament(skipConfirm = false) {
-    if (!skipConfirm && !confirm("تبدأ بطولة جديدة؟ بيتمسح كل شي")) return;
+  function resetTournament() {
+    if (!confirm("تبدأ بطولة جديدة؟ بيتمسح كل شي")) return;
     const champion = st.champion || st.lastWinner;
     const wasFinished = champion && st.rounds.length;
     const finishState = (archiveId?: number) => {
@@ -1758,13 +1226,10 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
     // 🏆 نقطة توب الفائزين: كل ماتش حقيقي تكسبه = نقطة، بأي جولة وأي بطولة.
     // نتجاهل الماتشات اللي خصمها "باي" لأن اللاعب عدّى بدون ما يلعب.
-    // 🚫 وبوضع الفرق ما نحسب نقاط أصلاً: الخانة تحتوي فريق كامل مو لاعب
-    //    واحد ("سعود N فهد")، فتسجيلها بقائمة الأكثر انتصاراً يخرّب القائمة
-    //    بأسماء فرق بدل أسماء لاعبين.
     const m = st.rounds[rIdx]?.[mIdx];
     const matchWinner = side === "a" ? m?.a : m?.b;
     const matchLoser = side === "a" ? m?.b : m?.a;
-    if (!st.isTeams && matchWinner && !isBotName(matchWinner) && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
+    if (matchWinner && matchWinner !== BYE && matchLoser && matchLoser !== BYE && !m?.isBye) {
       addMatchWin(matchWinner, 1, token);
     }
 
@@ -1785,7 +1250,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
   // ⬆️ يجلب فوزات البطل الحالية بهذي اللعبة ويزيدها بواحد تلقائياً (بدل التعديل
   // اليدوي +1/-1 اللي كان الأدمن يسويه بنفسه من "إحصائيات اللاعبين").
   async function autoAddWinForChampion(champion: string, game: string) {
-    if (isBotName(champion)) return;   // 🤖 بوت تجربة — ما ينحسب بالمستويات
     try {
       const data = await getPlayerStats(champion);
       const current = data?.wins?.[game] ?? 0;
@@ -1827,8 +1291,7 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     // 🔙 نسحب نقطة الماتش اللي تراجعنا عنه: نقارن الشجرة الحالية بالسابقة
     // ونلقى الماتش اللي كان محسوم وصار غير محسوم.
     const undoneWinner = findUndoneMatchWinner(st, prevSnapshot as TournamentState);
-    // بوضع الفرق ما سجّلنا نقطة أصلاً، فما فيه شي نسحبه
-    if (undoneWinner && !st.isTeams && !isBotName(undoneWinner)) addMatchWin(undoneWinner, -1, token);
+    if (undoneWinner) addMatchWin(undoneWinner, -1, token);
 
     const restored: TournamentState = { ...prevSnapshot, winHistory: remaining, pickedMatchId: null };
     setSlotA("—"); setSlotB("—");
@@ -1836,48 +1299,36 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
     update(restored);
   }
 
-  // 🎲 اختيار ماتش عشوائي — بدون أي تنقلات ولا سلوت: ضغطة وحدة تختار
-  // المتنافسين فوراً، تشغّل صوت بدء الماتش، وتحط ستروك أحمر حول الخانة
-  // بالشجرة عشان الكل يعرف مين ضد مين الحين.
-  // 🤖 إضافة بوتات للتجربة — يعبّي خانات بأسماء وهمية عشان تجرّب الشجرة
-  // وتختبر الشكل بدون ما تنتظر ناس ينضمون من الشات. بوضع الفرق يضيف فريق
-  // كامل بعدد اللاعبين المحدد. زر "🧹 تفريغ" يشيلهم كلهم.
-  function addBots(count: number) {
-    const slots = [...st.players];
-    const taken = new Set(st.players.filter(Boolean).flatMap(p => p.split(" N ")));
-    let n = 1;
-    const nextName = () => {
-      let nm = `بوت ${n++}`;
-      while (taken.has(nm)) nm = `بوت ${n++}`;
-      taken.add(nm);
-      return nm;
-    };
-    for (let i = 0; i < count; i++) {
-      slots.push(
-        st.isTeams
-          ? Array.from({ length: Math.max(1, st.teamSize) }, nextName).join(" N ")
-          : nextName()
-      );
-    }
-    // نحدّث نفس الحقول اللي يحدّثها الانضمام من الشات عشان الحالة تضل متسقة
-    const size = slots.length;
-    const bSize = p2(size);
-    update({ ...st, players: slots, size, bSize, byeN: bSize - size });
-  }
-
   function pickRandomMatch() {
     if (pickRunning) return;
     const open = getOpenMatches(st);
     if (!open.length) { setSlotA("لا يوجد ماتشات"); setSlotB("—"); return; }
     setPickRunning(true);
+    update({ ...st, pickedMatchId: null });
+    setSlotStateA("rolling"); setSlotStateB("rolling");
+    const names = open.map(o => [o.m.a!, o.m.b!]).flat();
+    let ticks = 0;
+    const total = 24 + Math.floor(Math.random() * 14);
+    let delay = 55;
     const chosen = open[Math.floor(Math.random() * open.length)];
-    setSlotA(chosen.m.a!);
-    setSlotB(chosen.m.b!);
-    setSlotStateA("locked");
-    setSlotStateB("locked");
-    playMatchStart();
-    update({ ...st, pickedMatchId: `${st.cur}-${chosen.i}` });
-    setPickRunning(false);
+    function tick() {
+      playTick();
+      const rA = names[Math.floor(Math.random() * names.length)];
+      let rB: string;
+      do { rB = names[Math.floor(Math.random() * names.length)]; } while (rB === rA && names.length > 1);
+      setSlotA(rA); setSlotB(rB);
+      ticks++;
+      if (ticks < total) {
+        if (ticks > total * 0.55) delay = Math.min(delay * 1.2, 240);
+        setTimeout(tick, delay);
+      } else {
+        setSlotA(chosen.m.a!); setSlotB(chosen.m.b!);
+        setSlotStateA("locked"); setSlotStateB("locked");
+        playLock();
+        setTimeout(() => { update({ ...st, pickedMatchId: `${st.cur}-${chosen.i}` }); setPickRunning(false); }, 300);
+      }
+    }
+    tick();
   }
 
   const titleText = "iK3MO";
@@ -1926,11 +1377,44 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
         }
 
         /* ── كارت انتظار انضمام اللاعبين ── */
+        .ik3mo-empty-wait {
+          grid-column: 1 / -1;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          padding: 40px 20px;
+          border-radius: 16px;
+          background: rgba(41,182,246,0.06);
+          border: 1.5px dashed rgba(41,182,246,0.35);
+          text-align: center;
+        }
+        .ik3mo-empty-wait-icon {
+          font-size: 2.4rem;
+          animation: ik3mo-pulse 1.6s ease-in-out infinite;
+        }
         @keyframes ik3mo-pulse {
           0%, 100% { opacity: 0.5; transform: scale(1); }
           50% { opacity: 1; transform: scale(1.1); }
         }
+        .ik3mo-empty-wait-text {
+          font-weight: 800;
+          font-size: 0.95rem;
+          color: var(--muted, #9ca7b8);
+        }
+        .ik3mo-empty-wait-sub {
+          font-size: 0.78rem;
+          color: var(--muted, #9ca7b8);
+          opacity: 0.85;
+        }
         @media (max-width: 480px) {
+          .ik3mo-empty-wait {
+            padding: 28px 14px;
+          }
+          .ik3mo-empty-wait-icon {
+            font-size: 2rem;
+          }
         }
 
         /* ── شبكة اللاعبين/الفرق ── */
@@ -1972,13 +1456,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           border-color: rgba(248,113,113,0.55);
           background: rgba(248,113,113,0.1);
         }
-        /* 🔤 الاسم يظهر كامل — يلتف على أكثر من سطر بدل ما يتقصّ بنقاط */
         .ik3mo-chip-text {
-          white-space: normal;
-          overflow-wrap: anywhere;
-          word-break: break-word;
-          max-width: 260px;
-          line-height: 1.35;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 160px;
         }
         .ik3mo-chip-x {
           display: inline-flex;
@@ -2027,52 +1509,35 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
 
         /* ── الشريط الجانبي على الجوال ── */
         @media (max-width: 900px) {
+          .sidebar {
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+          }
+          .sidebar-hidden {
+            display: none;
+          }
+          .chat-frame-container iframe {
+            width: 100% !important;
+          }
         }
       `}</style>
       <div id="bg" style={{ backgroundImage: `url(${bgImg})` }} />
       <div id="bg-grad" />
 
-      <div className="shell admin-shell">
+      <div className="shell">
         <div className="main">
           <div style={{ width: "100%", margin: "0 auto" }}>
             <header className="site-header" style={{ position: "relative" }}>
-              {/* 🎛️ أزرار اللوحة — كانت متفرقة بالسايدبار، جمعناها هنا برأس
-                  الصفحة عشان تكون واضحة وبمتناول اليد دايماً. */}
-              <div className="admin-actions">
-                <button
-                  className={`admin-act${attendanceWindow ? " on" : ""}`}
-                  onClick={() => setModeratorsOpen(true)}
-                  title="تتبع تواجد المشرفين أثناء البث المباشر"
-                >
-                  📌 جدول المشرفين
-                  {attendanceWindow && <span className="act-dot live" />}
-                </button>
-                <ModeratorAttendanceModal token={token} />
-                <button className="admin-act" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}>
-                  {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
-                </button>
-                <button
-                  className={`admin-act${chatStatus === "live" ? " on" : ""}`}
-                  onClick={() => kickCheck(true)}
-                  title="يعيد التحقق من بث Kick ويحدّث اتصال الشات"
-                >
-                  🔄 تحقق الآن
-                  <span className={`act-dot${chatStatus === "live" ? " live" : ""}`} />
-                </button>
-                {role === "admin" && (
-                  <button className="admin-act" onClick={() => setHelpersOpen(true)} title="إنشاء مساعدين وتحديد صلاحياتهم">
-                    🙋 المساعدين
-                  </button>
-                )}
-                {/* 🏆 ينقلك للصفحة الرئيسية (لوحة الأبطال). رابط عادي عشان
-                    الجلسة محفوظة بـ localStorage فترجع للأدمن بدون تسجيل. */}
-                <a className="admin-act" href="/" title="الانتقال للوحة الأبطال (الصفحة الرئيسية)">
-                  🏆 لوحة الأبطال
-                </a>
-                <button className="admin-act danger" onClick={onLogout} title="تسجيل الخروج من لوحة الأدمن">
-                  🚪 خروج
-                </button>
-              </div>
+              <button className="btn btn-ghost" onClick={handleToggleSound} title={soundOn ? "كتم الصوت" : "تشغيل الصوت"}
+                style={{ position: "absolute", top: 0, right: 0, padding: "6px 12px", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px" }}>
+                {soundOn ? "🔊 الصوت" : "🔇 مكتوم"}
+              </button>
+              {/* 📋 جدول المشرفين (Moderators Schedule) — أعلى يسار الشاشة */}
+              <button className="btn btn-ghost" onClick={() => setShowModerators(true)} title="جدول المشرفين"
+                style={{ position: "absolute", top: 0, left: 0, padding: "6px 12px", fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px" }}>
+                📋 جدول المشرفين
+              </button>
               <div className="tag">IK3MO</div>
               <h1>{titleText}</h1>
               <p>اختر عدد اللاعبين، اكتب أسمائهم، وكل جولة اضغط على الفائز ليتأهل</p>
@@ -2105,12 +1570,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       {s.ok
                         ? (s.usedPercent !== null ? `${s.usedPercent}% مستخدم` : "شغالة")
                         : (s.configured === false ? "غير مفعّلة" : "متوقفة")}
-                      {/* نعرض سبب التوقف الحقيقي لو رجّعه الخادم */}
-                      {(s as any).error && s.ok === false && (
-                        <span style={{ display: "block", fontSize: "0.72rem", color: "#ff8b8b", fontWeight: 700, marginTop: "2px" }}>
-                          ⚠️ {(s as any).error}
-                        </span>
-                      )}
                     </span>
                   </div>
                 ))}
@@ -2133,17 +1592,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
               </div>
             )}
 
-            {/* 🙋 إدارة المساعدين — صارت نافذة تُفتح من زر بالشريط العلوي
-                بدل ما تاخذ بطاقة كاملة وتزحم الصفحة. */}
-            {role === "admin" && helpersOpen && (
-              <div className="cardpick-overlay" onClick={() => setHelpersOpen(false)}>
-                <div className="cardpick helpers-modal" onClick={e => e.stopPropagation()}>
-                  <div className="cardpick-head">
-                    <span>🙋 إدارة المساعدين</span>
-                    <button className="cardpick-close" onClick={() => setHelpersOpen(false)} aria-label="إغلاق">✕</button>
-                  </div>
-                  <p className="cardpick-sub">أنشئ حساب مساعد وحدد له بالضبط وش يقدر يسوي.</p>
-
+            {/* ── إدارة المساعدين (الأدمن الرئيسي فقط) ── */}
+            {role === "admin" && (
+              <div className="card">
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
                   <span style={{ fontSize: "1.15rem" }}>🙋</span>
                   <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>إدارة المساعدين</h3>
@@ -2253,135 +1704,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                     </div>
                   ))}
                 </div>
-                </div>
-              </div>
-            )}
-
-            {/* ═══════════════════════════════════════════════════════════
-                📌 مودال جدول المشرفين — تتبع تواجدهم أثناء البث المباشر
-               ═══════════════════════════════════════════════════════════ */}
-            {moderatorsOpen && (
-              <div className="cardpick-overlay" onClick={() => setModeratorsOpen(false)}>
-                <div className="cardpick helpers-modal" onClick={e => e.stopPropagation()}>
-                  <div className="cardpick-head">
-                    <span>📌 جدول المشرفين</span>
-                    <button className="cardpick-close" onClick={() => setModeratorsOpen(false)} aria-label="إغلاق">✕</button>
-                  </div>
-                  <p className="cardpick-sub">
-                    تتبّع تواجد المشرفين أثناء البث: افتح فترة، وكل مشرف يكتب <b>"حاضر"</b> بشات كيك يتسجّل تلقائياً بالخانة المناسبة.
-                  </p>
-
-                  {/* 🚪 التحكم بالفترة المفتوحة حالياً */}
-                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", padding: "12px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)" }}>
-                    {(["start", "half", "end"] as AttendanceSlot[]).map((slot) => (
-                      <button
-                        key={slot}
-                        type="button"
-                        className={attendanceWindow === slot ? "btn btn-primary" : "btn btn-ghost"}
-                        style={{ padding: "9px 16px", fontSize: "0.85rem" }}
-                        onClick={() => setAttendanceWindow((prev) => (prev === slot ? null : slot))}
-                      >
-                        {attendanceWindow === slot ? "🟢 " : "▶️ "}
-                        {slotLabels[slot]}
-                      </button>
-                    ))}
-                    {attendanceWindow && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost"
-                        style={{ padding: "9px 14px", fontSize: "0.82rem", color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
-                        onClick={() => setAttendanceWindow(null)}
-                      >⏹️ إقفال التسجيل</button>
-                    )}
-                  </div>
-                  {attendanceWindow ? (
-                    <div style={{ fontSize: "0.8rem", color: "var(--kick,#53fc18)", marginTop: "8px" }}>
-                      🟢 فترة "{slotLabels[attendanceWindow]}" مفتوحة الآن — أي مشرف يكتب "حاضر" بالشات يتسجّل فوراً.
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "8px" }}>
-                      ⏸️ ما فيه فترة مفتوحة حالياً — اضغط على فترة عشان تبدأ استقبال "حاضر".
-                    </div>
-                  )}
-
-                  {/* ➕ إضافة مشرف جديد للقائمة (الأدمن الرئيسي فقط) */}
-                  {role === "admin" && (
-                    <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", padding: "12px", borderRadius: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid var(--border)", marginTop: "12px" }}>
-                      <input
-                        type="text"
-                        className="n-input"
-                        style={{ flex: 1, minWidth: "160px" }}
-                        placeholder="اسم المشرف كما يظهر بشات كيك"
-                        value={moderatorNameInput}
-                        onChange={(e) => setModeratorNameInput(e.target.value)}
-                        disabled={addingModerator}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                        disabled={addingModerator || !moderatorNameInput.trim()}
-                        onClick={handleAddModerator}
-                      >
-                        {addingModerator ? "..." : "➕ إضافة مشرف"}
-                      </button>
-                    </div>
-                  )}
-                  {moderatorError && <div style={{ color: "#ff4444", fontSize: "0.82rem", marginTop: "8px" }}>⚠️ {moderatorError}</div>}
-
-                  {/* 📊 جدول الحضور */}
-                  <div style={{ marginTop: "16px", overflowX: "auto" }}>
-                    {moderators.length === 0 ? (
-                      <div style={{ fontSize: "0.85rem", color: "var(--muted)", textAlign: "center", padding: "16px 0" }}>
-                        ما فيه مشرفين مضافين لسا. أضف مشرف عشان يبدأ يظهر بالجدول.
-                      </div>
-                    ) : (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem" }}>
-                        <thead>
-                          <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                            <th style={{ textAlign: "right", padding: "8px 10px" }}>المشرف</th>
-                            <th style={{ textAlign: "center", padding: "8px 10px" }}>بداية البث</th>
-                            <th style={{ textAlign: "center", padding: "8px 10px" }}>نصف البث</th>
-                            <th style={{ textAlign: "center", padding: "8px 10px" }}>نهاية البث</th>
-                            {role === "admin" && <th style={{ padding: "8px 10px" }} />}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {moderators.map((m) => {
-                            const row = findAttendanceRow(normalizeUsername(m.name));
-                            const cell = (val: string | null | undefined) =>
-                              val ? (
-                                <span style={{ color: "var(--kick,#53fc18)", fontWeight: 800 }}>
-                                  ✔️ {new Date(val).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
-                                </span>
-                              ) : (
-                                <span style={{ color: "var(--muted)" }}>—</span>
-                              );
-                            return (
-                              <tr key={m.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-                                <td style={{ padding: "8px 10px", fontWeight: 800 }}>{m.name}</td>
-                                <td style={{ padding: "8px 10px", textAlign: "center" }}>{cell(row?.startAt)}</td>
-                                <td style={{ padding: "8px 10px", textAlign: "center" }}>{cell(row?.halfAt)}</td>
-                                <td style={{ padding: "8px 10px", textAlign: "center" }}>{cell(row?.endAt)}</td>
-                                {role === "admin" && (
-                                  <td style={{ padding: "8px 10px", textAlign: "center" }}>
-                                    <button
-                                      type="button"
-                                      className="btn btn-ghost"
-                                      style={{ fontSize: "0.72rem", padding: "4px 8px", color: "#f87171", borderColor: "rgba(248,113,113,0.4)" }}
-                                      onClick={() => handleDeleteModerator(m)}
-                                      title="حذف المشرف من القائمة"
-                                    >🗑️</button>
-                                  </td>
-                                )}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                </div>
               </div>
             )}
 
@@ -2420,14 +1742,6 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                   disabled={savingGame !== null}
                   onClick={handleAddGame}
                 >➕ إضافة كرت</button>
-                {/* 📜 سجل الصور — يفتح قائمة بكل صور الكروت وتواريخ رفعها */}
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
-                  onClick={openImagesLog}
-                  title="كل صور الكروت المرفوعة وتاريخ حفظ كل وحدة"
-                >📜 سجل الصور</button>
               </div>
 
               <div style={{ display: "grid", gap: "14px", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", marginTop: "12px" }}>
@@ -2545,141 +1859,46 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
             </div>
             )}
 
-            {/* 🧩 القائمتان جنب بعض عشان توفير المساحة — تنزل وحدة تحت الثانية
-                تلقائياً على الشاشات الضيقة. */}
-            <div className="panels-row">
-
-            {/* ── 🎚️ نظام المستويات: اكتب اسم الحساب وشوف لفله بكل لعبة ── */}
+            {/* ── إحصائيات اللاعبين: اكتب اسم الحساب وشوف فوزاته ولفله في كل لعبة ── */}
             {canRecords && (
-              <div className="card panel-half">
-                <div className="lb-head">
-                  <span style={{ fontSize: "1.15rem" }}>🎚️</span>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نظام المستويات</h3>
-                  <span className="lb-sub">— {WINS_PER_LEVEL} فوزات = مستوى واحد</span>
-                  <div className="lb-tools">
-                    <button className="lb-btn" onClick={refreshLvlPlayers} disabled={lvlBusy}>🔄 تحديث</button>
-                    <button className="lb-btn danger" onClick={resetAllLevels} disabled={lvlBusy}>🧹 تصفير الكل</button>
-                  </div>
+              <div className="card">
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                  <span style={{ fontSize: "1.15rem" }}>📊</span>
+                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>إحصائيات اللاعبين</h3>
+                  <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>— اكتب اسم الحساب وشوف فوزاته ولفله في كل لعبة</span>
                 </div>
 
-                {lvlMsg && (
-                  <div className={`lb-msg${lvlMsg.ok ? " ok" : " err"}`}>{lvlMsg.ok ? "✅" : "⚠️"} {lvlMsg.text}</div>
-                )}
-
-                {/* ➕ إضافة لاعب يدوياً: اسم + عدد فوزات + لعبة اختيارية */}
-                <div className="lvl-add">
+                <div style={{ display: "flex", gap: "8px", margin: "10px 0 4px", flexWrap: "wrap" }}>
                   <input
                     type="text"
-                    className="lb-name-input"
-                    placeholder="اسم اللاعب..."
-                    value={addName}
-                    onChange={e => setAddName(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter") addManualWinner(); }}
+                    className="n-input"
+                    style={{ flex: 1, minWidth: "180px", padding: "9px 12px" }}
+                    placeholder="🔍 اسم حساب اللاعب (كيك)"
+                    value={statsQuery}
+                    onChange={(e) => setStatsQuery(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") loadPlayerStats(); }}
                   />
-                  <input
-                    type="number"
-                    className="lb-pts-input"
-                    min={1}
-                    max={50}
-                    title="عدد البطولات المكسوبة"
-                    value={addWins}
-                    onChange={e => setAddWins(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
-                  />
-                  <span className="lb-unit">فوز</span>
-                  <select
-                    className="lb-select"
-                    value={addGame}
-                    onChange={e => setAddGame(e.target.value)}
-                    title="مطلوب — المستويات تُحسب لكل لعبة على حدة"
-                  >
-                    <option value="">اختر اللعبة...</option>
-                    {records.map(r => (
-                      <option key={r.id} value={r.tournamentName}>{r.displayName || r.tournamentName}</option>
-                    ))}
-                  </select>
                   <button
-                    className="lb-btn primary"
-                    disabled={addBusy || !addName.trim()}
-                    onClick={addManualWinner}
-                  >{addBusy ? "⏳ جارٍ..." : "➕ إضافة"}</button>
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ padding: "9px 16px", fontSize: "0.85rem", whiteSpace: "nowrap" }}
+                    disabled={statsLoading || !statsQuery.trim()}
+                    onClick={loadPlayerStats}
+                  >{statsLoading ? "..." : "🔍 بحث"}</button>
                 </div>
-                {addMsg && <div className={`lb-msg${addMsg.ok ? " ok" : " err"}`}>{addMsg.text}</div>}
-
-                {/* 🔎 فلتر اختياري — القائمة تحت تظهر تلقائياً بدون بحث */}
-                <input
-                  type="text"
-                  className="n-input"
-                  style={{ width: "100%", padding: "9px 12px", margin: "8px 0 10px" }}
-                  placeholder="🔎 فلتر بالاسم (اختياري)"
-                  value={statsQuery}
-                  onChange={(e) => { setStatsQuery(e.target.value); setLvlPage(0); }}
-                />
                 {statsError && <div style={{ color: "#ff4444", fontSize: "0.82rem", margin: "8px 0" }}>⚠️ {statsError}</div>}
-
-                {/* 📋 أسماء اللاعبين — تظهر مباشرة، 8 بالصفحة */}
-                <div className="lvl-list">
-                  {lvlFiltered.length === 0 && (
-                    <div className="lb-empty">
-                      {lvlError
-                        ? `⚠️ ${lvlError} — جرّب "🔄 تحديث"`
-                        : statsQuery.trim()
-                          ? "ما فيه اسم يطابق الفلتر"
-                          : "ما فيه لاعب له فوزات بعد — أضف اسماً من فوق أو خلّص بطولة"}
-                    </div>
-                  )}
-                  {lvlFiltered.slice(lvlPage * LVL_PER_PAGE, lvlPage * LVL_PER_PAGE + LVL_PER_PAGE).map((pl, i) => {
-                    const rank = lvlPage * LVL_PER_PAGE + i + 1;
-                    const isOpen = statsSearched.toLowerCase() === pl.username.toLowerCase();
-                    return (
-                      <button
-                        key={pl.username}
-                        className={`lvl-row as-btn${isOpen ? " on" : ""}`}
-                        onClick={() => loadPlayerStats(pl.username)}
-                        disabled={statsLoading}
-                        title="اضغط عشان تشوف لفله بكل لعبة"
-                      >
-                        <span className="lvl-rank">{rank}</span>
-                        <span className="lvl-name">{pl.username}</span>
-                        <span className="lvl-badge">⭐ {levelFromWins(pl.wins)}</span>
-                        <span className="lvl-wins" title={`${pl.wins} فوز · المستوى ${levelFromWins(pl.wins)}`}>{pl.wins}</span>
-                        <span className="lvl-go">{isOpen ? "▾" : "←"}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {lvlFiltered.length > LVL_PER_PAGE && (() => {
-                  const pages = Math.ceil(lvlFiltered.length / LVL_PER_PAGE);
-                  const cur = Math.min(lvlPage, pages - 1);
-                  return (
-                    <div className="lvl-pager">
-                      <button className="lvl-pg-nav" disabled={cur === 0} onClick={() => setLvlPage(cur - 1)}>›</button>
-                      {Array.from({ length: pages }, (_, i) => (
-                        <button key={i} className={`lvl-pg${i === cur ? " on" : ""}`} onClick={() => setLvlPage(i)}>{i + 1}</button>
-                      ))}
-                      <button className="lvl-pg-nav" disabled={cur >= pages - 1} onClick={() => setLvlPage(cur + 1)}>‹</button>
-                    </div>
-                  );
-                })()}
 
                 {statsData && (
                   <div style={{ marginTop: "12px" }}>
-                    <div className="lvl-detail-head">
-                      <span>👤 <b>{statsData.username}</b></span>
-                      <span className="lvl-detail-sum">
-                        إجمالي الفوزات: {Object.values(statsData.wins || {}).reduce((a, b) => a + b, 0)}
+                    <div style={{ fontSize: "0.9rem", fontWeight: 800, marginBottom: "10px" }}>
+                      👤 <span style={{ color: "#7fd4ff" }}>{statsData.username}</span>
+                      <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginRight: "8px" }}>
+                        · إجمالي الفوزات: {Object.values(statsData.wins || {}).reduce((a, b) => a + b, 0)}
                       </span>
-                      <button
-                        className="lb-btn danger sm"
-                        disabled={lvlBusy}
-                        onClick={() => resetOnePlayerLevel(statsData.username)}
-                        title="تصفير فوزات هذا اللاعب في كل الألعاب"
-                      >↺ صفّر</button>
-                      <button className="cardpick-close" onClick={() => { setStatsData(null); setStatsSearched(""); }} aria-label="إغلاق">✕</button>
                     </div>
-                    <div className="lvl-list">
+                    <div style={{ display: "grid", gap: "10px", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))" }}>
                       {records.length === 0 && (
-                        <div className="lb-empty">ما فيه ألعاب مضافة بعد</div>
+                        <div style={{ fontSize: "0.82rem", color: "var(--muted)", gridColumn: "1 / -1" }}>ماكاين ألعاب مضافة.</div>
                       )}
                       {records.map((rec) => {
                         const game = rec.tournamentName;
@@ -2688,130 +1907,29 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         const inLevel = progressWithinLevel(wins);
                         const pct = (inLevel / WINS_PER_LEVEL) * 100;
                         return (
-                          <div key={rec.id} className="lvl-row">
-                            <span className="lvl-name" title={rec.displayName || game}>{rec.displayName || game}</span>
-                            <span className="lvl-badge">⭐ {level}</span>
-                            <div className="lvl-track" title={`${wins} فوز · باقي ${WINS_PER_LEVEL - inLevel} للفل ${level + 1}`}>
-                              <div className="lvl-fill" style={{ width: `${pct}%` }} />
+                          <div key={rec.id} style={{ borderRadius: "12px", padding: "12px", background: "rgba(255,255,255,0.03)", border: "1px solid var(--border)" }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "6px" }}>
+                              <span style={{ fontWeight: 800, fontSize: "0.88rem" }}>{rec.displayName || game}</span>
+                              <span style={{ fontSize: "0.78rem", fontWeight: 900, color: "#7fd4ff" }}>⭐ لفل {level}</span>
                             </div>
-                            <span className="lvl-wins">{wins}</span>
-                            <div className="lvl-ctrl">
-                              <button type="button" className="lb-step" onClick={() => adjustPlayerWin(game, -1)} disabled={wins <= 0} title="نقص فوز">−</button>
-                              <button type="button" className="lb-step" onClick={() => adjustPlayerWin(game, 1)} title="زيادة فوز">＋</button>
+                            <div style={{ position: "relative", height: "7px", borderRadius: "999px", background: "rgba(255,255,255,0.1)", overflow: "hidden", marginBottom: "8px" }}>
+                              <div style={{ position: "absolute", inset: "0 auto 0 0", width: `${pct}%`, borderRadius: "999px", background: "linear-gradient(90deg,#1976e6,#39c4ff)", transition: "width .4s ease" }} />
+                            </div>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                              <div style={{ display: "flex", gap: "6px" }}>
+                                <button type="button" className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: "0.9rem", lineHeight: 1 }} onClick={() => adjustPlayerWin(game, -1)} disabled={wins <= 0} title="نقص فوز">−</button>
+                                <button type="button" className="btn btn-ghost" style={{ padding: "3px 10px", fontSize: "0.9rem", lineHeight: 1 }} onClick={() => adjustPlayerWin(game, 1)} title="زيادة فوز">＋</button>
+                              </div>
+                              <span style={{ fontSize: "0.75rem", color: "var(--muted)" }}>{wins} فوز · باقي {WINS_PER_LEVEL - inLevel} للفل {level + 1}</span>
                             </div>
                           </div>
                         );
                       })}
                     </div>
-
                   </div>
                 )}
               </div>
             )}
-
-            {/* ── 🏆 نقاط الأكثر انتصاراً: تحكم يدوي كامل (تعديل/تصفير) ── */}
-            {canRecords && (
-              <div className="card panel-half">
-                <div className="lb-head">
-                  <span style={{ fontSize: "1.15rem" }}>🏆</span>
-                  <h3 style={{ fontSize: "1.05rem", fontWeight: 900 }}>نقاط الأكثر انتصاراً</h3>
-                  <span className="lb-sub">— عدّل نقاط أي لاعب أو صفّرها يدوياً</span>
-                  <div className="lb-tools">
-                    <select
-                      className="lb-select"
-                      value={lbLimit}
-                      onChange={e => { const n = Number(e.target.value); setLbLimit(n); loadLeaderboard(n); }}
-                      title="كم لاعب يظهر بالقائمة"
-                    >
-                      <option value={5}>أعلى 5</option>
-                      <option value={10}>أعلى 10</option>
-                      <option value={20}>أعلى 20</option>
-                      <option value={50}>أعلى 50</option>
-                    </select>
-                    <button className="lb-btn" onClick={() => loadLeaderboard()} disabled={lbBusy}>🔄 تحديث</button>
-                    <button className="lb-btn danger" onClick={resetAllPoints} disabled={lbBusy}>🧹 تصفير الكل</button>
-                  </div>
-                </div>
-
-                {lbMsg && (
-                  <div className={`lb-msg${lbMsg.ok ? " ok" : " err"}`}>{lbMsg.ok ? "✅" : "⚠️"} {lbMsg.text}</div>
-                )}
-
-                {/* ➕ إضافة/تعيين نقاط لاسم مو موجود بالقائمة */}
-                <div className="lb-add">
-                  <input
-                    type="text"
-                    className="lb-name-input"
-                    placeholder="اسم اللاعب..."
-                    value={lbNewName}
-                    onChange={e => setLbNewName(e.target.value)}
-                  />
-                  <input
-                    type="number"
-                    className="lb-pts-input"
-                    min={0}
-                    value={lbNewPts}
-                    onChange={e => setLbNewPts(Math.max(0, parseInt(e.target.value) || 0))}
-                  />
-                  <span className="lb-unit">نقطة</span>
-                  <button
-                    className="lb-btn primary"
-                    disabled={lbBusy || !lbNewName.trim()}
-                    onClick={() => { applyPoints(lbNewName.trim(), lbNewPts); setLbNewName(""); }}
-                  >✍️ تعيين</button>
-                </div>
-
-                {/* 🔎 فلتر اختياري بالاسم — نفس شكل فلتر نظام المستويات */}
-                <input
-                  type="text"
-                  className="n-input"
-                  style={{ width: "100%", padding: "9px 12px", margin: "8px 0 10px" }}
-                  placeholder="🔎 فلتر بالاسم (اختياري)"
-                  value={lbQuery}
-                  onChange={e => setLbQuery(e.target.value)}
-                />
-
-                <div className="lb-list">
-                  {lbError && !lbBusy && (
-                    <div className="lb-msg err">⚠️ {lbError}</div>
-                  )}
-                  {!lbError && lbFiltered.length === 0 && !lbBusy && (
-                    <div className="lb-empty">
-                      {lbQuery.trim() ? "ما فيه اسم يطابق الفلتر" : "ما فيه نقاط مسجّلة بعد"}
-                    </div>
-                  )}
-                  {lbFiltered.map(({ row, rank }) => {
-                    const i = rank;
-                    const draft = lbDraft[row.username];
-                    const shown = draft !== undefined ? draft : String(row.wins);
-                    const changed = draft !== undefined && Number(draft) !== row.wins;
-                    return (
-                      <div key={row.username} className="lb-row">
-                        <span className={`lb-rank r${i + 1}`}>{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}</span>
-                        <span className="lb-name" title={row.username}>{row.username}</span>
-                        <div className="lb-ctrl">
-                          <button className="lb-step" disabled={lbBusy || row.wins <= 0} onClick={() => applyPoints(row.username, row.wins - 1)} title="نقص نقطة">−</button>
-                          <input
-                            type="number"
-                            className="lb-pts-input"
-                            min={0}
-                            value={shown}
-                            onChange={e => setLbDraft(d => ({ ...d, [row.username]: e.target.value }))}
-                          />
-                          <button className="lb-step" disabled={lbBusy} onClick={() => applyPoints(row.username, row.wins + 1)} title="زد نقطة">+</button>
-                          {changed && (
-                            <button className="lb-btn primary sm" disabled={lbBusy} onClick={() => applyPoints(row.username, Number(draft) || 0)}>حفظ</button>
-                          )}
-                          <button className="lb-btn danger sm" disabled={lbBusy || row.wins === 0} onClick={() => applyPoints(row.username, 0)} title="تصفير هذا اللاعب">↺ صفّر</button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            </div>{/* /panels-row */}
 
             {!canTournament && (
               <div className="card" style={{ textAlign: "center", padding: "28px 16px", opacity: 0.85 }}>
@@ -2824,163 +1942,77 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
             {/* SETUP SCREEN */}
             {canTournament && st.phase === "setup" && (
               <div className="card">
-                {/* 🎛️ لوحة إعداد البطولة: اسم البطولة ومهلة الانضمام بصف واحد
-                    مرتّب بدل ما يكونون متفرقين بسطور. */}
-                <div className="setup-bar">
-                  <div className="setup-field setup-name">
-                    <label htmlFor="t-name">🏆 اسم البطولة</label>
-                    <input
-                      id="t-name"
-                      type="text"
-                      className="n-input"
-                      placeholder="اكتب اسم البطولة..."
-                      value={st.name}
-                      onChange={e => setSt(prev => ({ ...prev, name: e.target.value }))}
-                      onBlur={() => sync(st)}
-                    />
-                  </div>
+                <div className="size-row">
+                  <label>اسم البطولة:</label>
+                  <input type="text" className="n-input" style={{ maxWidth: "300px" }} placeholder="IK3MO" value={st.name} onChange={e => setSt(prev => ({ ...prev, name: e.target.value }))} onBlur={() => sync(st)} />
+                </div>
 
-                  <div className="setup-sep" />
+                <div className="info-note">
+                  <span>📌 اللاعبون ينضمون تلقائياً من الشات · العدد الحالي: <b>{st.players.filter(p => p).length}</b></span>
+                </div>
 
-                  {/* 🟢 يخلي صفحة /bracket تعرض بوابة الانضمام (عدّاد + !دخول
-                      + عدد المنضمين) قبل ما تبدأ البطولة — عشان تحطها بالبث
-                      من بدري بدل ما تكون فاضية. */}
-                  <div className="setup-field">
-                    <label>📺 شجرة OBS</label>
-                    {/* العرض شغّال دايماً — صفحة /bracket تعرض بوابة الانضمام
-                        والمشاركين تلقائياً قبل بدء البطولة، فما فيه شي تفعّله.
-                        هذا الزر مجرد اختصار يفتح النافذة بجهازك. */}
-                    <button
-                      className="green-open-btn"
-                      title="يفتح صفحة الشجرة بخلفية شفافة — حطها كمصدر متصفح بـ OBS"
-                      onClick={() => window.open("/bracket", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
-                    >
-                      ↗ افتح النافذة
-                    </button>
-                  </div>
-
-                  <div className="setup-sep" />
-
-                  <div className="setup-field setup-join">
-                    <label>⏱️ مهلة الانضمام</label>
-                    {st.joinDeadline ? (
-                      <div className="join-row">
-                        <span className={`join-clock${getJoinSecondsLeft() <= 10 ? " hot" : ""}`}>
-                          {getJoinSecondsLeft() > 0
-                            ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
-                            : "⛔ انتهى"}
-                        </span>
-                        <span className="join-hint">
-                          {getJoinSecondsLeft() > 0 ? "الباب مفتوح" : "الباب مقفل"}
-                        </span>
-                        <button className="join-btn ghost" onClick={cancelJoinWindow}>✕ إلغاء</button>
-                      </div>
-                    ) : (
-                      <div className="join-row">
-                        <input
-                          type="number"
-                          className="join-mins"
-                          min={1}
-                          max={60}
-                          value={joinDurationInput}
-                          onChange={e => setJoinDurationInput(Math.max(1, parseInt(e.target.value) || 1))}
-                        />
-                        <span className="join-unit">دقيقة</span>
-                        <button className="join-btn" onClick={() => openJoinWindow(joinDurationInput)}>🕐 افتح الباب</button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="setup-sep" />
-
-                  {/* 👥 نظام الفرق — انتقل من صف مستقل لداخل لوحة الإعداد */}
-                  <div className="setup-field">
-                    <label>👥 نظام الفرق</label>
-                    <div className="teams-row">
-                      <label className="switch">
-                        <input type="checkbox" checked={st.isTeams} onChange={e => toggleTeams(e.target.checked)} />
-                        <span className="slider" />
-                      </label>
-                      {st.isTeams && (
-                        <>
-                          <input
-                            type="number"
-                            className="join-mins"
-                            value={st.teamSize}
-                            min={1}
-                            max={10}
-                            title="عدد اللاعبين بكل فريق"
-                            onChange={e => update({ ...st, teamSize: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })}
-                          />
-                          <span className="join-unit">لكل فريق</span>
-                          <button className="join-btn ghost" onClick={shuffleTeams} title="يفرّط اللاعبين ويرتبهم بفرق عشوائية جديدة">
-                            🎲 ترتيب عشوائي
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="setup-sep" />
-
-                  {/* ⏯️ بدء تلقائي: لو مفعّل، أول ما تخلص مهلة الباب تبدأ
-                      البطولة لحالها بدون ما تضغط "ابدأ البطولة". */}
-                  <div className="setup-field">
-                    <label>⏯️ بدء تلقائي</label>
-                    <div className="teams-row">
-                      <label className="switch">
-                        <input
-                          type="checkbox"
-                          checked={!!st.autoStart}
-                          onChange={e => update({ ...st, autoStart: e.target.checked })}
-                        />
-                        <span className="slider" />
-                      </label>
-                      <span className="join-unit">
-                        {st.autoStart ? "تبدأ فور انتهاء مهلة الباب" : "مقفل — تبدأ يدوياً"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="setup-sep" />
-
-                  {/* ⚡ إجراءات البطولة — تفريغ + بدء */}
-                  <div className="setup-field">
-                    <label>⚡ الإجراءات</label>
-                    <div className="teams-row">
-                      <button className="join-btn ghost" onClick={() => { update({ ...st, players: [], entryLog: [] }); }}>🧹 تفريغ</button>
-                      <button
-                        className={`join-btn${getStartBlockReason() ? " is-off" : ""}`}
-                        onClick={startTournament}
-                        title={getStartBlockReason() || "ابدأ البطولة"}
+                {/* ⏱️ نافذة الانضمام المؤقتة — بدل ما يضل باب الانضمام مفتوح للأبد */}
+                <div className="size-row" style={{ alignItems: "center" }}>
+                  <label>⏱️ نافذة الانضمام:</label>
+                  {st.joinDeadline ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+                      <span
+                        style={{
+                          fontWeight: 900,
+                          fontSize: "1.15rem",
+                          color: getJoinSecondsLeft() <= 10 ? "#ef4444" : "var(--blue)",
+                          minWidth: "58px",
+                        }}
                       >
-                        🚀 ابدأ البطولة
+                        {getJoinSecondsLeft() > 0
+                          ? `${String(Math.floor(getJoinSecondsLeft() / 60)).padStart(2, "0")}:${String(getJoinSecondsLeft() % 60).padStart(2, "0")}`
+                          : "⛔ انتهى"}
+                      </span>
+                      <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>
+                        {getJoinSecondsLeft() > 0 ? "الانضمام مفتوح — أي !دخول جديد بعد الوقت ما بينضاف" : "باب الانضمام مقفل الآن"}
+                      </span>
+                      <button className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: "0.8rem" }} onClick={cancelJoinWindow}>✕ إلغاء المهلة</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <input
+                        type="number"
+                        className="n-input"
+                        style={{ maxWidth: "90px" }}
+                        min={1}
+                        max={60}
+                        value={joinDurationInput}
+                        onChange={e => setJoinDurationInput(Math.max(1, parseInt(e.target.value) || 1))}
+                      />
+                      <span style={{ fontSize: "0.8rem", color: "var(--muted)" }}>دقيقة</span>
+                      <button className="btn btn-primary" style={{ padding: "6px 14px", fontSize: "0.85rem" }} onClick={() => openJoinWindow(joinDurationInput)}>
+                        🕐 افتح باب الانضمام
                       </button>
                     </div>
+                  )}
+                </div>
+
+                <div className="toggle-row">
+                  <label style={{ fontSize: "0.9rem", fontWeight: 700, color: "var(--muted)" }}>نظام الفرق (Teams):</label>
+                  <label className="switch">
+                    <input type="checkbox" checked={st.isTeams} onChange={e => toggleTeams(e.target.checked)} />
+                    <span className="slider" />
+                  </label>
+                  <div className={`team-size-control${st.isTeams ? " show" : ""}`}>
+                    <label>عدد اللاعبين/فريق:</label>
+                    <input type="number" className="team-size-input" value={st.teamSize} min="1" max="10" onChange={e => update({ ...st, teamSize: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)) })} />
                   </div>
+                  {st.isTeams && (
+                    <button className="btn btn-ghost" onClick={shuffleTeams} title="يفرّط اللاعبين ويرتبهم بفرق عشوائية جديدة">
+                      🎲 ترتيب عشوائي للفرق
+                    </button>
+                  )}
                 </div>
 
                 {/* عرض اللاعبين — في وضع "غير محدود" ما نعرض إلا خانات اللاعبين اللي انضموا فعلاً
                     (تُنشأ تلقائياً بمجرد ما حد يكتب أمر الانضمام بالشات). الأسماء غير قابلة
                     للتعديل اليدوي (تُقرأ من الشات مباشرة)، وكل عضو بالفريق له إطار مستقل
                     مفصول بعلامة & عن باقي أعضاء نفس الفريق. */}
-                <div className="reg-head">
-                  <span className="reg-title">👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
-                  <span className="reg-count">{st.players.filter(p => p).length}</span>
-                  <span className="reg-hint">
-                    {st.joinDeadline && getJoinSecondsLeft() > 0
-                      ? "الباب مفتوح الآن — أي دخول بالشات ينضاف مباشرة"
-                      : <>الانضمام تلقائي بكتابة <b>دخول</b> أو <b>!دخول</b> بالشات</>}
-                  </span>
-                  {/* 🤖 تنضاف بأي وقت — قبل فتح الباب أو وهو مفتوح — عشان تقدر
-                      تجرّب شكل الشجرة فوراً بدون ما تنتظر أحد ينضم. */}
-                  <div className="bots-group" title="لاعبين وهميين لتجربة الشجرة — تنضاف حتى والباب مفتوح">
-                    <span className="bots-label">🤖 بوتات</span>
-                    <button className="bots-btn" onClick={() => addBots(2)}>+2</button>
-                    <button className="bots-btn" onClick={() => addBots(4)}>+4</button>
-                    <button className="bots-btn" onClick={() => addBots(8)}>+8</button>
-                  </div>
-                </div>
-
                 <div className="ik3mo-names-grid">
                   {st.players
                     .map((p, i) => ({ i, p }))
@@ -3008,49 +2040,91 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                         </div>
                       );
                     })}
+                  {st.players.filter(Boolean).length === 0 && (
+                    <div className="ik3mo-empty-wait">
+                      <div className="ik3mo-empty-wait-icon">⏳</div>
+                      <div className="ik3mo-empty-wait-text">بانتظار انضمام اللاعبين من الشات...</div>
+                      <div className="ik3mo-empty-wait-sub">اكتب <b>!دخول</b> بالشات للانضمام تلقائياً</div>
+                    </div>
+                  )}
                 </div>
 
+                <div className="action-row">
+                  <button className="btn btn-ghost" onClick={() => { update({ ...st, players: [], entryLog: [] }); }}>🧹 تفريغ</button>
+                  <button
+                    className={`btn btn-primary${getStartBlockReason() ? " btn-disabled" : ""}`}
+                    onClick={startTournament}
+                    title={getStartBlockReason() || ""}
+                  >
+                    🚀 ابدأ البطولة
+                  </button>
+                </div>
+
+                {/* 🔔 بانر احترافي يظهر تحت زر البدء مباشرة لما العدد غير كافي —
+                    بيتحدّث لحظيًا مع كل انضمام جديد من الشات (بدل alert مزعج) */}
+                {getStartBlockReason() && (
+                  <div
+                    style={{
+                      marginTop: "12px",
+                      padding: "14px 18px",
+                      borderRadius: "12px",
+                      background: "rgba(255,193,7,0.10)",
+                      border: "1px solid rgba(255,193,7,0.35)",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 800, color: "#ffc107" }}>
+                      <span>⚠️</span>
+                      <span>{getStartBlockReason()}</span>
+                    </div>
+                    <div style={{ fontSize: "0.85rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span className="viewer-badge-dot" style={{ position: "static" }} />
+                      متابعة لحظية: <b style={{ color: "var(--blue)" }}>{st.players.filter(p => p).length}</b> {st.isTeams ? "فريق" : "لاعب"} منضم الآن — بانتظار البقية من الشات...
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* TOURNAMENT SCREEN */}
             {canTournament && st.phase === "tournament" && (
               <div>
-                {/* ⚠️ قبل: اسم البطولة كان position:absolute بنص الشريط، فيتداخل
-                    مع أزرار اليسار (خصوصاً خانة الماتش العشوائي) لما تطول.
-                    الحين كل شي بتدفق flex طبيعي — العنوان بالنص بمرونة
-                    والمجموعتان على الطرفين، وما فيه تداخل مهما طال الاسم. */}
-                <div className="toolbar tb-flex">
-                  <div className="tb-side">
-                    <button className="btn-stop" onClick={() => resetTournament()} title="يوقف البطولة الحالية ويرجّعك لشاشة الإعداد">⛔ إيقاف البطولة</button>
+                <div className="toolbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", position: "relative", gap: "20px", flexWrap: "wrap" }}>
+                  <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                    <button className="btn btn-ghost" onClick={resetTournament} style={{ padding: "6px 14px", fontSize: "0.85rem" }}>↺ بطولة جديدة</button>
                     <button className="btn btn-ghost" onClick={undoLastWin} disabled={!st.winHistory?.length} title={st.winHistory?.length ? "تراجع عن آخر نتيجة فوز" : "ما فيه نتيجة نتراجع عنها"} style={{ padding: "6px 14px", fontSize: "0.85rem", opacity: st.winHistory?.length ? 1 : 0.4, cursor: st.winHistory?.length ? "pointer" : "not-allowed" }}>↩️ تراجع</button>
                     <button
                       className="btn btn-ghost"
                       title="يفتح نافذة منفصلة فيها شجرة البطولة فقط بخلفية خضراء (Chroma Key) — مناسبة للستريمر بدل ما يفتح صفحة الأدمن كاملة"
                       style={{ padding: "6px 14px", fontSize: "0.85rem" }}
-                      onClick={() => window.open("/bracket", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
+                      onClick={() => window.open("/bracket?green=1", "ik3mo-bracket", "width=1100,height=760,noopener,noreferrer")}
                     >
-                      📺 نافذة الشجرة (خلفية شفافة)
+                      🟢 نافذة الشجرة (خلفية خضراء)
                     </button>
-
-                    {/* 🎲 الماتش العشوائي — مدموج بنفس الشريط بدل ما يكون بصف مستقل */}
-                    <span className="tb-sep" />
-                    <button className="btn-pick" onClick={pickRandomMatch} disabled={pickRunning}>🎲 ماتش عشوائي</button>
-                    <div className="pick-inline">
-                      <span className={slotClassA}>{slotA}</span>
-                      <span className="pick-vs">VS</span>
-                      <span className={slotClassB}>{slotB}</span>
-                    </div>
                   </div>
-                  <div className="tb-title">
-                    <span>{st.name ? `🏆 ${st.name}` : ""}</span>
+                  <div className="toolbar-info" style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}>
+                    <span style={{ color: "var(--gold)", fontWeight: 900, fontSize: "1.4rem", whiteSpace: "nowrap", textShadow: "0 0 12px rgba(255,215,0,0.6)" }}>
+                      {st.name ? `🏆 ${st.name}` : ""}
+                    </span>
                   </div>
-                  <div className="tb-side tb-stats">
+                  <div className="toolbar-info" style={{ flex: "0 0 auto", display: "flex", alignItems: "center", gap: "8px" }}>
                     <span>{st.isTeams ? "الفرق:" : "اللاعبون:"}</span> <b>{st.players.length}</b>
                     {st.byeN > 0 && <span style={{ color: "var(--blue)" }}>(بايب: {st.byeN})</span>}
                     <span style={{ opacity: 0.5 }}>·</span>
                     <span>الجولة الحالية:</span> <b>{st.cur + 1}</b>
                   </div>
+                </div>
+
+                <div className="pick-bar">
+                  <span className="pick-bar-label">🎲 ماتش عشوائي:</span>
+                  <div className="pick-result">
+                    <div className={slotClassA}>{slotA}</div>
+                    <div className="pick-vs">VS</div>
+                    <div className={slotClassB}>{slotB}</div>
+                  </div>
+                  <button className="btn-pick" onClick={pickRandomMatch} disabled={pickRunning}>🎰 اختر!</button>
                 </div>
 
                 <BracketDisplay st={st} isAdmin={true} pickedMatchId={st.pickedMatchId ?? null} onWin={handleWin} />
@@ -3071,10 +2145,9 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
                       <button
                         className="btn btn-primary"
                         style={{ padding: "12px 28px", fontSize: "0.95rem" }}
-                        onClick={() => setCardPickOpen(true)}
-                        title="تختار كرت موجود من سجل البطولات، ينحفظ فيه اسم الفائز، وتُقفل البطولة تلقائياً"
+                        onClick={resetTournament}
                       >
-                        🏆 اعتمد الفائز بكرت
+                        🏠 رجوع للوحة الرئيسية
                       </button>
                     </div>
                     {autoCardStatus && (
@@ -3089,164 +2162,59 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
           </div>
         </div>
 
-      </div>
+        <button className={`sidebar-toggle${!sidebarHidden ? " sb-active" : ""}`} onClick={() => setSidebarHidden(h => !h)} title={sidebarHidden ? "إظهار الشات" : "إخفاء الشات"}>
+          <span>💬</span>
+          <span style={{ fontSize: "0.82rem", fontFamily: "Cairo, sans-serif", fontWeight: 700 }}>{sidebarHidden ? "الشات" : "إخفاء"}</span>
+        </button>
 
-      {/* 📜 سجل صور الكروت — كل صورة مع لعبتها وتاريخ رفعها */}
-      {imgLogOpen && (
-        <div className="cardpick-overlay" onClick={() => setImgLogOpen(false)}>
-          <div className="cardpick imglog" onClick={e => e.stopPropagation()}>
-            <div className="cardpick-head">
-              <span>📜 سجل صور الكروت</span>
-              <button className="cardpick-close" onClick={() => setImgLogOpen(false)} aria-label="إغلاق">✕</button>
+        <div className={`sidebar${sidebarHidden ? " sidebar-hidden" : ""}`} id="sidebar-container">
+          <div className="sidebar-head">
+            <div className="kick-badge"><img src={iconImg} alt="IK3MO" style={{ width: "100%", height: "100%", objectFit: "cover" }} /></div>
+            <div className="sidebar-title">IK3MO</div>
+            <div className={`live-pill${chatStatus === "live" ? " pill-live" : chatStatus === "connecting" ? " pill-checking" : " pill-offline"}`}>
+              {chatStatus === "live" ? "🟢 مباشر" : chatStatus === "connecting" ? "🟡 يتحقق..." : "⚫ أوفلاين"}
             </div>
-            <p className="cardpick-sub">
-              سجل دائم: كل حفظ لصورة بطولة أو فائز يُسجّل هنا بلقطته وتاريخه.
-            </p>
-
-            <div className="imglog-tools">
-              <label className={`lb-btn primary${imgLogBusy ? " is-off" : ""}`}>
-                ➕ أضف صورة
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={imgLogBusy}
-                  style={{ display: "none" }}
-                  onChange={e => { const f = e.target.files?.[0]; if (f) addImageToLog(f); e.currentTarget.value = ""; }}
-                />
-              </label>
-              <button className="lb-btn" onClick={openImagesLog} disabled={imgLogBusy}>🔄 تحديث</button>
-              <button
-                className={`lb-btn${imgLogShowAll ? " primary" : ""}`}
-                onClick={() => setImgLogShowAll(v => !v)}
-                title="يعرض الصور الموجودة بالمكتبة وغير المرتبطة بأي كرت — تقدر تربطها من جديد"
-              >{imgLogShowAll ? "🏆 صور البطولات فقط" : "📂 اعرض كل الصور"}</button>
-            </div>
-
-            {imgLogBusy && <div className="cardpick-busy">⏳ جارٍ العمل...</div>}
-            {imgLogErr && <div className="lb-msg err">⚠️ {imgLogErr}</div>}
-
-            {!imgLogBusy && !imgLogErr && (
-              <>
-                {imgLogDays.length === 0 ? (
-                  <div className="cardpick-empty">ما فيه سجل بعد — أي حفظ لصورة أو فائز ينسجّل هنا تلقائياً</div>
-                ) : (
-                  <div className="imglog-days">
-                    {imgLogDays.map((day, di) => (
-                      <div className="imglog-day" key={di}>
-                        <div className="imglog-date-big">{day.label}</div>
-                        <div className="imglog-row">
-                          {day.items.map(row => (
-                            <div className="imglog-card" key={row.id}>
-                              <span className={`imglog-winner${row.winnerName ? "" : " none"}`}>
-                                {row.winnerName ? `🏆 ${row.winnerName}` : "— بدون فائز —"}
-                              </span>
-                              <a href={row.image} target="_blank" rel="noopener noreferrer" title="افتح الصورة بالحجم الكامل">
-                                <img className="imglog-pic" src={row.image} alt="" loading="lazy" />
-                              </a>
-                              <span className="imglog-game">{row.displayName || row.tournamentName}</span>
-                              <span className="imglog-time">
-                                {new Date(row.savedAt).toLocaleTimeString("ar-SA", { hour: "2-digit", minute: "2-digit" })}
-                              </span>
-                              <button
-                                className="imglog-del"
-                                disabled={imgLogBusy}
-                                onClick={() => removeHistoryRow(row.id)}
-                                title="حذف هذا السطر من السجل (الكرت والصورة ما يتأثرون)"
-                              >🗑️ من السجل</button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* 📂 استرجاع: صور موجودة بالمكتبة وغير مستخدمة بأي كرت */}
-                {imgLogShowAll && (
-                  <div className="imglog-day" style={{ marginTop: "22px" }}>
-                    <div className="imglog-date-big">📂 صور بالمكتبة غير مرتبطة بكرت</div>
-                    {orphanImages.length === 0 ? (
-                      <div className="cardpick-empty">ما فيه صور غير مرتبطة</div>
-                    ) : (
-                      <div className="imglog-row">
-                        {orphanImages.map(img => (
-                          <div className="imglog-card" key={img.publicId}>
-                            <span className="imglog-winner none">🔓 غير مرتبطة</span>
-                            <a href={img.url} target="_blank" rel="noopener noreferrer">
-                              <img className="imglog-pic" src={img.url} alt="" loading="lazy" />
-                            </a>
-                            <div className="imglog-link">
-                              <select
-                                className="imglog-select"
-                                value={linkTarget[img.publicId] || ""}
-                                onChange={e => setLinkTarget(t => ({ ...t, [img.publicId]: e.target.value }))}
-                              >
-                                <option value="">اربطها بكرت...</option>
-                                {records.map(r => (
-                                  <option key={r.id} value={r.tournamentName}>{r.displayName || r.tournamentName}</option>
-                                ))}
-                              </select>
-                              <button
-                                className="imglog-linkbtn"
-                                disabled={imgLogBusy || !linkTarget[img.publicId]}
-                                onClick={() => linkImageToCard(img.url, linkTarget[img.publicId])}
-                              >🔗 ربط</button>
-                            </div>
-                            <button
-                              className="imglog-del"
-                              disabled={imgLogBusy}
-                              onClick={() => removeImageFromLog(img.publicId, img.url)}
-                              title="حذف الصورة نهائياً من المكتبة"
-                            >🗑️ حذف نهائي</button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
           </div>
-        </div>
-      )}
-
-      {/* 🏆 نافذة اختيار الكرت اللي يروح له اسم الفائز — بعد الاختيار
-          ينحفظ الفائز بالكرت وتُقفل البطولة تلقائياً. */}
-      {cardPickOpen && (
-        <div className="cardpick-overlay" onClick={() => !cardPickBusy && setCardPickOpen(false)}>
-          <div className="cardpick" onClick={e => e.stopPropagation()}>
-            <div className="cardpick-head">
-              <span>🏆 وين يروح الفائز؟</span>
-              <button className="cardpick-close" onClick={() => setCardPickOpen(false)} aria-label="إغلاق">✕</button>
+          <div className="chat-body">
+            <div className="chat-frame-container" style={{ position: "relative" }}>
+              {kLive ? (
+                <iframe src={`https://kick.com/popout/${CH}/chat`} allow="autoplay;fullscreen" sandbox="allow-scripts allow-same-origin allow-popups allow-forms" style={{ display: "block" }} />
+              ) : (
+                <div className="chat-offline">
+                  <div className="ico">📡</div>
+                  <p>جاري التحقق من بث <b>{CH.toUpperCase()}</b> على Kick.<br />الشات يظهر تلقائياً عند البث.</p>
+                  <button className="btn-check" onClick={() => kickCheck(true)}>🔄 تحقق الآن</button>
+                </div>
+              )}
             </div>
-            <p className="cardpick-sub">
-              اختر الكرت اللي ينحفظ فيه <b>{st.champion || "الفائز"}</b> — وبعدها تُقفل البطولة تلقائياً.
-            </p>
-
-            {records.length === 0 ? (
-              <div className="cardpick-empty">ما فيه كروت بسجل البطولات — استخدم "🪄 إنشاء كرت تلقائي"</div>
-            ) : (
-              <div className="cardpick-list">
-                {records.map(rec => (
-                  <button
-                    key={rec.id}
-                    className="cardpick-item"
-                    disabled={cardPickBusy}
-                    onClick={() => assignWinnerToCard(rec)}
-                  >
-                    <span className="cardpick-name">{rec.displayName || rec.tournamentName}</span>
-                    <span className="cardpick-cur">
-                      {rec.winnerName ? `الحالي: ${rec.winnerName}` : "ما فيه فائز"}
-                    </span>
-                    <span className="cardpick-go">←</span>
-                  </button>
+            <div className="entry-log-container">
+              <div className="entry-log-head">
+                <span>👥 {st.isTeams ? "الفرق المسجلة" : "المسجلين من الشات"}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span id="chat-status" style={{ fontSize: "0.6rem", color: "var(--muted)" }}>{chatStatus === "live" ? "🟢 متصل" : "🔴 غير متصل"}</span>
+                  <span style={{ color: "var(--kick)" }}>{st.entryLog.length}</span>
+                </div>
+              </div>
+              <div className="entry-log-list">
+                {[...st.entryLog].reverse().map((e, i) => (
+                  <div key={i} className="entry-item">
+                    {e.avatar ? (
+                      <img className="avatar" src={e.avatar} alt={e.user} referrerPolicy="no-referrer" />
+                    ) : (
+                      <div className="status-dot" />
+                    )}
+                    <div className="user">{e.user}</div>
+                    <div className="time">{e.time}</div>
+                  </div>
                 ))}
               </div>
-            )}
-            {cardPickBusy && <div className="cardpick-busy">⏳ جارِ الحفظ وإقفال البطولة...</div>}
+            </div>
+          </div>
+          <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", display: "flex", gap: "8px" }}>
+            <button className="btn btn-ghost" style={{ flex: 1, padding: "8px", fontSize: "0.78rem" }} onClick={onLogout}>🚪 خروج</button>
           </div>
         </div>
-      )}
+      </div>
 
       {/* 🎨 لوحة تخصيص ثيم/إيموجي/لقب الفائز — تظهر التغييرات فورًا بالصفحة العامة */}
       {editingWinner && (
@@ -3309,6 +2277,11 @@ export default function AdminPage({ token, role, permissions, onLogout }: Props)
             <button className="btn btn-primary" style={{ width: "100%", padding: "10px" }} onClick={() => setEditingWinner(null)}>تم</button>
           </div>
         </div>
+      )}
+
+      {/* 📋 جدول المشرفين — يفتح كصفحة/طبقة فوق كل شيء عند الضغط على الزر بالأعلى */}
+      {showModerators && (
+        <ModeratorsSchedule token={token} onClose={() => setShowModerators(false)} />
       )}
 
     </>

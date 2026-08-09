@@ -57,12 +57,6 @@ export interface TournamentState {
   byeN: number;
   isTeams: boolean;
   teamSize: number;
-  /** معرّف المباراة المسحوبة عشوائياً بصيغة "جولة-رقم" (ستروك أحمر بالشجرة) */
-  pickedMatchId?: string | null;
-  /** إظهار شاشة الجرين سكرين من قبل بدء البطولة (تعرض بوابة الانضمام) */
-  greenEarly?: boolean;
-  /** بدء البطولة تلقائياً فور انتهاء مهلة باب الانضمام */
-  autoStart?: boolean;
   name: string;
   gameType: string;
   champion: string;
@@ -77,6 +71,7 @@ export interface TournamentState {
   priorityOnly: boolean;
   winHistory: HistorySnapshot[];
   joinDeadline: number | null; // ⏱️ توقيت (Date.now() + ms) لإغلاق باب الانضمام تلقائيًا — null يعني الانضمام مفتوح بدون وقت
+  pickedMatchId: string | null; // 🎯 معرّف الماتش المختار حالياً بالبراكت (مثلاً "0-2") — null يعني ما فيه اختيار حالي
 }
 
 // لقطة من الحالة قبل كل نتيجة فوز (بدون winHistory نفسها عشان ما تتكرر بشكل لا نهائي)
@@ -106,6 +101,7 @@ export const defaultState = (): TournamentState => ({
   priorityOnly: false,
   winHistory: [],
   joinDeadline: null,
+  pickedMatchId: null,
 });
 
 export interface ScheduleItem {
@@ -141,10 +137,6 @@ export interface TournamentArchive {
   champion: string;
   isTeams: boolean;
   teamSize: number;
-  /** معرّف المباراة المسحوبة عشوائياً بصيغة "جولة-رقم" (ستروك أحمر بالشجرة) */
-  pickedMatchId?: string | null;
-  /** إظهار شاشة الجرين سكرين من قبل بدء البطولة (تعرض بوابة الانضمام) */
-  greenEarly?: boolean;
   players: string[];
   rounds: Match[][];
   finishedAt: string;
@@ -177,24 +169,4 @@ export interface LeaderboardEntry {
 // جلسة اللاعب المسجّل عبر شات كيك (تُحفظ محلياً بالمتصفح)
 export interface PlayerSession {
   username: string; // اسم حساب كيك كما ظهر
-}
-
-// ── 📌 مشرفو البث (Moderators) + تتبع الحضور ──
-export interface Moderator {
-  id: number;
-  name: string; // اسم حساب المشرف بشات كيك
-  createdAt: string;
-}
-
-// الفترات الثلاث لإثبات التواجد أثناء البث
-export type AttendanceSlot = "start" | "half" | "end";
-
-export interface ModeratorAttendanceRow {
-  id: number;
-  moderatorName: string;  // مطبَّع (lowercase/trim)
-  displayName: string;    // الاسم كما ظهر بالشات
-  sessionDate: string;    // "YYYY-MM-DD"
-  startAt: string | null;
-  halfAt: string | null;
-  endAt: string | null;
 }

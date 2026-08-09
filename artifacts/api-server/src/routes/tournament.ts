@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { logger } from "../lib/logger";
-import { uploadImageToCloudinary, getCloudinaryStatus, isCloudinaryConfigured, listCloudinaryImages, deleteCloudinaryImage } from "../lib/cloudinary";
+import { uploadImageToCloudinary, getCloudinaryStatus, isCloudinaryConfigured } from "../lib/cloudinary";
 
 const router = Router();
 
@@ -78,15 +78,6 @@ const clients = new Set<Response>();
 // Load DB helpers at runtime to avoid TS build-order issues in the workspace
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const dbModule: any = require("@workspace/db");
-// جداول Drizzle — نحتاجها للخطة الاحتياطية بمسار /player/levels لو حزمة
-// قاعدة البيانات المنشورة قديمة وما فيها getPlayerLevels / resetAllPlayerWins.
-let dbSchemaModule: any = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  dbSchemaModule = require("@workspace/db/schema");
-} catch {
-  dbSchemaModule = null;
-}
 const { 
   initializeDatabase, 
   getTournamentState, 
@@ -98,16 +89,9 @@ const {
   deleteTournamentRecord: dbDeleteRecord,
   setTournamentRecordVisibility: dbSetRecordVisibility,
   getPlayerWins: dbGetPlayerWins,
-  getPlayerLevels: dbGetPlayerLevels,
-  addRecordHistory: dbAddRecordHistory,
-  getRecordHistory: dbGetRecordHistory,
-  deleteRecordHistory: dbDeleteRecordHistory,
   setPlayerWins: dbSetPlayerWins,
-  resetAllPlayerWins: dbResetAllPlayerWins,
   incrementPlayerWin: dbIncrementPlayerWin,
   incrementPlayerMatchWin: dbIncrementPlayerMatchWin,
-  setPlayerMatchWins: dbSetPlayerMatchWins,
-  resetAllPlayerMatchWins: dbResetAllPlayerMatchWins,
   getLeaderboard: dbGetLeaderboard,
   normalizePlayerName: dbNormalizePlayerName,
   getArchives: dbGetArchives,
@@ -118,11 +102,6 @@ const {
   addAdminHelper: dbAddHelper,
   updateAdminHelperPermissions: dbUpdateHelperPermissions,
   deleteAdminHelper: dbDeleteHelper,
-  getModerators: dbGetModerators,
-  addModerator: dbAddModerator,
-  deleteModerator: dbDeleteModerator,
-  getModeratorAttendance: dbGetModeratorAttendance,
-  markModeratorAttendance: dbMarkModeratorAttendance,
   USE_LOCAL_STORE: dbUsesLocalStore,
 } = dbModule;
 
@@ -429,83 +408,6 @@ router.get("/storage/status", requireAdmin, async (_req: Request, res: Response)
 // 🔁 نقل الصور القديمة المخزّنة Base64 داخل قاعدة البيانات (سجل البطولات) إلى
 // التخزين الخارجي (Cloudinary) — يشتغل مرة وحدة عند الطلب من لوحة الأدمن، ويعيد
 // كتابة كل سجل قديم برابط بدل الصورة الكاملة، فيخفف حجم القاعدة تدريجياً.
-// 📜 سجل صور الكروت: كل الصور المرفوعة لـ Cloudinary مع تاريخ رفعها.
-router.get("/images/history", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
-  if (!isCloudinaryConfigured) {
-    res.status(400).json({ error: "Cloudinary غير مهيّأ" });
-    return;
-  }
-  try {
-    const images = await listCloudinaryImages("kemo/records", 300);
-    res.json(images);
-  } catch (err: any) {
-    logger.error({ err }, "Failed to list cloudinary images");
-    res.status(500).json({ error: err?.message || "فشل جلب سجل الصور" });
-  }
-});
-
-// 🗑️ حذف صورة من مكتبة Cloudinary. لو كانت مستخدمة بكرت، ننظّف الحقل كمان
-// عشان ما يبقى الكرت مؤشراً على رابط ميت.
-router.post("/images/delete", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
-  const { publicId, url } = req.body as { publicId?: string; url?: string };
-  if (!publicId) {
-    res.status(400).json({ error: "معرّف الصورة مطلوب" });
-    return;
-  }
-  if (!isCloudinaryConfigured) {
-    res.status(400).json({ error: "Cloudinary غير مهيّأ" });
-    return;
-  }
-  try {
-    await deleteCloudinaryImage(publicId);
-    if (url) {
-      const records = await dbGetRecords();
-      for (const rec of records) {
-        if (rec.image === url || rec.image2 === url) {
-          await dbUpsertRecord({
-            tournamentName: rec.tournamentName,
-            winnerName: rec.winnerName,
-            image: rec.image === url ? "" : rec.image,
-            image2: rec.image2 === url ? "" : rec.image2,
-          });
-        }
-      }
-      broadcast();
-    }
-    res.json({ ok: true });
-  } catch (err: any) {
-    logger.error({ err, publicId }, "Failed to delete image");
-    res.status(500).json({ error: err?.message || "فشل حذف الصورة" });
-  }
-});
-
-// 📜 سجل كروت البطولات — لقطات تاريخية مرتّبة من الأحدث.
-router.get("/records/history", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
-  try {
-    const limit = Number(req.query.limit) || 300;
-    res.json(await dbGetRecordHistory(limit));
-  } catch (err: any) {
-    logger.error({ err }, "Failed to fetch record history");
-    res.status(500).json({ error: err?.message || "فشل جلب السجل" });
-  }
-});
-
-// 🗑️ حذف لقطة من السجل (ما تمس الكرت ولا الصورة بـ Cloudinary).
-router.post("/records/history/delete", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
-  const { id } = req.body as { id?: number };
-  if (!id) {
-    res.status(400).json({ error: "معرّف السطر مطلوب" });
-    return;
-  }
-  try {
-    await dbDeleteRecordHistory(Number(id));
-    res.json({ ok: true });
-  } catch (err: any) {
-    logger.error({ err }, "Failed to delete record history");
-    res.status(500).json({ error: err?.message || "فشل الحذف" });
-  }
-});
-
 router.post("/migrate-images", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
   if (!isCloudinaryConfigured) {
     res.status(400).json({ error: "Cloudinary غير مهيّأ — أضف متغيرات البيئة أولاً" });
@@ -581,19 +483,6 @@ router.put("/records", requireAdmin, requirePermission("records"), async (req: R
       }
     }
 
-    // 📜 لقطة للسجل التاريخي: اللعبة + الفائز + الصورة + وقت الحفظ.
-    // تُكتب هنا (بالخادم) فتشمل أي مصدر حفظ، وتتجاهل التكرار لو ما تغيّر شي.
-    try {
-      await dbAddRecordHistory({
-        tournamentName,
-        displayName: displayName ?? row?.displayName ?? "",
-        winnerName,
-        image,
-      });
-    } catch (hErr) {
-      logger.error({ err: hErr }, "Failed to append record history");
-    }
-
     broadcast(); // ننبّه المشاهدين عشان يعيدون جلب السجل
     res.json(row);
   } catch (err) {
@@ -629,24 +518,6 @@ router.patch("/records/:id/visibility", requireAdmin, requirePermission("records
     const isHidden = Boolean((req.body as { isHidden?: boolean })?.isHidden);
     const result = await dbSetRecordVisibility(id, isHidden);
     const row = Array.isArray(result) ? result[0] : result;
-    // 📜 لقطة للسجل التاريخي: اللعبة + الفائز + الصورة + وقت الحفظ.
-    // تُكتب هنا (بالخادم) فتشمل أي مصدر حفظ، وتتجاهل التكرار لو ما تغيّر شي.
-    // ⚠️ إصلاح: كانت تستخدم متغيرات (tournamentName/displayName/winnerName/image)
-    // غير معرّفة أصلاً بهذا الـ handler (خطأ برمجي كان يمنع بناء المشروع بالكامل)
-    // — الصح إنها تاخذ القيم من `row` (السجل اللي رجع من dbSetRecordVisibility).
-    try {
-      if (row) {
-        await dbAddRecordHistory({
-          tournamentName: row.tournamentName,
-          displayName: row.displayName ?? "",
-          winnerName: row.winnerName,
-          image: row.image,
-        });
-      }
-    } catch (hErr) {
-      logger.error({ err: hErr }, "Failed to append record history");
-    }
-
     broadcast(); // ننبّه المشاهدين عشان يعيدون جلب السجل
     res.json(row);
   } catch (err) {
@@ -684,130 +555,14 @@ router.get("/player/stats", async (req: Request, res: Response) => {
 
 // 🏆 قائمة المتصدّرين (عام، بدون توكن): أعلى اللاعبين حسب مجموع فوزاتهم عبر
 // كل الألعاب. تستخدمه القائمة المنبثقة تحت أيقونة الكأس بالصفحة العامة.
-// 📊 قائمة نظام المستويات — كل اللاعبين ومجموع فوزاتهم من player_wins.
-// عامة للقراءة زي /player/stats و /player/leaderboard.
-//
-// 🩹 خطة احتياطية مهمة: لو نسخة @workspace/db المنشورة قديمة وما فيها
-// getPlayerLevels، نحسب التجميع هنا مباشرة من جدول player_wins بدل ما نفشل.
-// (بدونها كان النداء يرمي TypeError → 500 → تطلع القائمة فاضية بلوحة الأدمن
-// رغم إن الفوزات موجودة فعلاً وتظهر بشريط اللفل تحت الكروت بالصفحة العامة.)
-async function computePlayerLevels(limit: number) {
-  const n = Math.max(1, Math.min(2000, Math.floor(Number(limit) || 500)));
-  if (typeof dbGetPlayerLevels === "function") return await dbGetPlayerLevels(n);
-
-  logger.warn("getPlayerLevels مفقودة من @workspace/db — نستعمل الحساب الاحتياطي داخل المسار");
-  if (dbUsesLocalStore) {
-    throw new Error("getPlayerLevels مفقودة من حزمة قاعدة البيانات (وضع التخزين المحلي) — حدّث lib/db/src/index.ts");
-  }
-  const table = dbSchemaModule?.playerWinsTable;
-  if (!dbModule?.db || !table) {
-    throw new Error("تعذّر الوصول لجدول player_wins — حدّث lib/db/src/index.ts");
-  }
-  const rows = await dbModule.db.select().from(table);
-  const totals = new Map<string, { username: string; displayName: string; wins: number }>();
-  for (const r of rows || []) {
-    const key = String(r.username || "").trim();
-    if (!key) continue;
-    const cur = totals.get(key) || { username: key, displayName: "", wins: 0 };
-    cur.wins += Number(r.wins) || 0;
-    if (!cur.displayName && r.displayName) cur.displayName = String(r.displayName).trim();
-    totals.set(key, cur);
-  }
-  return [...totals.values()]
-    .filter((p) => p.wins > 0)
-    .sort((a, b) => b.wins - a.wins || a.username.localeCompare(b.username))
-    .slice(0, n)
-    .map((p) => ({ username: p.displayName || p.username, wins: p.wins }));
-}
-
-router.get("/player/levels", async (req: Request, res: Response) => {
-  try {
-    const rows = await computePlayerLevels(Number(req.query.limit) || 500);
-    res.json(rows || []);
-  } catch (err) {
-    logger.error({ err }, "Failed to fetch player levels");
-    // نرجّع سبب العطل الحقيقي مع الرد عشان لوحة الأدمن تعرضه بدل رسالة عامة
-    // ما تدل على شي — كذا يبان فوراً وش الناقص بدل التخمين.
-    res.status(500).json({
-      error: "فشل جلب قائمة المستويات",
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-});
-
-// 🧹 تصفير نظام المستويات لكل اللاعبين (بداية موسم جديد).
-// مستقل عن /player/match-wins/reset: هذا يمسح player_wins (لفل الكروت)،
-// وذاك يمسح player_match_wins (نقاط الأكثر انتصاراً).
-// نفس فكرة الخطة الاحتياطية فوق: يشتغل حتى لو resetAllPlayerWins مو موجودة.
-router.post("/player/wins/reset", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
-  try {
-    if (typeof dbResetAllPlayerWins === "function") {
-      const out = await dbResetAllPlayerWins();
-      broadcast();
-      res.json(out || { cleared: 0 });
-      return;
-    }
-    const table = dbSchemaModule?.playerWinsTable;
-    if (dbUsesLocalStore || !dbModule?.db || !table) {
-      throw new Error("resetAllPlayerWins مفقودة من حزمة قاعدة البيانات — حدّث lib/db/src/index.ts");
-    }
-    const rows = await dbModule.db.select().from(table);
-    const players = new Set(
-      (rows || []).filter((r: any) => (Number(r.wins) || 0) > 0).map((r: any) => String(r.username)),
-    );
-    await dbModule.db.delete(table);
-    broadcast();
-    res.json({ cleared: players.size });
-  } catch (err) {
-    logger.error({ err }, "Failed to reset player wins");
-    res.status(500).json({
-      error: "فشل تصفير المستويات",
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-});
-
-// 🩹 خطة احتياطية لنقاط "الأكثر انتصاراً" — نفس فكرة computePlayerLevels فوق:
-// لو getLeaderboard مفقودة من نسخة @workspace/db المنشورة، نقرأ الجدول مباشرة
-// بدل ما نفشل ونرجّع قائمة فاضية.
-async function computeLeaderboard(limit: number) {
-  const n = Math.min(50, Math.max(1, Math.floor(Number(limit) || 3)));
-  if (typeof dbGetLeaderboard === "function") return await dbGetLeaderboard(n);
-
-  logger.warn("getLeaderboard مفقودة من @workspace/db — نستعمل الحساب الاحتياطي داخل المسار");
-  if (dbUsesLocalStore) {
-    throw new Error("getLeaderboard مفقودة من حزمة قاعدة البيانات (وضع التخزين المحلي) — حدّث lib/db/src/index.ts");
-  }
-  const table = dbSchemaModule?.playerMatchWinsTable;
-  if (!dbModule?.db || !table) {
-    throw new Error("تعذّر الوصول لجدول player_match_wins — حدّث lib/db/src/index.ts");
-  }
-  const rows = await dbModule.db.select().from(table);
-  return (rows || [])
-    .map((r: any) => ({
-      username: (r.displayName && String(r.displayName).trim()) || String(r.username || ""),
-      wins: Number(r.wins) || 0,
-    }))
-    .filter((r: any) => r.username && r.wins > 0)
-    .sort((a: any, b: any) => b.wins - a.wins || a.username.localeCompare(b.username))
-    .slice(0, n);
-}
-
-// 🐞 قبل كذا كان هذا المسار يبلع أي خطأ ويرجّع [] بحالة 200، فلوحة الأدمن
-// تعرض "ما فيه نقاط مسجّلة بعد" حتى لو السبب عطل حقيقي بقاعدة البيانات
-// (مثلاً relation "player_match_wins" does not exist). صار يرجّع 500 + سبب
-// واضح — نفس أسلوب /player/levels.
 router.get("/player/leaderboard", async (req: Request, res: Response) => {
   try {
     const limit = Math.min(50, Math.max(1, Math.floor(Number(req.query.limit) || 3)));
-    const rows = await computeLeaderboard(limit);
+    const rows = await dbGetLeaderboard(limit);
     res.json(rows || []);
   } catch (err) {
     logger.error({ err }, "Failed to fetch leaderboard");
-    res.status(500).json({
-      error: "فشل جلب نقاط الأكثر انتصاراً",
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    res.json([]);
   }
 });
 
@@ -823,17 +578,6 @@ router.post("/player/match-win", requireAdmin, requirePermission("tournament"), 
       res.status(400).json({ error: "اسم اللاعب مطلوب" });
       return;
     }
-    // 🚫 نظام الفرق ما يسجّل نقاط توب إطلاقاً.
-    // الحارس هنا بالخادم مو بالواجهة فقط: كذا لو نسخة قديمة من صفحة الأدمن
-    // لسا شغالة بمتصفح أحد، أو جا الطلب من أي مصدر ثاني، ما ينحسب.
-    // "الخانة" بوضع الفرق تحتوي فريق كامل ("سعود N فهد") فتسجيلها يخرّب
-    // القائمة بأسماء فرق مدموجة بدل أسماء لاعبين.
-    const current = await getTournamentState();
-    if (current && (current as any).isTeams) {
-      res.json({ skipped: true, reason: "teams-mode" });
-      return;
-    }
-
     const raw = Math.trunc(Number(delta ?? 1));
     const d = Number.isFinite(raw) && raw !== 0 ? Math.max(-1, Math.min(1, raw)) : 1;
     const row = await dbIncrementPlayerMatchWin(name, name, d);
@@ -841,48 +585,7 @@ router.post("/player/match-win", requireAdmin, requirePermission("tournament"), 
     res.json(row);
   } catch (err) {
     logger.error({ err }, "Failed to record match win");
-    res.status(500).json({
-      error: "فشل تسجيل فوز الماتش",
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-});
-
-// ✍️ تحكم يدوي بنقاط التوب: يحدد قيمة صريحة لنقاط لاعب (بدل حصر ±1).
-// صلاحية "records" لأنها تعديل على السجلات مو على مجرى البطولة.
-router.post("/player/match-wins", requireAdmin, requirePermission("records"), async (req: Request, res: Response) => {
-  try {
-    const { username, wins } = req.body as { username?: string; wins?: number };
-    const name = (username || "").trim();
-    if (!name) {
-      res.status(400).json({ error: "اسم اللاعب مطلوب" });
-      return;
-    }
-    const value = Math.max(0, Math.min(100000, Math.floor(Number(wins) || 0)));
-    const row = await dbSetPlayerMatchWins(name, name, value);
-    broadcast(); // تتحدّث قائمة التوب لحظياً عند كل المشاهدين
-    res.json(row);
-  } catch (err) {
-    logger.error({ err }, "Failed to set match wins");
-    res.status(500).json({
-      error: "فشل تعديل النقاط",
-      detail: err instanceof Error ? err.message : String(err),
-    });
-  }
-});
-
-// 🧹 تصفير نقاط التوب لكل اللاعبين (بداية موسم جديد).
-router.post("/player/match-wins/reset", requireAdmin, requirePermission("records"), async (_req: Request, res: Response) => {
-  try {
-    const out = await dbResetAllPlayerMatchWins();
-    broadcast();
-    res.json(out || { cleared: 0 });
-  } catch (err) {
-    logger.error({ err }, "Failed to reset match wins");
-    res.status(500).json({
-      error: "فشل تصفير النقاط",
-      detail: err instanceof Error ? err.message : String(err),
-    });
+    res.status(500).json({ error: "فشل تسجيل فوز الماتش" });
   }
 });
 
@@ -1063,80 +766,7 @@ router.post("/admin/dev-login", (_req: Request, res: Response) => {
   }
 });
 
-// ==========================================
-// 📌 مشرفو البث (Moderators) + تتبع الحضور أثناء البث المباشر
-// ==========================================
-
-// 👮 قائمة المشرفين — الأدمن الرئيسي فقط يديرها (إضافة/حذف)، وأي أدمن/مساعد
-// عنده صلاحية "tournament" يقدر يشوفها (يحتاجها عشان يفتح جدول الحضور).
-router.get("/moderators", requireAdmin, async (_req: Request, res: Response) => {
-  try {
-    const moderators = await dbGetModerators();
-    res.json(moderators || []);
-  } catch (err) {
-    logger.error({ err }, "Failed to fetch moderators");
-    res.status(500).json({ error: "فشل جلب قائمة المشرفين" });
-  }
-});
-
-router.post("/moderators", requireAdmin, requireFullAdmin, async (req: Request, res: Response) => {
-  try {
-    const { name } = req.body as { name: string };
-    if (!name || !name.trim()) {
-      res.status(400).json({ error: "اسم المشرف مطلوب" });
-      return;
-    }
-    const moderator = await dbAddModerator(name.trim());
-    res.json(moderator);
-  } catch (err) {
-    logger.error({ err }, "Failed to add moderator");
-    res.status(500).json({ error: "فشل إضافة المشرف" });
-  }
-});
-
-router.delete("/moderators/:id", requireAdmin, requireFullAdmin, async (req: Request, res: Response) => {
-  try {
-    const id = Number(req.params.id);
-    await dbDeleteModerator(id);
-    res.json({ ok: true });
-  } catch (err) {
-    logger.error({ err }, "Failed to delete moderator");
-    res.status(500).json({ error: "فشل حذف المشرف" });
-  }
-});
-
-// 📊 جدول حضور المشرفين ليوم معيّن (افتراضياً اليوم الحالي بتوقيت الخادم).
-router.get("/moderators/attendance", requireAdmin, async (req: Request, res: Response) => {
-  try {
-    const date = typeof req.query.date === "string" && req.query.date ? req.query.date : undefined;
-    const rows = await dbGetModeratorAttendance(date);
-    res.json(rows || []);
-  } catch (err) {
-    logger.error({ err }, "Failed to fetch moderator attendance");
-    res.status(500).json({ error: "فشل جلب جدول الحضور" });
-  }
-});
-
-// ✅ تسجيل حضور مشرف بفترة معيّنة — يُستدعى تلقائياً من لوحة الأدمن لما تكتشف
-// كلمة "حاضر" بشات كيك من مشرف معروف أثناء ما نافذة الفترة مفتوحة.
-router.post("/moderators/attendance/mark", requireAdmin, requirePermission("tournament"), async (req: Request, res: Response) => {
-  try {
-    const { name, displayName, slot } = req.body as { name: string; displayName?: string; slot: "start" | "half" | "end" };
-    if (!name || !name.trim()) {
-      res.status(400).json({ error: "اسم المشرف مطلوب" });
-      return;
-    }
-    if (!["start", "half", "end"].includes(slot)) {
-      res.status(400).json({ error: "فترة غير صحيحة" });
-      return;
-    }
-    const row = await dbMarkModeratorAttendance(name.trim(), displayName || name.trim(), slot);
-    res.json(row);
-  } catch (err) {
-    logger.error({ err }, "Failed to mark moderator attendance");
-    res.status(500).json({ error: "فشل تسجيل الحضور" });
-  }
-});
-
-export { BYE };
+// نصدّر ميدلوير المصادقة عشان مسارات أخرى (مثلاً moderators.ts) تقدر تعيد
+// استخدامه بدل ما تكرّر نفس منطق التحقق من كلمة المرور/الأدمن التجريبي.
+export { BYE, requireAdmin, requireFullAdmin, requirePermission };
 export default router;

@@ -1,6 +1,6 @@
 import { pgTable, text, serial, timestamp, jsonb, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 export const tournamentStateTable = pgTable("tournament_state", {
   id: serial("id").primaryKey(),
@@ -121,3 +121,35 @@ export const playerMatchWinsTable = pgTable("player_match_wins", {
 });
 
 export type PlayerMatchWin = typeof playerMatchWinsTable.$inferSelect;
+
+// ==========================================
+// 🛡️ نظام تتبع حضور المشرفين (Moderator Activity Tracker)
+// ==========================================
+// كل صف = مشرف واحد فـ "جدول المشرفين" اللي يشوفه الأدمن. الثلاث خانات
+// (بداية/منتصف/نهاية البث) تتسجّل تلقائياً أول ما المشرف يكتب كلمة الحضور
+// بالشات بالترتيب (أول مرة → بداية، ثاني مرة → منتصف، ثالث مرة → نهاية).
+// عند بدء بث جديد، الأدمن يضغط "بدء بث جديد" فيرجّع الثلاث خانات لفارغة
+// بدون ما يحذف المشرف نفسه من القائمة (checkedInCount يرجع لصفر أيضاً).
+export const moderatorsTable = pgTable("moderators", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(), // يوزرنيم كيك مطبَّع (lowercase/trim) — يُستخدم للمطابقة مع الشات
+  displayName: text("display_name").notNull().default(""), // الاسم كما يظهر بالجدول
+  streamStartAt: timestamp("stream_start_at"), // وقت أول تسجيل حضور (بداية البث)
+  midStreamAt: timestamp("mid_stream_at"), // وقت ثاني تسجيل حضور (منتصف البث)
+  streamEndAt: timestamp("stream_end_at"), // وقت ثالث تسجيل حضور (نهاية البث)
+  checkedInCount: integer("checked_in_count").notNull().default(0), // كم مرة كتب كلمة الحضور بالجلسة الحالية (0-3)
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertModeratorSchema = createInsertSchema(moderatorsTable).omit({
+  id: true,
+  streamStartAt: true,
+  midStreamAt: true,
+  streamEndAt: true,
+  checkedInCount: true,
+  updatedAt: true,
+  createdAt: true,
+});
+export type InsertModerator = z.infer<typeof insertModeratorSchema>;
+export type Moderator = typeof moderatorsTable.$inferSelect;

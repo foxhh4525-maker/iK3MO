@@ -18,51 +18,13 @@ interface Store {
   records: any[];
   helpers: any[];
   playerWins: any[];
-  recordHistory?: any[];
   playerMatchWins: any[];
   moderators: any[];
-  moderatorSessions: any[];
-  moderatorAttendance: any[];
-  seq: {
-    winners: number;
-    archives: number;
-    records: number;
-    helpers: number;
-    playerWins: number;
-    playerMatchWins: number;
-    recordHistory: number;
-    moderators: number;
-    moderatorSessions: number;
-    moderatorAttendance: number;
-  };
+  seq: { winners: number; archives: number; records: number; helpers: number; playerWins: number; playerMatchWins: number; moderators: number };
 }
 
 function empty(): Store {
-  return {
-    state: null,
-    winners: [],
-    archives: [],
-    records: [],
-    helpers: [],
-    playerWins: [],
-    playerMatchWins: [],
-    recordHistory: [],
-    moderators: [],
-    moderatorSessions: [],
-    moderatorAttendance: [],
-    seq: {
-      winners: 0,
-      archives: 0,
-      records: 0,
-      helpers: 0,
-      playerWins: 0,
-      playerMatchWins: 0,
-      recordHistory: 0,
-      moderators: 0,
-      moderatorSessions: 0,
-      moderatorAttendance: 0,
-    },
-  };
+  return { state: null, winners: [], archives: [], records: [], helpers: [], playerWins: [], playerMatchWins: [], moderators: [], seq: { winners: 0, archives: 0, records: 0, helpers: 0, playerWins: 0, playerMatchWins: 0, moderators: 0 } };
 }
 
 let cache: Store | null = null;
@@ -192,114 +154,6 @@ export const localStore = {
     return [s.records[idx]];
   },
 
-  // ── 👮 مشرفو البث (Moderators) ──
-  getModerators() {
-    return [...load().moderators].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-  },
-  addModerator(name: string) {
-    const s = load();
-    const row = { id: ++s.seq.moderators, name, createdAt: nowISO() };
-    s.moderators.push(row);
-    save(s);
-    return row;
-  },
-  deleteModerator(id: number) {
-    const s = load();
-    const idx = s.moderators.findIndex((m) => m.id === id);
-    const removed = idx >= 0 ? s.moderators.splice(idx, 1) : [];
-    save(s);
-    return removed[0] || null;
-  },
-
-  // ── ✅ حضور المشرفين (Moderator Attendance) ──
-  getAttendanceByDate(sessionDate: string) {
-    return load().moderatorAttendance.filter((a) => a.sessionDate === sessionDate);
-  },
-  markAttendance(moderatorName: string, displayName: string, sessionDate: string, slot: "start" | "half" | "end") {
-    const s = load();
-    let row = s.moderatorAttendance.find((a) => a.moderatorName === moderatorName && a.sessionDate === sessionDate);
-    const now = nowISO();
-    if (!row) {
-      row = {
-        id: ++s.seq.moderatorAttendance,
-        moderatorName,
-        displayName,
-        sessionDate,
-        startAt: null,
-        halfAt: null,
-        endAt: null,
-        updatedAt: now,
-        sessionId: 1,
-        beginningTime: "",
-        middleTime: "",
-        endingTime: "",
-        createdAt: now,
-      };
-      s.moderatorAttendance.push(row);
-    }
-    if (slot === "start" && !row.startAt) row.startAt = now;
-    else if (slot === "half" && !row.halfAt) row.halfAt = now;
-    else if (slot === "end" && !row.endAt) row.endAt = now;
-    row.displayName = displayName || row.displayName;
-    row.updatedAt = now;
-    save(s);
-    return row;
-  },
-
-  getModeratorSession() {
-    const s = load();
-    return (s.moderatorSessions[0] || { id: 1, activePeriod: "none", createdAt: nowISO() });
-  },
-  setModeratorSessionPeriod(period: string) {
-    const s = load();
-    const row = { id: 1, activePeriod: period, createdAt: nowISO() };
-    s.moderatorSessions = [row];
-    save(s);
-    return row;
-  },
-  getModeratorAttendance() {
-    const s = load();
-    return [...s.moderatorAttendance].sort((a, b) => String(a.moderatorName).localeCompare(String(b.moderatorName)));
-  },
-  recordModeratorAttendanceCheckin(name: string, period: string) {
-    const s = load();
-    const normalized = String(name || "").trim();
-    if (!normalized) return null;
-    const session = s.moderatorSessions[0] || { id: 1, activePeriod: "none", createdAt: nowISO() };
-    let row = s.moderatorAttendance.find((x) => x.moderatorName === normalized);
-    if (!row) {
-      row = {
-        id: ++s.seq.moderatorAttendance,
-        sessionId: session.id ?? 1,
-        moderatorName: normalized,
-        displayName: normalized,
-        sessionDate: new Date().toISOString().slice(0, 10),
-        beginningTime: "",
-        middleTime: "",
-        endingTime: "",
-        startAt: null,
-        halfAt: null,
-        endAt: null,
-        updatedAt: nowISO(),
-        createdAt: nowISO(),
-      };
-      s.moderatorAttendance.push(row);
-    }
-    const timestamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
-    if (period === "beginning") row.beginningTime = row.beginningTime || timestamp;
-    if (period === "middle") row.middleTime = row.middleTime || timestamp;
-    if (period === "ending") row.endingTime = row.endingTime || timestamp;
-    save(s);
-    return row;
-  },
-  resetModeratorAttendance() {
-    const s = load();
-    s.moderatorAttendance = [];
-    s.moderatorSessions = [];
-    save(s);
-    return true;
-  },
-
   getHelpers() {
     return [...load().helpers].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   },
@@ -334,68 +188,6 @@ export const localStore = {
   getPlayerWins(username: string) {
     return load().playerWins.filter((w) => w.username === username);
   },
-  // 📊 قائمة نظام المستويات: كل لاعب ومجموع فوزاته عبر كل الألعاب.
-  // نجمع صفوف playerWins حسب اللاعب (لأن كل صف = لاعب + لعبة وحدة)، عشان
-  // الرقم اللي يظهر بالقائمة يطابق "إجمالي الفوزات" اللي بتفاصيل نفس اللاعب.
-  getPlayerLevels(limit: number) {
-    const s = load();
-    const totals = new Map<string, { username: string; displayName: string; wins: number }>();
-    for (const w of s.playerWins || []) {
-      const cur = totals.get(w.username) || { username: w.username, displayName: "", wins: 0 };
-      cur.wins += w.wins || 0;
-      if (!cur.displayName && w.displayName) cur.displayName = String(w.displayName).trim();
-      totals.set(w.username, cur);
-    }
-    return [...totals.values()]
-      .filter((w) => w.wins > 0)
-      .sort((a, b) => b.wins - a.wins || a.username.localeCompare(b.username))
-      .slice(0, Math.max(1, limit))
-      .map((w) => ({ username: w.displayName || w.username, wins: w.wins }));
-  },
-  // 🧹 تصفير نظام المستويات كامل: يمسح فوزات كل اللاعبين في كل الألعاب.
-  // نرجّع عدد اللاعبين (مو عدد الصفوف) عشان الرسالة تكون مفهومة للأدمن.
-  resetAllPlayerWins() {
-    const s = load();
-    const players = new Set(
-      (s.playerWins || []).filter((w) => (w.wins || 0) > 0).map((w) => w.username),
-    );
-    s.playerWins = [];
-    save(s);
-    return { cleared: players.size };
-  },
-  // ── 📜 سجل كروت البطولات ──
-  addRecordHistory(entry: { tournamentName: string; displayName?: string; winnerName?: string; image?: string }) {
-    const s = load();
-    if (!s.recordHistory) s.recordHistory = [];
-    const image = entry.image || "";
-    const winner = entry.winnerName || "";
-    const last = [...s.recordHistory].reverse().find((h: any) => h.tournamentName === entry.tournamentName);
-    if (last && last.image === image && last.winnerName === winner) return null;
-    const row = {
-      id: ++s.seq.recordHistory,
-      tournamentName: entry.tournamentName,
-      displayName: entry.displayName || "",
-      winnerName: winner,
-      image,
-      savedAt: nowISO(),
-    };
-    s.recordHistory.push(row);
-    save(s);
-    return row;
-  },
-  getRecordHistory(limit = 300) {
-    const s = load();
-    return [...(s.recordHistory || [])]
-      .sort((a: any, b: any) => new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime())
-      .slice(0, limit);
-  },
-  deleteRecordHistory(id: number) {
-    const s = load();
-    const before = (s.recordHistory || []).length;
-    s.recordHistory = (s.recordHistory || []).filter((h: any) => h.id !== id);
-    save(s);
-    return s.recordHistory.length < before;
-  },
   setPlayerWins(username: string, displayName: string, game: string, wins: number) {
     const s = load();
     const idx = s.playerWins.findIndex((w) => w.username === username && w.game === game);
@@ -420,6 +212,13 @@ export const localStore = {
       .map((w) => ({ username: w.displayName || w.username, wins: w.wins || 0 }));
   },
   // ➕ زيادة/إنقاص فوزات الماتشات (delta = +1 عند كسب ماتش، -1 عند التراجع).
+  // 🧹 تصفير عدّاد الماتشات (مقابل resetMatchWins في مسار Postgres).
+  resetMatchWins() {
+    const s = load();
+    s.playerMatchWins = [];
+    save(s);
+    return true;
+  },
   incrementPlayerMatchWin(username: string, displayName: string, delta: number) {
     const s = load();
     if (!s.playerMatchWins) s.playerMatchWins = [];
@@ -435,30 +234,6 @@ export const localStore = {
     save(s);
     return row;
   },
-  // ✍️ تعيين قيمة صريحة لنقاط التوب (تحكم يدوي من الأدمن).
-  setPlayerMatchWins(username: string, displayName: string, wins: number) {
-    const s = load();
-    if (!s.playerMatchWins) s.playerMatchWins = [];
-    const value = Math.max(0, Math.floor(wins));
-    const idx = s.playerMatchWins.findIndex((w) => w.username === username);
-    if (idx >= 0) {
-      s.playerMatchWins[idx] = { ...s.playerMatchWins[idx], wins: value, displayName: displayName || s.playerMatchWins[idx].displayName, updatedAt: nowISO() };
-      save(s);
-      return s.playerMatchWins[idx];
-    }
-    const row = { id: ++s.seq.playerMatchWins, username, displayName, wins: value, updatedAt: nowISO(), createdAt: nowISO() };
-    s.playerMatchWins.push(row);
-    save(s);
-    return row;
-  },
-  // 🧹 تصفير نقاط التوب لكل اللاعبين (تبدأ موسم جديد).
-  resetAllPlayerMatchWins() {
-    const s = load();
-    const count = (s.playerMatchWins || []).length;
-    s.playerMatchWins = [];
-    save(s);
-    return { cleared: count };
-  },
   incrementPlayerWin(username: string, displayName: string, game: string, delta: number) {
     const s = load();
     const idx = s.playerWins.findIndex((w) => w.username === username && w.game === game);
@@ -472,5 +247,65 @@ export const localStore = {
     s.playerWins.push(row);
     save(s);
     return row;
+  },
+
+  // ── 🛡️ نظام تتبع حضور المشرفين ──
+  getModerators() {
+    return [...load().moderators].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+  },
+  addModerator(username: string, displayName: string) {
+    const s = load();
+    const existing = s.moderators.find((m) => m.username === username);
+    if (existing) return existing;
+    const row = {
+      id: ++s.seq.moderators,
+      username,
+      displayName: displayName || username,
+      streamStartAt: null,
+      midStreamAt: null,
+      streamEndAt: null,
+      checkedInCount: 0,
+      updatedAt: nowISO(),
+      createdAt: nowISO(),
+    };
+    s.moderators.push(row);
+    save(s);
+    return row;
+  },
+  deleteModerator(id: number) {
+    const s = load();
+    const idx = s.moderators.findIndex((m) => m.id === id);
+    const removed = idx >= 0 ? s.moderators.splice(idx, 1) : [];
+    save(s);
+    return removed[0] || null;
+  },
+  recordModeratorCheckIn(username: string) {
+    const s = load();
+    const idx = s.moderators.findIndex((m) => m.username === username);
+    if (idx < 0) return null; // مو مشرف مسجّل — نتجاهل
+    const mod = s.moderators[idx];
+    if ((mod.checkedInCount || 0) >= 3) return mod;
+    const now = nowISO();
+    const nextCount = (mod.checkedInCount || 0) + 1;
+    const patch: any = { checkedInCount: nextCount, updatedAt: now };
+    if (nextCount === 1) patch.streamStartAt = now;
+    else if (nextCount === 2) patch.midStreamAt = now;
+    else if (nextCount === 3) patch.streamEndAt = now;
+    s.moderators[idx] = { ...mod, ...patch };
+    save(s);
+    return s.moderators[idx];
+  },
+  resetModeratorAttendance() {
+    const s = load();
+    s.moderators = s.moderators.map((m) => ({
+      ...m,
+      streamStartAt: null,
+      midStreamAt: null,
+      streamEndAt: null,
+      checkedInCount: 0,
+      updatedAt: nowISO(),
+    }));
+    save(s);
+    return [...s.moderators];
   },
 };

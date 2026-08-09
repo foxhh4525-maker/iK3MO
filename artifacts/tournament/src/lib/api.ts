@@ -1,24 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { TournamentState, Winner, TournamentArchive, TournamentRecord, PlayerStats, LeaderboardEntry, Moderator, AttendanceSlot, ModeratorAttendanceRow } from "./types";
+import type { TournamentState, Winner, TournamentArchive, TournamentRecord, PlayerStats, LeaderboardEntry } from "./types";
 
 const BASE = "/api/tournament";
-const MODERATOR_BASE = "/api/moderators";
-
-export interface ModeratorAttendanceRecord {
-  id: number;
-  sessionId: number;
-  moderatorName: string;
-  beginningTime: string | null;
-  middleTime: string | null;
-  endingTime: string | null;
-  createdAt: string;
-}
-
-export interface ModeratorAttendanceResponse {
-  activePeriod: "beginning" | "middle" | "ending" | "none";
-  sessionId: number | null;
-  list: ModeratorAttendanceRecord[];
-}
 
 export async function getState(): Promise<TournamentState> {
   const res = await fetch(`${BASE}/state`);
@@ -79,125 +62,9 @@ export async function getStorageStatus(token: string): Promise<StorageStatusResp
   }
 }
 
-export async function getModeratorAttendance(): Promise<ModeratorAttendanceResponse>;
-export async function getModeratorAttendance(token: string, date?: string): Promise<ModeratorAttendanceRow[]>;
-export async function getModeratorAttendance(tokenOrDate?: string, date?: string): Promise<ModeratorAttendanceResponse | ModeratorAttendanceRow[]> {
-  if (typeof tokenOrDate === "undefined") {
-    const res = await fetch(`${MODERATOR_BASE}/attendance`);
-    if (!res.ok) throw new Error("Failed to fetch moderator attendance");
-    return res.json();
-  }
-
-  const token = tokenOrDate;
-  const qs = date ? `?date=${encodeURIComponent(date)}` : "";
-  const res = await fetch(`${BASE}/moderators/attendance${qs}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
-export async function setModeratorPeriod(period: "beginning" | "middle" | "ending" | "none", token: string): Promise<void> {
-  const res = await fetch(`${MODERATOR_BASE}/period`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ period }),
-  });
-  if (!res.ok) throw new Error("Failed to set moderator period");
-}
-
-export async function recordModeratorCheckin(moderatorName: string, token: string): Promise<void> {
-  const res = await fetch(`${MODERATOR_BASE}/checkin`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ moderatorName }),
-  });
-  if (!res.ok) throw new Error("Failed to record moderator check-in");
-}
-
-export async function resetModeratorAttendance(token: string): Promise<void> {
-  const res = await fetch(`${MODERATOR_BASE}/reset`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error("Failed to reset moderator attendance");
-}
-
 export interface MigrateImagesResult { migrated: number; skipped: number; failed: number; total: number }
 
 // 🔁 ينقل الصور القديمة المخزّنة Base64 بقاعدة البيانات إلى Cloudinary (تشغيل يدوي لمرة وحدة).
-export interface CloudImageEntry {
-  url: string;
-  publicId: string;
-  createdAt: string;
-  bytes: number;
-  width?: number;
-  height?: number;
-}
-
-// 🗑️ حذف صورة من السجل (ومن الكرت المرتبط بها لو وُجد).
-export async function deleteImage(publicId: string, url: string, token: string): Promise<void> {
-  const res = await fetch(`${BASE}/images/delete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ publicId, url }),
-  });
-  if (!res.ok) {
-    let msg = "فشل حذف الصورة";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
-    throw new Error(msg);
-  }
-}
-
-export interface RecordHistoryEntry {
-  id: number;
-  tournamentName: string;
-  displayName: string;
-  winnerName: string;
-  image: string;
-  savedAt: string;
-}
-
-// 📜 السجل التاريخي لكروت البطولات (لقطة عند كل حفظ).
-export async function getRecordHistory(token: string, limit = 300): Promise<RecordHistoryEntry[]> {
-  const res = await fetch(`${BASE}/records/history?limit=${limit}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let msg = "فشل جلب السجل";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
-// 🗑️ حذف لقطة من السجل.
-export async function deleteRecordHistory(id: number, token: string): Promise<void> {
-  const res = await fetch(`${BASE}/records/history/delete`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ id }),
-  });
-  if (!res.ok) {
-    let msg = "فشل الحذف";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
-    throw new Error(msg);
-  }
-}
-
-// 📜 سجل صور الكروت مع تواريخ رفعها (من Cloudinary مباشرة).
-export async function getImagesHistory(token: string): Promise<CloudImageEntry[]> {
-  const res = await fetch(`${BASE}/images/history`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let msg = "فشل جلب سجل الصور";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
-    throw new Error(msg);
-  }
-  return res.json();
-}
-
 export async function migrateImages(token: string): Promise<MigrateImagesResult> {
   const res = await fetch(`${BASE}/migrate-images`, {
     method: "POST",
@@ -376,25 +243,14 @@ export async function getWinners(): Promise<Winner[]> {
   }
 }
 
-// ⚠️ كانت تبلع كل الأخطاء بصمت: ما تفحص res.ok ولا ترجع شي — فلو رفض
-// الخادم الطلب (صلاحية ناقصة / توكن منتهي) تطلع العملية ناجحة والاسم ما
-// ينحفظ. الحين ترجع رسالة الخطأ لو فشلت، و null لو نجحت. القيمة المرجّعة
-// اختيارية فالاستدعاءات القديمة تشتغل زي ما هي.
-export async function postWinner(w: Winner, token: string): Promise<string | null> {
+export async function postWinner(w: Winner, token: string): Promise<void> {
   try {
-    const res = await fetch(`${BASE}/winners`, {
+    await fetch(`${BASE}/winners`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(w),
     });
-    if (res.ok) return null;
-    let msg = `فشل الحفظ (${res.status})`;
-    if (res.status === 401 || res.status === 403) msg = "ما عندك صلاحية إضافة فائزين";
-    try { const d = await res.json(); if (d?.error) msg = d.error; } catch {}
-    return msg;
-  } catch {
-    return "تعذّر الاتصال بالخادم";
-  }
+  } catch {}
 }
 
 // ✅ useSSE محسّن — يعيد الاتصال تلقائياً ويمنع memory leaks
@@ -578,42 +434,6 @@ export async function deleteRecord(id: number, token: string): Promise<void> {
 
 // ── إحصائيات اللاعبين (فوزات + لفل) ──
 // جلب فوزات لاعب معيّن لكل لعبة (عام، بدون توكن). يُستخدم للمسجّل بالصفحة العامة وللأدمن.
-// 📊 قائمة نظام المستويات: كل اللاعبين ومجموع فوزاتهم (من player_wins).
-// ⚠️ ترمي خطأ عند الفشل بدل ما ترجّع [] — عشان لوحة الأدمن تفرّق بين "ما فيه
-// لاعبين" و"تعذّر الجلب"، بدل ما تعرض رسالة القائمة الفاضية بالحالتين.
-export async function getPlayerLevels(limit = 500): Promise<LeaderboardEntry[]> {
-  const res = await fetch(`${BASE}/player/levels?limit=${limit}`);
-  if (!res.ok) {
-    let msg = "تعذّر جلب قائمة المستويات";
-    try {
-      const d = await res.json();
-      // detail = سبب العطل الحقيقي من الخادم — نعرضه عشان يبان وش الناقص
-      msg = d.detail ? `${d.error || msg} (${d.detail})` : (d.error || msg);
-    } catch {}
-    throw new Error(msg);
-  }
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
-}
-
-// 🧹 تصفير نظام المستويات لكل اللاعبين (يمسح فوزات كل الألعاب).
-export async function resetAllPlayerWins(token: string): Promise<number> {
-  const res = await fetch(`${BASE}/player/wins/reset`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let msg = "فشل تصفير المستويات";
-    try {
-      const d = await res.json();
-      msg = d.detail ? `${d.error || msg} (${d.detail})` : (d.error || msg);
-    } catch {}
-    throw new Error(msg);
-  }
-  const data = await res.json().catch(() => ({}));
-  return Number(data?.cleared) || 0;
-}
-
 export async function getPlayerStats(username: string): Promise<PlayerStats | null> {
   try {
     const res = await fetch(`${BASE}/player/stats?username=${encodeURIComponent(username)}`);
@@ -624,76 +444,27 @@ export async function getPlayerStats(username: string): Promise<PlayerStats | nu
   }
 }
 
-// 🏆 قائمة المتصدّرين: أعلى اللاعبين حسب نقاط الماتشات المكسوبة.
-// ⚠️ ترمي خطأ عند الفشل بدل ما ترجّع [] — نفس منطق getPlayerLevels: لوحة الأدمن
-// لازم تفرّق بين "ما فيه نقاط" و"تعذّر الجلب". (قبل كذا كان أي عطل بالخادم
-// يتحوّل لقائمة فاضية صامتة، فتظهر رسالة "ما فيه نقاط مسجّلة بعد" غلط.)
-// الصفحة العامة تستدعيها بـ .catch(() => {}) فما يتأثر شي عندها.
+// 🏆 قائمة المتصدّرين: أعلى اللاعبين حسب مجموع فوزاتهم عبر كل الألعاب.
 export async function getLeaderboard(limit = 3): Promise<LeaderboardEntry[]> {
-  const res = await fetch(`${BASE}/player/leaderboard?limit=${limit}`);
-  if (!res.ok) {
-    let msg = "تعذّر جلب نقاط الأكثر انتصاراً";
-    try {
-      const d = await res.json();
-      msg = d.detail ? `${d.error || msg} (${d.detail})` : (d.error || msg);
-    } catch {}
-    throw new Error(msg);
+  try {
+    const res = await fetch(`${BASE}/player/leaderboard?limit=${limit}`);
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
   }
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
 }
 
 // 🏆 تسجيل فوز ماتش للاعب (delta = +1 عند الكسب، -1 عند التراجع).
 // فشل صامت عن قصد: عدّاد التوب ما يستاهل يوقف سير البطولة لو تعثّرت الشبكة.
-// ✅ ما زال ما يوقف سير البطولة عند الفشل، بس صار يطبع السبب بالكونسول بدل
-// الصمت التام — الصمت هو اللي خلّى عطل جدول player_match_wins مخفي لفترة
-// طويلة (النقاط ما تنسجّل والقائمة فاضية بلا أي أثر).
-export async function addMatchWin(username: string, delta: number, token: string): Promise<boolean> {
+export async function addMatchWin(username: string, delta: number, token: string): Promise<void> {
   try {
-    const res = await fetch(`${BASE}/player/match-win`, {
+    await fetch(`${BASE}/player/match-win`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ username, delta }),
     });
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      console.warn("⚠️ فشل تسجيل نقطة الأكثر انتصاراً:", d?.detail || d?.error || res.status);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.warn("⚠️ تعذّر الاتصال بالخادم لتسجيل نقطة الأكثر انتصاراً:", e);
-    return false;
-  }
-}
-
-// ✍️ تعيين نقاط التوب للاعب بقيمة صريحة (تحكم يدوي من لوحة الأدمن).
-export async function setMatchWins(username: string, wins: number, token: string): Promise<void> {
-  const res = await fetch(`${BASE}/player/match-wins`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ username, wins }),
-  });
-  if (!res.ok) {
-    let msg = "فشل تعديل النقاط";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
-    throw new Error(msg);
-  }
-}
-
-// 🧹 تصفير نقاط التوب لكل اللاعبين.
-export async function resetAllMatchWins(token: string): Promise<number> {
-  const res = await fetch(`${BASE}/player/match-wins/reset`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let msg = "فشل تصفير النقاط";
-    try { const d = await res.json(); msg = d.error || msg; } catch {}
-    throw new Error(msg);
-  }
-  const data = await res.json().catch(() => ({}));
-  return Number(data?.cleared) || 0;
+  } catch { /* تجاهل */ }
 }
 
 // تعديل يدوي (تصحيح من الأدمن) لعدد فوزات لاعب في لعبة معيّنة.
@@ -710,54 +481,6 @@ export async function setPlayerWins(username: string, game: string, wins: number
   }
 }
 
-// ── 📌 مشرفو البث (Moderators) + تتبع الحضور ──
-
-export async function getModerators(token: string): Promise<Moderator[]> {
-  const res = await fetch(`${BASE}/moderators`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  return res.json();
-}
-
-export async function createModerator(name: string, token: string): Promise<Moderator> {
-  const res = await fetch(`${BASE}/moderators`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ name }),
-  });
-  const data = await safeJson(res);
-  if (!res.ok) throw new Error(data?.error || "فشل إضافة المشرف");
-  return data as Moderator;
-}
-
-export async function deleteModerator(id: number, token: string): Promise<void> {
-  await fetch(`${BASE}/moderators/${id}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-}
-
-// ✅ يسجّل حضور مشرف لفترة معيّنة (يُستدعى تلقائياً عند رصد "حاضر" بشات كيك).
-export async function markModeratorAttendance(
-  name: string,
-  slot: AttendanceSlot,
-  token: string,
-  displayName?: string,
-): Promise<ModeratorAttendanceRow | null> {
-  try {
-    const res = await fetch(`${BASE}/moderators/attendance/mark`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ name, displayName, slot }),
-    });
-    if (!res.ok) return null;
-    return res.json();
-  } catch {
-    return null;
-  }
-}
-
 // إخفاء/إظهار كرت فائز من الصفحة العامة بدون حذف بياناته (اسم الفائز + الصورة يبقون محفوظين).
 export async function setRecordVisibility(id: number, isHidden: boolean, token: string): Promise<TournamentRecord | null> {
   const res = await fetch(`${BASE}/records/${id}/visibility`, {
@@ -767,4 +490,112 @@ export async function setRecordVisibility(id: number, isHidden: boolean, token: 
   });
   if (!res.ok) throw new Error("فشل تغيير حالة الظهور");
   return res.json();
+}
+
+// ==========================================
+// 🛡️ نظام تتبع حضور المشرفين (Moderator Activity Tracker)
+// ==========================================
+const MOD_BASE = "/api/moderators";
+
+export interface ModeratorRow {
+  id: number;
+  username: string;
+  displayName: string;
+  streamStartAt: string | null;
+  midStreamAt: string | null;
+  streamEndAt: string | null;
+  checkedInCount: number;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export async function getModerators(token: string): Promise<ModeratorRow[]> {
+  const res = await fetch(MOD_BASE, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error("فشل جلب قائمة المشرفين");
+  return res.json();
+}
+
+export async function addModerator(username: string, displayName: string, token: string): Promise<ModeratorRow> {
+  const res = await fetch(MOD_BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ username, displayName }),
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(data?.error || "فشل إضافة المشرف");
+  return data as ModeratorRow;
+}
+
+export async function deleteModerator(id: number, token: string): Promise<void> {
+  const res = await fetch(`${MOD_BASE}/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("فشل حذف المشرف");
+}
+
+export async function resetModeratorAttendance(token: string): Promise<ModeratorRow[]> {
+  const res = await fetch(`${MOD_BASE}/reset`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("فشل تصفير الحضور");
+  return res.json();
+}
+
+// 📨 يُستدعى من "المستمع" (مثلاً معالج شات كيك بصفحة الأدمن) كل ما مشرف يكتب
+// كلمة الحضور بالشات. لا يحتاج توكن أدمن — السيرفر نفسه يتحقق إن الاسم موجود
+// فعلاً بجدول المشرفين قبل ما يسجّل أي شيء.
+export async function sendModeratorChatEvent(username: string, message: string): Promise<void> {
+  try {
+    await fetch(`${MOD_BASE}/chat-event`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, message }),
+    });
+  } catch {
+    /* فشل الإرسال ما يوقف تجربة الأدمن — يسجَّل بالكونسول فقط */
+  }
+}
+
+// ✅ اتصال SSE مباشر بجدول المشرفين — يحدّث الجدول لحظياً بدون Refresh، بنفس
+// أسلوب useSSE (إعادة اتصال تلقائية عند انقطاع الشبكة).
+export function useModeratorsSSE(onData: (list: ModeratorRow[]) => void) {
+  const cbRef = useRef(onData);
+  cbRef.current = onData;
+
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    let isActive = true;
+
+    const connect = () => {
+      if (!isActive) return;
+      try {
+        eventSource = new EventSource(`${MOD_BASE}/events`);
+        eventSource.onmessage = (e) => {
+          try {
+            cbRef.current(JSON.parse(e.data) as ModeratorRow[]);
+          } catch {}
+        };
+        eventSource.onerror = () => {
+          if (eventSource) { eventSource.close(); eventSource = null; }
+          if (isActive && !reconnectTimeout) {
+            reconnectTimeout = setTimeout(() => { reconnectTimeout = null; connect(); }, 3000);
+          }
+        };
+      } catch {
+        if (isActive && !reconnectTimeout) {
+          reconnectTimeout = setTimeout(() => { reconnectTimeout = null; connect(); }, 3000);
+        }
+      }
+    };
+
+    connect();
+    return () => {
+      isActive = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (eventSource) eventSource.close();
+    };
+  }, []);
 }

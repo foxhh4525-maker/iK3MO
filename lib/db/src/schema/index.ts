@@ -1,6 +1,6 @@
 import { pgTable, text, serial, timestamp, jsonb, integer, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
-import { z } from "zod";
+import { z } from "zod/v4";
 
 export const tournamentStateTable = pgTable("tournament_state", {
   id: serial("id").primaryKey(),
@@ -57,32 +57,6 @@ export const tournamentRecordsTable = pgTable("tournament_records", {
 export const insertTournamentRecordSchema = createInsertSchema(tournamentRecordsTable).omit({ id: true, createdAt: true });
 export type InsertTournamentRecord = z.infer<typeof insertTournamentRecordSchema>;
 export type TournamentRecord = typeof tournamentRecordsTable.$inferSelect;
-
-// 🧑‍💼 جلسات تتبع حضور المشرفين: بداية/نصف/نهاية البث.
-export const moderatorSessionsTable = pgTable("moderator_sessions", {
-  id: serial("id").primaryKey(),
-  activePeriod: text("active_period", { enum: ["beginning", "middle", "ending", "none"] }).notNull().default("none"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertModeratorSessionSchema = createInsertSchema(moderatorSessionsTable).omit({ id: true, createdAt: true });
-export type InsertModeratorSession = z.infer<typeof insertModeratorSessionSchema>;
-export type ModeratorSession = typeof moderatorSessionsTable.$inferSelect;
-
-// 🧾 كل اسم مشرف موثّق في جلسة معينة مع الحضور في 3 فترات للبث.
-export const moderatorAttendanceTable = pgTable("moderator_attendance", {
-  id: serial("id").primaryKey(),
-  sessionId: integer("session_id").notNull().default(0),
-  moderatorName: text("moderator_name").notNull(),
-  beginningTime: text("beginning_time").default(""),
-  middleTime: text("middle_time").default(""),
-  endingTime: text("ending_time").default(""),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertModeratorAttendanceSchema = createInsertSchema(moderatorAttendanceTable).omit({ id: true, createdAt: true });
-export type InsertModeratorAttendance = z.infer<typeof insertModeratorAttendanceSchema>;
-export type ModeratorAttendanceRecord = typeof moderatorAttendanceTable.$inferSelect;
 
 export const tournamentArchivesTable = pgTable("tournament_archives", {
   id: serial("id").primaryKey(),
@@ -148,33 +122,34 @@ export const playerMatchWinsTable = pgTable("player_match_wins", {
 
 export type PlayerMatchWin = typeof playerMatchWinsTable.$inferSelect;
 
-// 👮 مشرفو البث (Moderators) — قائمة يديرها الأدمن الرئيسي عشان نتتبع تواجدهم
-// أثناء البث المباشر. name = اسم حساب المشرف بشات كيك (يُقارن مطبَّعاً/lowercase).
+// ==========================================
+// 🛡️ نظام تتبع حضور المشرفين (Moderator Activity Tracker)
+// ==========================================
+// كل صف = مشرف واحد فـ "جدول المشرفين" اللي يشوفه الأدمن. الثلاث خانات
+// (بداية/منتصف/نهاية البث) تتسجّل تلقائياً أول ما المشرف يكتب كلمة الحضور
+// بالشات بالترتيب (أول مرة → بداية، ثاني مرة → منتصف، ثالث مرة → نهاية).
+// عند بدء بث جديد، الأدمن يضغط "بدء بث جديد" فيرجّع الثلاث خانات لفارغة
+// بدون ما يحذف المشرف نفسه من القائمة (checkedInCount يرجع لصفر أيضاً).
 export const moderatorsTable = pgTable("moderators", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull(), // اسم المشرف كما يُكتب بشات كيك
+  username: text("username").notNull().unique(), // يوزرنيم كيك مطبَّع (lowercase/trim) — يُستخدم للمطابقة مع الشات
+  displayName: text("display_name").notNull().default(""), // الاسم كما يظهر بالجدول
+  streamStartAt: timestamp("stream_start_at"), // وقت أول تسجيل حضور (بداية البث)
+  midStreamAt: timestamp("mid_stream_at"), // وقت ثاني تسجيل حضور (منتصف البث)
+  streamEndAt: timestamp("stream_end_at"), // وقت ثالث تسجيل حضور (نهاية البث)
+  checkedInCount: integer("checked_in_count").notNull().default(0), // كم مرة كتب كلمة الحضور بالجلسة الحالية (0-3)
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-export const insertModeratorSchema = createInsertSchema(moderatorsTable).omit({ id: true, createdAt: true });
+export const insertModeratorSchema = createInsertSchema(moderatorsTable).omit({
+  id: true,
+  streamStartAt: true,
+  midStreamAt: true,
+  streamEndAt: true,
+  checkedInCount: true,
+  updatedAt: true,
+  createdAt: true,
+});
 export type InsertModerator = z.infer<typeof insertModeratorSchema>;
 export type Moderator = typeof moderatorsTable.$inferSelect;
-
-// ✅ تسجيل حضور المشرفين — صف واحد لكل (مشرف + يوم بث)، وفيه 3 أعمدة توقيت
-// لثلاث فترات إثبات تواجد (بداية / نصف / نهاية البث). يتسجل تلقائياً لما
-// يكتب المشرف كلمة "حاضر" بشات كيك أثناء ما نافذة تلك الفترة مفتوحة من
-// الأدمن (زر "افتح تسجيل" بلوحة الأدمن). المفتاح المنطقي: (moderatorName, sessionDate).
-export const moderatorAttendanceTable = pgTable("moderator_attendance", {
-  id: serial("id").primaryKey(),
-  moderatorName: text("moderator_name").notNull(),      // مطبَّع (lowercase/trim)
-  displayName: text("display_name").notNull().default(""), // الاسم كما ظهر بالشات
-  sessionDate: text("session_date").notNull(),           // "YYYY-MM-DD" بتوقيت الخادم
-  startAt: timestamp("start_at"),
-  halfAt: timestamp("half_at"),
-  endAt: timestamp("end_at"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const insertModeratorAttendanceSchema = createInsertSchema(moderatorAttendanceTable).omit({ id: true, updatedAt: true });
-export type InsertModeratorAttendance = z.infer<typeof insertModeratorAttendanceSchema>;
-export type ModeratorAttendance = typeof moderatorAttendanceTable.$inferSelect;
